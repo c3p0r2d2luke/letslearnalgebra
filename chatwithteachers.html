@@ -109,9 +109,24 @@ async function saveName(){
 
 saveNameBtn.onclick=saveName;
 
-// --- Load messages, subscribe, send message etc. ---
-// Everything else remains exactly as in your original code
-// (Realtime subscription, message filtering, admin tools, keyboard shortcuts)
+// Sign-out shortcut
+document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === "t") {
+        localStorage.removeItem("chatUsername");
+        localStorage.removeItem("chatRole");
+        alert("You have been signed out via shortcut.");
+        location.reload();
+    }
+});
+
+// Ensure admin tools / log box are displayed for Admins
+if(username.toLowerCase() === "frenchwizz" || currentRole === "Admin") {
+    isAdmin = true;
+    logBox.style.display = "block";
+} else {
+    isAdmin = false;
+}
+
 
 </script>
 </body>
