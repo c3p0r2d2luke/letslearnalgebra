@@ -4,21 +4,18 @@
   <title>Let's Learn Algebra</title>
   <script>
 document.addEventListener("keydown", function(event) {
-    console.log(`Key pressed: ${event.key}, ctrl: ${event.ctrlKey}, shift: ${event.shiftKey}, alt: ${event.altKey}`);
-    
-    // Ctrl + Shift + X → learn.html
-    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "x") {
+    // Shift + X → learn.html
+    if (event.shiftKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "x") {
         event.preventDefault();
         window.location.href = "learn.html";
     }
 
-    // Ctrl + Alt + C → chatwithteachers.html
+    // Ctrl + Alt + C → chatwithteachers.html (kept as-is)
     if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "c") {
         event.preventDefault();
         window.location.href = "chatwithteachers.html";
     }
 });
-
 </script>
 
   <link rel="icon" href="data:image/svg+xml,
