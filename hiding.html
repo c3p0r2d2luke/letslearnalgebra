@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Browser-Based Safe JS/File Steganography</title>
+</head>
+<body>
+<h2>Hide Text or JS/File in a Carrier File</h2>
+
+<label>Carrier File:</label>
+<input type="file" id="carrierInput"><br><br>
+
+<label>Secret Text/JS (optional):</label>
+<textarea id="secretText" placeholder="Enter text or JS to hide"></textarea><br><br>
+
+<label>Or select a Secret File:</label>
+<input type="file" id="secretFile"><br><br>
+
+<button id="hideBtn">Hide Secret</button><br><br>
+<a id="downloadLink" style="display:none;">Download Stego File</a>
+<br><br>
+
+<h3>Extract and Run Secret</h3>
+<label>Select Stego File:</label>
+<input type="file" id="stegoInput"><br><br>
+<button id="extractBtn">Extract Secret</button><br><br>
+<p id="extractedData"></p>
+<button id="runJsBtn" style="display:none;">Run Extracted JS</button>
+
+<script>
+const carrierInput = document.getElementById('carrierInput');
+const secretText = document.getElementById('secretText');
+const secretFile = document.getElementById('secretFile');
+const hideBtn = document.getElementById('hideBtn');
+const downloadLink = document.getElementById('downloadLink');
+const stegoInput = document.getElementById('stegoInput');
+const extractBtn = document.getElementById('extractBtn');
+const extractedData = document.getElementById('extractedData');
+const runJsBtn = document.getElementById('runJsBtn');
+
+hideBtn.addEventListener('click', () => {
+  const carrier = carrierInput.files[0];
+  if (!carrier) return alert("Select a carrier file!");
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let marker, secretPromise;
+
+    if(secretText.value){
+      marker = "::TEXT::";
+      secretPromise = Promise.resolve(secretText.value);
+    } else if(secretFile.files[0]){
+      marker = "::FILE::";
+      secretPromise = new Promise(resolve => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(btoa(fr.result));
+        fr.readAsBinaryString(secretFile.files[0]);
+      });
+    } else return alert("Enter text or select a secret file!");
+
+    secretPromise.then(secretData => {
+      const stegoData = reader.result + marker + secretData;
+      const blob = new Blob([stegoData], {type:"application/octet-stream"});
+      downloadLink.href = URL.createObjectURL(blob);
+      downloadLink.download = carrier.name; // keep original extension
+      downloadLink.style.display = "inline";
+      downloadLink.textContent = "Download Stego File";
+    });
+  }
+  reader.readAsBinaryString(carrier);
+});
+
+extractBtn.addEventListener('click', () => {
+  const stegoFile = stegoInput.files[0];
+  if (!stegoFile) return alert("Select a stego file!");
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const content = reader.result;
+    if(content.includes("::TEXT::")){
+      const secret = content.split("::TEXT::")[1];
+      extractedData.textContent = secret;
+      if(secret.trim().startsWith("function") || secret.includes("console.log")){
+        runJsBtn.style.display = "inline";
+      } else {
+        runJsBtn.style.display = "none";
+      }
+    } else if(content.includes("::FILE::")){
+      const base64 = content.split("::FILE::")[1];
+      const blob = new Blob([atob(base64)], {type:"application/octet-stream"});
+      const url = URL.createObjectURL(blob);
+      extractedData.innerHTML = `<a href="${url}" download="extracted_secret">Download Hidden File</a>`;
+      runJsBtn.style.display = "none";
+    } else {
+      extractedData.textContent = "No hidden secret found!";
+      runJsBtn.style.display = "none";
+    }
+  }
+  reader.readAsBinaryString(stegoFile);
+});
+
+runJsBtn.addEventListener('click', () => {
+  try {
+    eval(extractedData.textContent);
+  } catch(e){
+    alert("Error running JS: " + e);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Photo + EXE/APK Toolkit with Progress</title>
+<style>
+body { font-family: sans-serif; text-align: center; margin: 20px; }
+section { border: 1px solid #444; padding: 20px; margin-bottom: 30px; border-radius: 8px; }
+h2 { margin-top: 0; }
+#screen { width: 360px; height: 640px; margin: 10px auto; border:1px solid #333; }
+progress { width: 80%; height: 20px; margin-top: 10px; }
+button { margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Photo + EXE/APK Toolkit</h1>
+
+<!-- Section 1: Combine -->
+<section>
+<h2>1️⃣ Combine Photo + EXE/APK</h2>
+<input type="file" id="imageFile" accept="image/*">
+<input type="file" id="exeFile" accept=".apk,.exe">
+<br>
+<button id="combineBtn">Combine Files</button>
+<br>
+<progress id="combineProgress" value="0" max="100"></progress>
+</section>
+
+<!-- Section 2: Extract -->
+<section>
+<h2>2️⃣ Extract EXE/APK from Photo</h2>
+<input type="file" id="combinedFile">
+<br>
+<button id="extractBtn">Extract Executable</button>
+<br>
+<progress id="extractProgress" value="0" max="100"></progress>
+</section>
+
+<!-- Section 3: Run APK -->
+<section>
+<h2>3️⃣ Run APK in Browser</h2>
+<input type="file" id="apkFile" accept=".apk">
+<div id="screen"></div>
+<br>
+<progress id="apkProgress" value="0" max="100"></progress>
+</section>
+
+<script src="https://android-js.github.io/android.js/dist/android.js"></script>
+<script>
+// --- Combine Section ---
+document.getElementById("combineBtn").addEventListener("click", function() {
+  const image = document.getElementById("imageFile").files[0];
+  const exe = document.getElementById("exeFile").files[0];
+  const progress = document.getElementById("combineProgress");
+  progress.value = 0;
+  if (!image || !exe) return alert("Select both files!");
+
+  Promise.all([image.arrayBuffer(), exe.arrayBuffer()]).then(([imgBuf, exeBuf]) => {
+    progress.value = 50;
+    const combined = new Uint8Array(imgBuf.byteLength + exeBuf.byteLength);
+    combined.set(new Uint8Array(imgBuf), 0);
+    combined.set(new Uint8Array(exeBuf), imgBuf.byteLength);
+
+    const blob = new Blob([combined], {type: "application/octet-stream"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "combined_file.bin";
+    a.click();
+    URL.revokeObjectURL(url);
+    progress.value = 100;
+    alert("Combined file downloaded!");
+  });
+});
+
+// --- Extract Section ---
+document.getElementById("extractBtn").addEventListener("click", function() {
+  const file = document.getElementById("combinedFile").files[0];
+  const progress = document.getElementById("extractProgress");
+  progress.value = 0;
+  if (!file) return alert("Select a file!");
+
+  const reader = new FileReader();
+  reader.onprogress = function(e) {
+    if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100;
+  };
+  reader.onload = function() {
+    const bytes = new Uint8Array(reader.result);
+
+    let start = -1;
+    for (let i = 0; i < bytes.length - 3; i++) {
+      if ((bytes[i] === 0x50 && bytes[i+1] === 0x4B && bytes[i+2] === 0x03 && bytes[i+3] === 0x04) 
+          || (bytes[i] === 0x4D && bytes[i+1] === 0x5A)) {
+        start = i;
+        break;
+      }
+    }
+
+    if (start === -1) return alert("No executable found!");
+
+    const exeBytes = bytes.slice(start);
+    const blob = new Blob([exeBytes], {type:"application/octet-stream"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "extracted_file";
+    a.click();
+    URL.revokeObjectURL(url);
+    progress.value = 100;
+    alert("Executable extracted!");
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// --- Run APK Section ---
+let apkBytes = null;
+document.getElementById("apkFile").addEventListener("change", function(e){
+  const file = e.target.files[0];
+  const progress = document.getElementById("apkProgress");
+  progress.value = 0;
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onprogress = function(ev) {
+    if (ev.lengthComputable) progress.value = (ev.loaded / ev.total) * 100;
+  };
+  reader.onload = function() {
+    apkBytes = new Uint8Array(reader.result);
+    progress.value = 100;
+    alert("APK loaded!");
+    runAPK();
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+async function runAPK() {
+  if (!apkBytes) return;
+  const screen = document.getElementById("screen");
+  const androidEmu = await AndroidEmulator({canvas: screen, width:360, height:640});
+  try {
+    await androidEmu.installApk(apkBytes);
+    androidEmu.launchMainActivity();
+    alert("APK running!");
+  } catch(err) {
+    console.error(err);
+    alert("Failed to run APK in-browser.");
+  }
+}
+</script>
+
+</body>
+</html>

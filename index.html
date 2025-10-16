@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Let's Learn Algebra</title>
+  <script>
+  document.addEventListener("keydown", function(event) {
+    // Check if Ctrl + Shift + X are pressed together
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "x") {
+      event.preventDefault();
+      window.location.href = "learn.html";
+    }
+  });
+
+  document.addEventListener("keydown", function(event) {
+    // Check if Ctrl + Alt + C are pressed together
+    if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      window.location.href = "chatwithteachers.html";
+    }
+  });
+</script>
+
+  <link rel="icon" href="data:image/svg+xml,
+    <svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22>
+      <text y=%22.9em%22 font-size=%2290%22>🎓</text>
+    </svg>">
+  <style>
+/* General page layout */
+body {
+  font-family: "Comic Sans MS", "Trebuchet MS", sans-serif;
+  background: #f9f9ff;
+  margin: 0;
+  padding: 0;
+  color: #333;
+}
+
+/* Header */
+header {
+  background: #4c8bf5;
+  color: white;
+  text-align: center;
+  padding: 1.5rem;
+  border-bottom: 5px solid #2a65d6;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+}
+
+/* Main sections */
+main {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 0 15px;
+}
+
+section {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+  margin-bottom: 25px;
+  padding: 20px;
+}
+
+section h2 {
+  color: #2a65d6;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 8px;
+  margin-bottom: 15px;
+}
+
+/* Example list */
+ul {
+  list-style-type: "📘 ";
+  padding-left: 20px;
+}
+
+ol {
+  list-style-type: decimal;
+  padding-left: 20px;
+}
+
+/* Practice area */
+#practice input {
+  padding: 8px;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  margin-right: 8px;
+  width: 100px;
+}
+
+#practice button {
+  padding: 8px 15px;
+  border: none;
+  border-radius: 8px;
+  background: #4c8bf5;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+#practice button:hover {
+  background: #2a65d6;
+}
+
+#feedback {
+  margin-top: 10px;
+  font-size: 1.2rem;
+}
+
+/* Footer */
+footer {
+  text-align: center;
+  background: #eee;
+  padding: 15px;
+  font-size: 0.9rem;
+  color: #666;
+  border-top: 3px solid #ccc;
+}
+
+   </style>
+</head>
+<body>
+  <header>
+    <h1>Learn Algebra</h1>
+    <p>Welcome! Let’s explore the basics of algebra step by step.</p>
+  </header>
+
+  <main>
+    <section id="intro">
+      <h2>What is Algebra?</h2>
+      <p>Algebra is a way of using letters and symbols to represent numbers and relationships. 
+         For example, if <strong>x + 3 = 7</strong>, then we can figure out that <strong>x = 4</strong>.</p>
+    </section>
+
+    <section id="examples">
+      <h2>Examples</h2>
+      <ul>
+        <li><strong>x + 5 = 9</strong> → x = 4</li>
+        <li><strong>2y = 10</strong> → y = 5</li>
+        <li><strong>z - 7 = 1</strong> → z = 8</li>
+      </ul>
+    </section>
+
+    <section id="steps">
+      <h2>Steps to Solve an Equation</h2>
+      <ol>
+        <li>Look at the equation.</li>
+        <li>Do the opposite operation (e.g., subtract instead of add).</li>
+        <li>Keep the equation balanced on both sides.</li>
+        <li>Check your answer by plugging it back in.</li>
+      </ol>
+    </section>
+
+    <section id="practice">
+      <h2>Try It Yourself</h2>
+      <p>Solve this equation:</p>
+      <p><strong>x + 6 = 10</strong></p>
+
+      <input type="number" id="answer" placeholder="Enter x">
+      <button onclick="checkAnswer()">Check Answer</button>
+      <p id="feedback"></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Happy Learning! Algebra is like solving puzzles.</p>
+  </footer>
+
+  <script>
+    function checkAnswer() {
+      const userAnswer = document.getElementById("answer").value;
+      const feedback = document.getElementById("feedback");
+
+      if (userAnswer === "4") {
+        feedback.textContent = "✅ Correct! x = 4.";
+        feedback.style.color = "green";
+      } else {
+        feedback.textContent = "❌ Try again!";
+        feedback.style.color = "red";
+      }
+    }
+  </script>
+</body>
+</html>
