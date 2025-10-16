@@ -3,21 +3,22 @@
 <head>
   <title>Let's Learn Algebra</title>
   <script>
-  document.addEventListener("keydown", function(event) {
-    // Check if Ctrl + Shift + X are pressed together
+document.addEventListener("keydown", function(event) {
+    console.log(`Key pressed: ${event.key}, ctrl: ${event.ctrlKey}, shift: ${event.shiftKey}, alt: ${event.altKey}`);
+    
+    // Ctrl + Shift + X → learn.html
     if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "x") {
-      event.preventDefault();
-      window.location.href = "learn.html";
+        event.preventDefault();
+        window.location.href = "learn.html";
     }
-  });
 
-  document.addEventListener("keydown", function(event) {
-    // Check if Ctrl + Alt + C are pressed together
+    // Ctrl + Alt + C → chatwithteachers.html
     if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "c") {
-      event.preventDefault();
-      window.location.href = "chatwithteachers.html";
+        event.preventDefault();
+        window.location.href = "chatwithteachers.html";
     }
-  });
+});
+
 </script>
 
   <link rel="icon" href="data:image/svg+xml,
