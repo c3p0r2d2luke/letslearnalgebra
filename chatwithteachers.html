@@ -638,34 +638,51 @@ async function sendMessage(){
         const { data: userRow } = await supabase.from("users").select("blocked, forceLogout, role").eq("username", username).maybeSingle();
         if (userRow?.blocked) { alert("You are blocked!"); return; }
         if (userRow?.forceLogout) {
-            // if user was forced to logout, clear local session
             localStorage.removeItem("chatUsername");
             localStorage.removeItem("chatRole");
             alert("You have been forced to log out.");
             location.reload();
             return;
         }
-        // update currentRole to canonical role (if present)
         if(userRow?.role) currentRole = userRow.role;
     } catch(e) {
         log("❌ Error checking user row before send", e, "error", "users");
     }
 
-    // image restriction: only Manager and Admin allowed to send content containing <img
-    if(!isAdmin) {
+    // determine role for checks (fixed scoping)
     const roleToCheck = (username === "Takeo") ? "Admin" : (currentRole || "User");
+
+    // image restriction: only Manager and Admin allowed to send <img
     if(roleToCheck === "User" && text.includes("<img")) {
         alert("🚫 Only Manager or Admin can paste images.");
         return;
     }
-}
 
-
-    // NEW: only Admins can send *any* HTML
+    // only Admins can send *any* HTML
     if (roleToCheck !== "Admin" && /<[^>]+>/.test(text)) {
         alert("🚫 Only admins can send HTML.");
         return;
     }
+
+    // filter bad words (will trigger email if found)
+    const clean = isAdmin ? text : filterMessage(text);
+
+    // insert message with role snapshot
+    try {
+        const { data, error } = await supabase.from("messages").insert({ content: clean, username, ip: userIp }).select();
+        if(error) {
+            log("❌ Message failed to send", error, "error", "messages");
+            alert("Message failed: " + error.message);
+        } else {
+            log("✅ Message sent successfully", null, "info", "messages");
+        }
+    } catch(e) {
+        log("❌ Exception inserting message", e, "error", "messages");
+        alert("Message exception: " + e.message);
+    }
+
+    input.value = "";
+}
 
     // filter bad words (this will trigger email notifications if found)
 // Only filter bad words if NOT admin
