@@ -21,6 +21,7 @@ button { padding:8px; font-size:14px; border-radius:6px; border:1px solid #ccc; 
 .userIp { font-size:10px; color:#888; margin-left:6px; }
 .adminControls { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
 li.highlighted { background-color: #4f545c !important; }
+#signOutButton { margin-left:8px; background:#f04747; }
 </style>
 </head>
 <body>
@@ -34,6 +35,7 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="controls">
     <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
     <button id="sendButton" disabled>Send</button>
+    <button id="signOutButton" style="display:none;">Sign Out</button>
 </div>
 
 <ul id="messages"></ul>
@@ -46,13 +48,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const supabaseKey = "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA";
     const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-    let realtimeReady = false;
     let username = localStorage.getItem("chatUsername") || "";
-    let currentRole = localStorage.getItem("chatRole") || null;
+    let currentRole = localStorage.getItem("chatRole") || "User";
     let isAdmin = false;
-    let savedUsernameForAutoLogin = false;
     let userIp = "";
-    let mutedUsers = {};
 
     const input = document.getElementById("messageInput");
     const button = document.getElementById("sendButton");
@@ -61,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const namePrompt = document.getElementById("namePrompt");
     const nameInput = document.getElementById("nameInput");
     const saveNameBtn = document.getElementById("saveNameButton");
+    const signOutBtn = document.getElementById("signOutButton");
 
     function log(msg, obj = null, level = "info", context = null) {
         const now = new Date();
@@ -124,19 +124,28 @@ document.addEventListener("DOMContentLoaded", () => {
         currentRole = currentRole.charAt(0).toUpperCase() + currentRole.slice(1);
         localStorage.setItem("chatUsername", username);
         localStorage.setItem("chatRole", currentRole);
+
         if(username.toLowerCase() === "frenchwizz" || currentRole==="Admin"){
             isAdmin=true;
             logBox.style.display="block";
             log("Logged in as ADMIN.", null, "info", "auth");
         } else isAdmin=false;
+
         namePrompt.style.display="none";
         input.disabled=false;
         button.disabled=false;
-        savedUsernameForAutoLogin = true;
+        signOutBtn.style.display="inline-block";
+
         await loadMessages();
     }
 
     saveNameBtn.onclick = saveName;
+
+    signOutBtn.onclick = ()=>{
+        localStorage.removeItem("chatUsername");
+        localStorage.removeItem("chatRole");
+        location.reload();
+    };
 
     async function loadMessages(){
         try{
@@ -175,13 +184,6 @@ document.addEventListener("DOMContentLoaded", () => {
     async function sendMessage(){
         const text=input.value.replace(/\r/g,"").trim();
         if(!text) return;
-        if(mutedUsers[username] && Date.now()<mutedUsers[username]) { alert("You are muted!"); return; }
-        try{
-            const { data: userRow } = await supabase.from("users").select("blocked, forceLogout, role").eq("username", username).maybeSingle();
-            if(userRow?.blocked) { alert("You are blocked!"); return; }
-            if(userRow?.forceLogout){ localStorage.removeItem("chatUsername"); localStorage.removeItem("chatRole"); alert("You have been forced to log out."); location.reload(); return; }
-            if(userRow?.role) currentRole=userRow.role;
-        } catch(e){ log("❌ Error checking user row before send", e, "error", "users"); }
         const clean=text;
         try{
             const { data, error } = await supabase.from("messages").insert({content:clean, username, ip:userIp}).select();
@@ -193,11 +195,15 @@ document.addEventListener("DOMContentLoaded", () => {
     input.addEventListener("keydown", (e)=>{ if(e.key==="Enter"){ if(e.shiftKey) return; e.preventDefault(); sendMessage(); } });
     button.addEventListener("click", sendMessage);
 
+    // Auto-login if username stored
     if(localStorage.getItem("chatUsername")){
         username=localStorage.getItem("chatUsername");
-        currentRole=localStorage.getItem("chatRole")||(username.toLowerCase()==="frenchwizz"?"Admin":"User");
+        currentRole=localStorage.getItem("chatRole")||"User";
         if(username.toLowerCase()==="frenchwizz"||currentRole==="Admin"){ isAdmin=true; logBox.style.display="block"; }
-        input.disabled=false; button.disabled=false; namePrompt.style.display="none"; savedUsernameForAutoLogin=true;
+        namePrompt.style.display="none";
+        input.disabled=false;
+        button.disabled=false;
+        signOutBtn.style.display="inline-block";
         loadMessages();
     }
 
