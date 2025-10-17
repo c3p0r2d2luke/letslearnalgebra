@@ -304,7 +304,7 @@ const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username ||
 
     // For non-admins we escape content to avoid XSS; admins see raw content
 // Everyone sees rendered HTML
-const safeContent = msg.content;
+const safeContent = (msgRole === "Admin") ? msg.content : escapeHtml(msg.content);
 
     li.innerHTML = `
         <div class="username">${displayName}</div>
