@@ -122,19 +122,20 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
             log("❌ Failed to call sendEmail edge function", err, "error", "badwords");
         }
     }
-    function filterMessage(content){
-        if(!content) return "";
-        let clean = content;
-        badWords.forEach(word => {
-            const esc = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(esc, "gi");
-            if(regex.test(clean)){
-                clean = clean.replace(regex, (m)=>"*".repeat(m.length));
-                sendBadWordAlert(username || "Unknown", word, content).catch(e => log("Error sending badword alert", e, "error", "badwords"));
-            }
-        });
-        return clean;
+    async function filterMessage(content){
+    if(!content) return "";
+    let clean = content;
+    for (const word of badWords){
+        const esc = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(esc, "gi");
+        if(regex.test(clean)){
+            clean = clean.replace(regex, (m)=>"*".repeat(m.length));
+            await sendBadWordAlert(username || "Unknown", word, content);
+        }
     }
+    return clean;
+}
+
     
     /* ----------------------------------------------------------------------
        Fetch or create user record in users table
@@ -354,31 +355,31 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
        - tries with role column, retries without role if schema lacks it
        ---------------------------------------------------------------------- */
 
-       async function sendMessage(){
-    const text = input.value.replace(/\r/g,"").trim();
-    if(!text) return;
+       async function sendMessage() {
+    let text = input.value.replace(/\r/g,"").trim();
+    if (!text) return;
 
-    // Filter message before sending
-    const clean = isAdmin ? text : filterMessage(text);
+    // Always filter messages for everyone
+    const clean = await filterMessage(text);
 
-    const roleToSave = isAdmin ? "Admin" : (currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User");
+    const roleToSave = currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User";
 
     try {
-        const { data, error } = await supabase.from("messages").insert({
+        let res = await supabase.from("messages").insert({
             content: clean,
             username,
             ip: userIp,
             role: roleToSave
         }).select();
 
-        if(error) {
-            log("❌ Failed to send message", error, "error", "messages");
-        } else if(Array.isArray(data) && data[0]) {
-            addMessage(data[0]);
+        if(res.error){
+            log("❌ Message failed to send", res.error, "error", "messages");
+        } else if(Array.isArray(res.data) && res.data[0]){
+            addMessage(res.data[0]);
             log("✅ Message sent successfully", null, "info", "messages");
         }
     } catch(e){
-        log("❌ Exception sending message", e, "error", "messages");
+        log("❌ Exception inserting message", e, "error", "messages");
     }
 
     input.value = "";
