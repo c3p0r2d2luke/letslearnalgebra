@@ -116,7 +116,7 @@ const messagesContainer = document.getElementById("messages");
 
 let currentUsername = localStorage.getItem("username") || "";
 
-// ✅ Load saved username
+// ✅ Load saved name
 if (currentUsername) {
   nameInput.value = currentUsername;
   nameInput.disabled = true;
@@ -124,7 +124,7 @@ if (currentUsername) {
   saveNameBtn.disabled = true;
 }
 
-// ✅ Save username
+// ✅ Save name (local + database)
 saveNameBtn.addEventListener("click", async () => {
   const newName = nameInput.value.trim();
   if (!newName) return alert("Please enter a name.");
@@ -136,11 +136,15 @@ saveNameBtn.addEventListener("click", async () => {
   saveNameBtn.textContent = "Saved ✅";
   saveNameBtn.disabled = true;
 
-  // Upsert user
+  // Save to DB
   const { error } = await supabase
     .from("users")
-    .upsert({ username: newName })
-    .select();
+    .upsert({
+      username: newName,
+      role: "User",
+      forcelogout: false,
+      blocked: false
+    });
 
   if (error) console.error("Error saving user:", error);
 });
@@ -153,14 +157,14 @@ sendBtn.addEventListener("click", async () => {
 
   const { error } = await supabase.from("messages").insert({
     username: currentUsername,
-    content: content,
+    content: content
   });
 
   if (error) console.error("Error sending message:", error);
   else messageInput.value = "";
 });
 
-// ✅ Display messages
+// ✅ Add message to chat
 function addMessage(msg) {
   const div = document.createElement("div");
   div.classList.add("message");
@@ -169,7 +173,7 @@ function addMessage(msg) {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// ✅ Load existing messages
+// ✅ Load messages
 async function loadMessages() {
   const { data, error } = await supabase
     .from("messages")
@@ -177,7 +181,6 @@ async function loadMessages() {
     .order("inserted_at", { ascending: true });
 
   if (error) return console.error("Error loading messages:", error);
-
   messagesContainer.innerHTML = "";
   data.forEach(addMessage);
 }
@@ -199,6 +202,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 </script>
+
 
 
 </body>
