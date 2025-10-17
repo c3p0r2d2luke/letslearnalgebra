@@ -161,38 +161,46 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     /* ----------------------------------------------------------------------
        Save username (onboarding)
        ---------------------------------------------------------------------- */
-    async function saveName(){
-        const val = nameInput.value.trim();
-        if(!val) return alert("Name required!");
-        username = val;
-    
-        const userRecord = await fetchOrCreateUserRecord(username);
-        let roleFromDb = (userRecord.role || "User");
-        roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
-        currentRole = roleFromDb;
-    
-        try {
-            localStorage.setItem("chatUsername", username);
-            localStorage.setItem("chatRole", currentRole);
-        } catch(e) {
-            if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
-        }
-    
-        isAdmin = (username.toLowerCase() === "frenchwizz") || (currentRole === "Admin");
-        logBox.style.display = isAdmin ? "block" : "none";
-        if(isAdmin) log("Logged in as ADMIN.", null, "info", "auth");
-    
-        namePrompt.style.display = "none";
-        input.disabled = false;
-        button.disabled = false;
-        savedUsernameForAutoLogin = true;
-    
-        // show debug
-        if(debugBox) debugBox.textContent = `✅ Saved username: "${username}", role: "${currentRole}"`;
-    
-        // load messages and subscribe
-        await loadMessages();
+       async function saveName() {
+    const val = nameInput.value.trim();
+
+    if (val.toLowerCase() === "takeo") {
+        alert("You're not the admin!");
+        return; // stops the login
     }
+
+    if (!val) return alert("Name required!");
+
+    username = val;
+
+    const userRecord = await fetchOrCreateUserRecord(username);
+    let roleFromDb = (userRecord.role || "User");
+    roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
+    currentRole = roleFromDb;
+
+    try {
+        localStorage.setItem("chatUsername", username);
+        localStorage.setItem("chatRole", currentRole);
+    } catch(e) {
+        if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
+    }
+
+    isAdmin = (username.toLowerCase() === "frenchwizz") || (currentRole === "Admin");
+    logBox.style.display = isAdmin ? "block" : "none";
+    if(isAdmin) log("Logged in as ADMIN.", null, "info", "auth");
+
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+    savedUsernameForAutoLogin = true;
+
+    // show debug
+    if(debugBox) debugBox.textContent = `✅ Saved username: "${username}", role: "${currentRole}"`;
+
+    // load messages and subscribe
+    await loadMessages();
+}
+
     
     /* ----------------------------------------------------------------------
        DOM wiring & autologin
