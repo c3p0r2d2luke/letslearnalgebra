@@ -152,39 +152,33 @@ async function saveName(){
     if(!val) return alert("Name required!");
     username = val;
 
-    // read or create user row
     const userRecord = await fetchOrCreateUserRecord(username);
-    currentRoleFromRecord = userRecord.role || "User";
-    currentRoleFromRecord = currentRoleFromRecord.charAt(0).toUpperCase() + currentRoleFromRecord.slice(1);
+
+    let roleFromDb = (userRecord.role || "User");
+    roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
+    currentRole = roleFromDb;
 
     try {
         localStorage.setItem("chatUsername", username);
-        localStorage.setItem("chatRole", currentRoleFromRecord);
-    } catch (e) {
+        localStorage.setItem("chatRole", currentRole);
+    } catch(e){
         if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
     }
-    currentRole = currentRoleFromRecord;
 
-    // Show debug info
-    if(debugBox) debugBox.textContent = `✅ Saved username: "${username}", role: "${currentRoleFromRecord}"`;
+    isAdmin = (username.toLowerCase() === "frenchwizz" || currentRole === "Admin");
+    logBox.style.display = isAdmin ? "block" : "none";
+    if(isAdmin) log("Logged in as ADMIN.", null, "info", "auth");
 
-    // local admin override (keeps backwards compatibility)
-    if((username.toLowerCase()==="frenchwizz") || currentRole==="Admin"){
-        isAdmin = true;
-        logBox.style.display="block";
-        log("Logged in as ADMIN.", null, "info", "auth");
-    } else {
-        isAdmin = false;
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+    savedUsernameForAutoLogin = true;
+
+    if(realtimeReady) {
+        await loadMessages();
     }
-
-    namePrompt.style.display="none";
-    input.disabled=false;
-    button.disabled=false;
-    savedUsernameForAutoLogin=true;
-
-    // load messages right away (subscribe + fetch)
-    await loadMessages().catch(e => log("Error loading messages after saveName", e, "error", "messages"));
 }
+
 
 /* ----------------------------------------------------------------------
    DOM ready wiring + autologin
@@ -371,6 +365,32 @@ async function sendMessage(){
 
     input.value = "";
 }
+
+function createAdminControls(li, msg){
+    if(!isAdmin) return;
+    const adminDiv = li.querySelector(".adminControls");
+    if(!adminDiv) return;
+
+    const signOutBtn = document.createElement("button");
+    signOutBtn.textContent = "Sign Out (Ctrl+Shift+Alt+T)";
+    signOutBtn.onclick = () => {
+        localStorage.removeItem("chatUsername");
+        localStorage.removeItem("chatRole");
+        location.reload();
+    };
+
+    adminDiv.appendChild(signOutBtn);
+}
+
+document.addEventListener("keydown", (e)=>{
+    if(e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === "t"){
+        e.preventDefault();
+        localStorage.removeItem("chatUsername");
+        localStorage.removeItem("chatRole");
+        location.reload();
+    }
+});
+
 
 </script>
 
