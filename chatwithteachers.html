@@ -366,11 +366,11 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
 
     try {
         let res = await supabase.from("messages").insert({
-            content: clean,
-            username,
-            ip: userIp,
-            role: roleToSave
-        }).select();
+    content: clean,
+    username,
+    ip: userIp,
+    role: roleToSave
+}).select();
 
         if(res.error){
             log("❌ Message failed to send", res.error, "error", "messages");
