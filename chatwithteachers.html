@@ -74,6 +74,10 @@ let username = localStorage.getItem("chatUsername") || "";
 let isAdmin = false;
 let currentRole = localStorage.getItem("chatRole") || null;
 let savedUsernameForAutoLogin = false;
+// add to your "Local state" block
+let realtimeReady = false;
+let messagesChannel = null;
+
 
 /* ----------------------------------------------------------------------
    SUPER VERBOSE ADMIN LOG BOX
@@ -215,16 +219,27 @@ verifyRealtimeConnection();
 async function loadMessages() {
     if (!username) return;
     if (!messagesChannel) {
-        messagesChannel = supabase.channel("public:messages");
-        messagesChannel
-            .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-            .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
-                const node = document.getElementById("msg-"+payload.old.id);
-                if(node) node.remove();
-            })
-            .subscribe((status) => console.log("Subscription status:", status));
-    }
+    messagesChannel = supabase.channel("public:messages");
+    messagesChannel
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+            const node = document.getElementById("msg-"+payload.old.id);
+            if(node) node.remove();
+        })
+        .subscribe((status) => {
+            // supabase-js might give "SUBSCRIBED", "CHANNEL_ERROR", "CLOSED", etc.
+            log(`Realtime subscription status: ${status}`, null, "debug", "messages");
+            if (status === "SUBSCRIBED") {
+                log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
+            } else if (status === "CHANNEL_ERROR") {
+                log("❌ Realtime subscription error (messages channel)", null, "error", "messages");
+            } else if (status === "CLOSED") {
+                log("⚠️ Realtime subscription closed", null, "warn", "messages");
+            }
+        });
+}
+
     // optionally fetch existing messages once
     const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
     if (error) return log("❌ Failed to load messages", error, "error", "messages");
@@ -234,12 +249,38 @@ async function loadMessages() {
 
 function addMessage(msg){
     if(!msg || !msg.id) return;
+    // remove existing if re-rendering updated message
+    const existing = document.getElementById("msg-"+msg.id);
+    if(existing) existing.remove();
+
     const li = document.createElement("li");
     li.id = "msg-" + msg.id;
-    li.innerHTML = `<div class="username">${msg.username}</div><div class="content">${msg.content}</div>`;
+
+    // canonical role from DB (fallback to User)
+    const msgRole = msg.role || "User";
+
+    // add CSS role classes
+    if(msgRole === "Admin") li.classList.add("admin");
+    if(msgRole === "Manager") li.classList.add("manager");
+
+    // display name mapping for UI only
+    const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username || "Unknown");
+
+    // admins see raw HTML, others get escaped content (prevents XSS)
+    const safeContent = (msgRole === "Admin") ? (msg.content || "") : escapeHtml(msg.content || "");
+
+    li.innerHTML = `
+        <div class="username">${escapeHtml(displayName)}</div>
+        <div class="content">${safeContent}</div>
+        <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+        <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+        ${isAdmin ? `<div class="adminControls"></div>` : ""}
+    `;
+
     messagesList.appendChild(li);
     messagesList.scrollTop = messagesList.scrollHeight;
 }
+
 
 
 </script>
