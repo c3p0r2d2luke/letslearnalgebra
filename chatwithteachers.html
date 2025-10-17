@@ -52,6 +52,12 @@ const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
+function enableUIAfterHandshake() {
+  input.disabled = false;
+  button.disabled = false;
+  namePrompt.style.display = "none";
+}
+
 /* ----------------------------------------------------------------------
    Realtime verification (ensure socket is actually connected)
    ---------------------------------------------------------------------- */
@@ -71,7 +77,7 @@ async function verifyRealtimeConnection() {
                 realtimeReady = true;
                 log("✅ Realtime connection established", null, "info", "realtime");
                 // enable UI if user already logged in
-                if (savedUsernameForAutoLogin) enableUIAfterHandshake();
+            enableUIAfterHandshake();
                 // tidy up test channel
                 testChannel.unsubscribe().catch(()=>{});
             })
@@ -673,7 +679,10 @@ const clean = isAdmin ? text : filterMessage(text);
 
     // insert message with role snapshot
     try {
-        const { data, error } = await supabase.from("messages").insert({ content: clean, username, ip: userIp }).select();
+        const { data, error } = await supabase
+  .from("messages")
+  .insert({ content: clean, username, ip: userIp, role: currentRole || "User" })
+  .select();
         if(error) {
             log("❌ Message failed to send", null, "error", "messages");
         } else {
@@ -697,6 +706,11 @@ button.addEventListener("click", sendMessage);
 const savedUsername = localStorage.getItem("chatUsername");
 if(savedUsername){
     username = savedUsername;
+    namePrompt.style.display = "none";
+input.disabled = false;
+button.disabled = false;
+loadMessages();
+
     // try to read canonical role from users table; fallback to stored role
     (async () => {
         try {
