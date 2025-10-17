@@ -49,7 +49,7 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
    Supabase client
    ---------------------------------------------------------------------- */
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 /* ----------------------------------------------------------------------
@@ -164,7 +164,8 @@ function log(msg, obj = null, level = "info", context = null) {
         entry.appendChild(pre);
     }
 
-    logBox.appendChild(entry);
+const MAX_LOGS = 100;
+if(logBox.children.length > MAX_LOGS) logBox.removeChild(logBox.firstChild);
     logBox.scrollTop = logBox.scrollHeight;
 }
 
@@ -182,6 +183,7 @@ fetch("https://api.ipify.org?format=json")
     .then(r=>r.json())
     .then(d=>{ userIp = d.ip; log("✅ IP: "+userIp, null, "info", "network"); })
     .catch(()=>{ userIp = "unknown"; log("❌ Failed to get IP", null, "warn", "network"); });
+
 
 /* ----------------------------------------------------------------------
    Role + Users helper utilities
@@ -265,7 +267,11 @@ function filterMessage(content) {
     if (!content) return "";
     let clean = content;
     badWords.forEach(word => {
-        const regex = new RegExp(word, "gi");
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const regex = new RegExp(escapeRegex(word), "gi");
         if (regex.test(clean)) {
             // replace each matched token with asterisks of same length
             clean = clean.replace(regex, (m) => "*".repeat(m.length));
@@ -289,13 +295,12 @@ function addMessage(msg){
     li.id = "msg-"+msg.id;
 
     // set CSS role classes if present
-    const msgRole = (msg.username === "Takeo") ? "Admin" : (msg.role || "User");
-if(msgRole === "Admin") li.classList.add("admin");
-if(msgRole === "Manager") li.classList.add("manager");
+// 1. Role comes from the DB (canonical)
+const msgRole = msg.role || "User"; 
 
+// 2. Display name mapping for UI only
+const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username || "Unknown");
 
-    // choose display name (backwards-compat: if original username is Frenchwizz show Takeo)
-    const displayName = msg.username==="Frenchwizz" ? "Takeo" : (msg.username||"Unknown");
 
     // For non-admins we escape content to avoid XSS; admins see raw content
 // Everyone sees rendered HTML
@@ -430,11 +435,11 @@ const safeContent = msg.content;
             if(!keyword) return;
             try {
                 const { data } = await supabase.from("messages").select("*");
-                for(const m of data){
-                    if(String(m.content).includes(keyword)) {
-                        await supabase.from("messages").delete().eq("id", m.id);
-                    }
-                }
+                const idsToDelete = data.filter(m => m.content.includes(keyword)).map(m => m.id);
+if(idsToDelete.length) {
+    await supabase.from("messages").delete().in("id", idsToDelete);
+}
+
                 Array.from(messagesList.querySelectorAll("li")).forEach(li=>{
                     if(li.querySelector(".content").textContent.includes(keyword)) li.remove();
                 });
@@ -528,8 +533,20 @@ const safeContent = msg.content;
         controls.appendChild(demoteBtn);
 
         // Toggle controls visibility
-        li.addEventListener("click",(e)=>{ e.stopPropagation(); controls.style.display = controls.style.display==="none" ? "flex" : "none"; });
-        document.addEventListener("click",()=>{ controls.style.display="none"; });
+        const controls = document.createElement("div");
+controls.className = "adminControls";
+controls.style.display = "none";
+li.appendChild(controls);
+
+// toggle per message
+li.addEventListener("click", (e)=> {
+    e.stopPropagation();
+    controls.style.display = controls.style.display==="none" ? "flex" : "none";
+});
+
+// hide when clicking outside
+document.addEventListener("click", ()=>{ controls.style.display="none"; });
+
     }
 
     messagesList.appendChild(li);
@@ -580,47 +597,23 @@ saveNameBtn.onclick = saveName;
    loadMessages + subscribe to realtime
    - uses subscribe(status) callback so we know when the channel is confirmed
    ---------------------------------------------------------------------- */
-async function loadMessages(){
-    try {
-        const {data, error} = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
-        if(error){ log("❌ Load error: "+error.message, error, "error", "messages"); return; }
-        log(`✅ Loaded ${data.length} messages.`, null, "info", "messages");
-        // clear existing UI then append
-        messagesList.innerHTML = "";
-        data.forEach(msg => addMessage(msg));
-    } catch(e) {
-        log("❌ Exception loading messages", e, "error", "messages");
-    }
+let messagesChannel = null;
 
-    // subscribe to changes (re-use channel name 'public:messages' if you prefer)
-    // Use status callback so we see SUBSCRIBED vs errors
-    supabase.channel("public:messages")
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
-log(`🔹 Realtime: new message received`, null, "info", "messages");
-            // only append the new message once; avoid full reload to keep scroll state
-            addMessage(payload.new);
-        })
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => {
-log(`🔁 Realtime: message updated`, null, "info", "messages");
-            // re-render updated message: small strategy — remove and re-add
-            addMessage(payload.new);
-        })
-        .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
-log(`🗑 Realtime: message deleted`, null, "info", "messages");
-            const node = document.getElementById("msg-"+payload.old.id);
-            if(node) node.remove();
-        })
-        .subscribe((status) => {
-            log(`Realtime subscription status: ${status}`, null, "debug", "messages");
-            if (status === "SUBSCRIBED") {
-                log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
-            } else if (status === "CHANNEL_ERROR") {
-                log("❌ Realtime subscription error (messages channel)", null, "error", "messages");
-            } else if (status === "CLOSED") {
-                log("⚠️ Realtime subscription closed", null, "warn", "messages");
-            }
-        });
+async function loadMessages(){
+    ...
+    if (!messagesChannel) {
+        messagesChannel = supabase.channel("public:messages");
+        messagesChannel
+            .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+                const node = document.getElementById("msg-"+payload.old.id);
+                if(node) node.remove();
+            })
+            .subscribe((status) => console.log("Subscription status:", status));
+    }
 }
+
 
 /* ----------------------------------------------------------------------
    Send message
@@ -653,19 +646,19 @@ async function sendMessage(){
 
     // image restriction: only Manager and Admin allowed to send content containing <img
     if(!isAdmin) {
-    const roleToCheck = (username === "Takeo") ? "Admin" : (currentRole || "User");
-    if(roleToCheck === "User" && text.includes("<img")) {
-        alert("🚫 Only Manager or Admin can paste images.");
-        return;
-    }
+    const userRole = isAdmin ? "Admin" : (currentRole || "User");
+
+if(userRole !== "Admin" && /<[^>]+>/.test(text)) {
+    alert("🚫 Only admins can send HTML.");
+    return;
 }
 
+// image restriction
+if(userRole === "User" && text.includes("<img")) {
+    alert("🚫 Only Manager or Admin can paste images.");
+    return;
+}
 
-    // NEW: only Admins can send *any* HTML
-    if (roleToCheck !== "Admin" && /<[^>]+>/.test(text)) {
-        alert("🚫 Only admins can send HTML.");
-        return;
-    }
 
     // filter bad words (this will trigger email notifications if found)
 // Only filter bad words if NOT admin
