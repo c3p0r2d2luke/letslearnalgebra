@@ -109,35 +109,6 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     }
     
     /* ----------------------------------------------------------------------
-       Optional bad-word filter + alert (keeps the original behavior)
-       ---------------------------------------------------------------------- */
-    const badWords = ["badword1","badword2","badword3"];
-    async function sendBadWordAlert(user, word, original){
-        try {
-            const payload = { to: "frenchwizz@proton.me", subject: `🚨 Bad word detected: ${word}`, text: `${user} used "${word}" in message:\n\n${original}` };
-            const res = await supabase.functions.invoke("sendEmail", { body: payload });
-            if(res.error) log("❌ sendEmail function returned error", res.error, "error", "badwords");
-            else log("✉️ Bad-word alert emailed", { user, word }, "info", "badwords");
-        } catch (err) {
-            log("❌ Failed to call sendEmail edge function", err, "error", "badwords");
-        }
-    }
-    async function filterMessage(content){
-    if(!content) return "";
-    let clean = content;
-    for (const word of badWords){
-        const esc = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(esc, "gi");
-        if(regex.test(clean)){
-            clean = clean.replace(regex, (m)=>"*".repeat(m.length));
-            await sendBadWordAlert(username || "Unknown", word, content);
-        }
-    }
-    return clean;
-}
-
-    
-    /* ----------------------------------------------------------------------
        Fetch or create user record in users table
        ---------------------------------------------------------------------- */
     async function fetchOrCreateUserRecord(name){
@@ -360,7 +331,7 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     if (!text) return;
 
     // Always filter messages for everyone
-    const clean = await filterMessage(text);
+    const clean = text
 
     const roleToSave = currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User";
 
