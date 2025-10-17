@@ -74,10 +74,9 @@ let username = localStorage.getItem("chatUsername") || "";
 let isAdmin = false;
 let currentRole = localStorage.getItem("chatRole") || null;
 let savedUsernameForAutoLogin = false;
-// add to your "Local state" block
-let realtimeReady = false;
-let messagesChannel = null;
-
+let realtimeReady = false;      // required for handshake logic
+let messagesChannel = null;     // keep single messages channel
+let userIp = "unknown";         // optional: left as "unknown" to keep minimal changes
 
 /* ----------------------------------------------------------------------
    SUPER VERBOSE ADMIN LOG BOX
@@ -157,8 +156,13 @@ async function saveName(){
     const userRecord = await fetchOrCreateUserRecord(username);
     currentRoleFromRecord = userRecord.role || "User";
     currentRoleFromRecord = currentRoleFromRecord.charAt(0).toUpperCase() + currentRoleFromRecord.slice(1);
-    localStorage.setItem("chatUsername", username);
-    localStorage.setItem("chatRole", currentRoleFromRecord);
+    try {
+        localStorage.setItem("chatUsername", username);
+        localStorage.setItem("chatRole", currentRoleFromRecord);
+    } catch(e) {
+        // localStorage might be unavailable; show error in debug box
+        if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
+    }
     currentRole = currentRoleFromRecord;
 
     // Show debug info
@@ -175,7 +179,12 @@ async function saveName(){
     button.disabled=false;
     savedUsernameForAutoLogin=true;
 
-    await loadMessages();
+    // ensure subscription begins as soon as possible
+    if(realtimeReady) {
+        await loadMessages();
+    } else {
+        // loadMessages will be triggered by enableUIAfterHandshake once handshake completes
+    }
 }
 
 /* ----------------------------------------------------------------------
@@ -183,10 +192,30 @@ async function saveName(){
    ---------------------------------------------------------------------- */
 document.addEventListener("DOMContentLoaded", ()=>{
     if(saveNameBtn) saveNameBtn.onclick = saveName;
+    // auto-login if already saved
+    const savedUsername = localStorage.getItem("chatUsername");
+    if(savedUsername){
+        username = savedUsername;
+        currentRole = localStorage.getItem("chatRole") || (username.toLowerCase()==="frenchwizz" ? "Admin" : "User");
+        if(username.toLowerCase()==="frenchwizz" || currentRole === "Admin"){
+            isAdmin = true;
+            logBox.style.display="block";
+        }
+        namePrompt.style.display = "none";
+        input.disabled = false;
+        button.disabled = false;
+        savedUsernameForAutoLogin = true;
+        // if realtime ready, load; otherwise verifyRealtimeConnection will trigger enableUIAfterHandshake
+        if(realtimeReady) loadMessages().catch(e => log("Error loading messages on autologin", e, "error", "messages"));
+    }
+
+    // wire send button + keyboard after DOM loaded
+    if(button) button.addEventListener("click", sendMessage);
+    if(input) input.addEventListener("keydown", (e) => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
 });
 
 /* ----------------------------------------------------------------------
-    Enable Realtime
+    Enable Realtime helper
    ---------------------------------------------------------------------- */
 function enableUIAfterHandshake() {
     input.disabled = false;
@@ -203,50 +232,77 @@ function enableUIAfterHandshake() {
     }
 }
 
+/* ----------------------------------------------------------------------
+   Realtime handshake (test) — sets realtimeReady when socket is available
+   ---------------------------------------------------------------------- */
 async function verifyRealtimeConnection() {
-    const testChannel = supabase.channel("debug-connection-" + Math.random().toString(36).slice(2,8));
-    testChannel
-        .on("system", { event: "connected" }, () => {
-            realtimeReady = true;
-            log("✅ Realtime connection established", null, "info", "realtime");
-            if(savedUsernameForAutoLogin) enableUIAfterHandshake();
-            testChannel.unsubscribe().catch(()=>{});
-        })
-        .subscribe();
+    try {
+        const testChannel = supabase.channel("debug-connection-" + Math.random().toString(36).slice(2,8));
+        testChannel
+            .on("system", { event: "connected" }, () => {
+                realtimeReady = true;
+                log("✅ Realtime connection established", null, "info", "realtime");
+                if(savedUsernameForAutoLogin) enableUIAfterHandshake();
+                testChannel.unsubscribe().catch(()=>{});
+            })
+            .on("system", { event: "heartbeat" }, () => {
+                // optional heartbeat logging
+            })
+            .subscribe();
+    } catch (err) {
+        log("Realtime connection test failed", err, "error", "realtime");
+    }
 }
+// start handshake test immediately
 verifyRealtimeConnection();
 
+/* ----------------------------------------------------------------------
+   loadMessages + subscribe to realtime
+   ---------------------------------------------------------------------- */
 async function loadMessages() {
     if (!username) return;
+
+    // create single subscription channel if missing
     if (!messagesChannel) {
-    messagesChannel = supabase.channel("public:messages");
-    messagesChannel
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-        .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
-            const node = document.getElementById("msg-"+payload.old.id);
-            if(node) node.remove();
-        })
-        .subscribe((status) => {
-            // supabase-js might give "SUBSCRIBED", "CHANNEL_ERROR", "CLOSED", etc.
-            log(`Realtime subscription status: ${status}`, null, "debug", "messages");
-            if (status === "SUBSCRIBED") {
-                log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
-            } else if (status === "CHANNEL_ERROR") {
-                log("❌ Realtime subscription error (messages channel)", null, "error", "messages");
-            } else if (status === "CLOSED") {
-                log("⚠️ Realtime subscription closed", null, "warn", "messages");
-            }
-        });
+        messagesChannel = supabase.channel("public:messages");
+        messagesChannel
+            .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+                const node = document.getElementById("msg-"+payload.old.id);
+                if(node) node.remove();
+            })
+            .subscribe((status) => {
+                // supabase-js might give "SUBSCRIBED", "CHANNEL_ERROR", "CLOSED", etc.
+                log(`Realtime subscription status: ${status}`, null, "debug", "messages");
+                if (status === "SUBSCRIBED") {
+                    log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
+                } else if (status === "CHANNEL_ERROR") {
+                    log("❌ Realtime subscription error (messages channel)", null, "error", "messages");
+                } else if (status === "CLOSED") {
+                    log("⚠️ Realtime subscription closed", null, "warn", "messages");
+                }
+            });
+    }
+
+    // fetch existing messages once (safe try/catch)
+    try {
+        const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
+        if (error) {
+            log("❌ Failed to load messages", error, "error", "messages");
+        } else {
+            data.forEach(msg => addMessage(msg));
+        }
+    } catch (e) {
+        log("❌ Exception loading messages", e, "error", "messages");
+    }
 }
 
-    // optionally fetch existing messages once
-    const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
-    if (error) return log("❌ Failed to load messages", error, "error", "messages");
-    data.forEach(msg => addMessage(msg));
-}
-
-
+/* ----------------------------------------------------------------------
+   Render a message to DOM
+   - Admins (msg.role === "Admin") will have their content rendered as HTML.
+   - Display name maps "Frenchwizz" -> "Takeo" (UI only).
+   ---------------------------------------------------------------------- */
 function addMessage(msg){
     if(!msg || !msg.id) return;
     // remove existing if re-rendering updated message
@@ -267,22 +323,70 @@ function addMessage(msg){
     const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username || "Unknown");
 
     // admins see raw HTML, others get escaped content (prevents XSS)
-    const safeContent = (msgRole === "Admin") ? (msg.content || "") : escapeHtml(msg.content || "");
-
-    li.innerHTML = `
-        <div class="username">${escapeHtml(displayName)}</div>
-        <div class="content">${safeContent}</div>
-        <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
-        <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
-        ${isAdmin ? `<div class="adminControls"></div>` : ""}
-    `;
+    // IMPORTANT: we render raw HTML only when the message itself has role 'Admin'
+    if(msgRole === "Admin") {
+        li.innerHTML = `
+            <div class="username">${escapeHtml(displayName)}</div>
+            <div class="content">${msg.content || ""}</div>
+            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+            ${isAdmin ? `<div class="adminControls"></div>` : ""}
+        `;
+    } else {
+        li.innerHTML = `
+            <div class="username">${escapeHtml(displayName)}</div>
+            <div class="content">${escapeHtml(msg.content || "")}</div>
+            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+            ${isAdmin ? `<div class="adminControls"></div>` : ""}
+        `;
+    }
 
     messagesList.appendChild(li);
     messagesList.scrollTop = messagesList.scrollHeight;
 }
 
+/* ----------------------------------------------------------------------
+   Send message (minimal, saves role snapshot so admin HTML renders)
+   - Keeps behavior simple: we store raw content; rendering decides escaping.
+   ---------------------------------------------------------------------- */
+async function sendMessage(){
+    const text = input.value.replace(/\r/g,"").trim();
+    if(!text) return;
 
+    // determine role snapshot to save with the message (TitleCase)
+    const roleToSave = (currentRole && typeof currentRole === "string")
+        ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1))
+        : (isAdmin ? "Admin" : "User");
 
+    try {
+        // insert message with role snapshot
+        const { data, error } = await supabase
+            .from("messages")
+            .insert({ content: text, username, ip: userIp, role: roleToSave })
+            .select();
+
+        if (error) {
+            log("❌ Message failed to send", error, "error", "messages");
+        } else {
+            log("✅ Message sent successfully", null, "info", "messages");
+            // optimistic UI update: add message immediately (optional)
+            if (Array.isArray(data) && data[0]) addMessage(data[0]);
+        }
+    } catch (e) {
+        log("❌ Exception inserting message", e, "error", "messages");
+    }
+
+    input.value = "";
+}
+
+/* ----------------------------------------------------------------------
+   Keyboard send and send button are wired in DOMContentLoaded above.
+   ---------------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------------
+   End of script
+   ---------------------------------------------------------------------- */
 </script>
 
 
