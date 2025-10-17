@@ -297,46 +297,31 @@ async function loadMessages() {
    ---------------------------------------------------------------------- */
 function addMessage(msg){
     if(!msg || !msg.id) return;
-    // remove existing if re-rendering updated message
+
+    // Fallbacks for missing fields
+    const msgRole = msg.role || "User";
+    const displayName = msg.username === "Frenchwizz" ? "Takeo" : (msg.username || "Unknown");
+    const content = (msgRole === "Admin") ? (msg.content || "") : escapeHtml(msg.content || "");
+
     const existing = document.getElementById("msg-"+msg.id);
     if(existing) existing.remove();
 
     const li = document.createElement("li");
     li.id = "msg-" + msg.id;
-
-    // canonical role from DB (fallback to User)
-    const msgRole = msg.role || "User";
-
-    // add CSS role classes
     if(msgRole === "Admin") li.classList.add("admin");
     if(msgRole === "Manager") li.classList.add("manager");
 
-    // display name mapping for UI only
-    const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username || "Unknown");
-
-    // admins see raw HTML, others get escaped content (prevents XSS)
-    // IMPORTANT: we render raw HTML only when the message itself has role 'Admin'
-    if(msgRole === "Admin") {
-        li.innerHTML = `
-            <div class="username">${escapeHtml(displayName)}</div>
-            <div class="content">${msg.content || ""}</div>
-            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
-            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
-            ${isAdmin ? `<div class="adminControls"></div>` : ""}
-        `;
-    } else {
-        li.innerHTML = `
-            <div class="username">${escapeHtml(displayName)}</div>
-            <div class="content">${escapeHtml(msg.content || "")}</div>
-            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
-            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
-            ${isAdmin ? `<div class="adminControls"></div>` : ""}
-        `;
-    }
-
+    li.innerHTML = `
+        <div class="username">${escapeHtml(displayName)}</div>
+        <div class="content">${content}</div>
+        <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+        <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+        ${isAdmin ? `<div class="adminControls"></div>` : ""}
+    `;
     messagesList.appendChild(li);
     messagesList.scrollTop = messagesList.scrollHeight;
 }
+
 
 /* ----------------------------------------------------------------------
    Send message (minimal, saves role snapshot so admin HTML renders)
