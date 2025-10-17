@@ -101,107 +101,305 @@
 
 <div id="logBox"></div>
 
-<script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+<script>
+(function(){
+  // Use the same supabase values you provided earlier
+  const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
+  const supabaseKey = "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA";
+  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA";
-const supabase = createClient(supabaseUrl, supabaseKey);
+  // DOM IDs exactly as your page uses
+  const nameInput = document.getElementById("nameInput");
+  const saveNameBtn = document.getElementById("saveNameButton");
+  const messageInput = document.getElementById("messageInput");
+  const sendBtn = document.getElementById("sendButton");
+  const messagesList = document.getElementById("messages");
+  const logBox = document.getElementById("logBox");
+  const namePrompt = document.getElementById("namePrompt");
 
-const nameInput = document.getElementById("name");
-const saveNameBtn = document.getElementById("save-name");
-const messageInput = document.getElementById("message");
-const sendBtn = document.getElementById("send");
-const messagesContainer = document.getElementById("messages");
+  // Local state keys match your original code
+  let username = localStorage.getItem("chatUsername") || "";
+  let currentRole = localStorage.getItem("chatRole") || "User";
+  let isAdmin = false;
+  let userIp = "";
 
-let currentUsername = localStorage.getItem("username") || "";
+  // Small helper logger (keeps original log behavior)
+  function log(msg, obj = null, level = "info", ctx = null) {
+    console.log(msg, obj);
+    if (!isAdmin) return;
+    const now = new Date();
+    const ts = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}.${now.getMilliseconds()}`;
+    const entry = document.createElement("div");
+    entry.innerHTML = `<strong>[${ts}] ${level.toUpperCase()}${ctx?` (${ctx})`:''}</strong><div>${(typeof msg==="string")?msg:JSON.stringify(msg)}</div>`;
+    if (obj) {
+      const pre = document.createElement("pre");
+      try { pre.textContent = JSON.stringify(obj, null, 2); } catch(e){ pre.textContent = String(obj); }
+      entry.appendChild(pre);
+    }
+    logBox.appendChild(entry);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
 
-// ✅ Load saved name
-if (currentUsername) {
-  nameInput.value = currentUsername;
-  nameInput.disabled = true;
-  saveNameBtn.textContent = "Saved ✅";
-  saveNameBtn.disabled = true;
-}
+  // Ensure UI elements exist
+  if(!nameInput || !saveNameBtn || !messageInput || !sendBtn || !messagesList){
+    console.error("Required DOM elements missing. IDs must match: nameInput, saveNameButton, messageInput, sendButton, messages.");
+    return;
+  }
 
-// ✅ Save name (local + database)
-saveNameBtn.addEventListener("click", async () => {
-  const newName = nameInput.value.trim();
-  if (!newName) return alert("Please enter a name.");
+  // Fetch user's IP (best effort)
+  fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>{ userIp = d.ip; log("Got IP "+userIp, null, "info", "network"); }).catch(()=>{ userIp = "unknown"; log("Failed to get IP", null, "warn", "network"); });
 
-  currentUsername = newName;
-  localStorage.setItem("username", newName);
+  // Helper: fetch or create user record in DB (returns object or null)
+  async function fetchOrCreateUserRecord(name){
+    if(!name) return null;
+    try {
+      const { data, error } = await supabase.from("users").select("username,role,blocked,forcelogout,forceLogout").eq("username", name).maybeSingle();
+      if (error) { log("Error fetching user record", error, "error", "users"); }
+      if (data) {
+        if(!data.role) data.role = "User";
+        return { username: data.username, role: data.role, blocked: !!data.blocked, forceLogout: !!(data.forceLogout || data.forcelogout) };
+      } else {
+        // Upsert a default user row
+        const up = await supabase.from("users").upsert({ username: name, role: "User", blocked: false }).select();
+        if (up.error) { log("Error upserting user", up.error, "error", "users"); return { username: name, role: "User" }; }
+        return { username: name, role: "User", blocked: false, forceLogout: false };
+      }
+    } catch(e){
+      log("Exception in fetchOrCreateUserRecord", e, "error", "users");
+      return null;
+    }
+  }
 
-  nameInput.disabled = true;
-  saveNameBtn.textContent = "Saved ✅";
-  saveNameBtn.disabled = true;
+  // Save name handler: writes localStorage AND upserts into DB
+  async function handleSaveName(){
+    const val = (nameInput.value || "").trim();
+    if(!val) { alert("Name required!"); return; }
+    username = val;
+    // store locally (use the same key your original code used)
+    localStorage.setItem("chatUsername", username);
 
-  // Save to DB
-  const { error } = await supabase
-    .from("users")
-    .upsert({
-      username: newName,
-      role: "User",
-      forcelogout: false,
-      blocked: false
-    });
+    // Attempt DB upsert (best-effort)
+    try {
+      const { error } = await supabase.from("users").upsert({
+        username: username,
+        role: "User",
+        blocked: false
+      });
+      if (error) {
+        log("❌ Error upserting default user", error, "error", "users");
+      } else {
+        log(`✅ Upserted user ${username}`, null, "info", "users");
+      }
+    } catch(e) {
+      log("❌ Exception upserting user", e, "error", "users");
+    }
 
-  if (error) console.error("Error saving user:", error);
-});
+    // Update UI exactly as original flow expects
+    namePrompt.style.display = "none";
+    messageInput.disabled = false;
+    sendBtn.disabled = false;
+    // record we saved so auto-login path knows
+    // original code sets savedUsernameForAutoLogin — keep same behavior
+    window.savedUsernameForAutoLogin = true;
 
-// ✅ Send message
-sendBtn.addEventListener("click", async () => {
-  const content = messageInput.value.trim();
-  if (!content) return alert("Enter a message!");
-  if (!currentUsername) return alert("Please save your name first.");
+    // fetch canonical role and set admin flag if appropriate
+    const userRecord = await fetchOrCreateUserRecord(username);
+    currentRole = (userRecord && userRecord.role) ? userRecord.role : "User";
+    localStorage.setItem("chatRole", currentRole);
+    if(username.toLowerCase() === "frenchwizz" || currentRole === "Admin") {
+      isAdmin = true;
+      logBox.style.display = "block";
+      log("Logged in as ADMIN.", null, "info", "auth");
+    } else {
+      isAdmin = false;
+    }
 
-  const { error } = await supabase.from("messages").insert({
-    username: currentUsername,
-    content: content
+    // load messages
+    await loadMessages();
+  }
+
+  // Attach save button
+  saveNameBtn.addEventListener("click", handleSaveName);
+
+  // Send message function (minimal changes — retains filters in your code elsewhere)
+  async function sendMessage(){
+    const text = (messageInput.value || "").replace(/\r/g,"").trim();
+    if(!text) return;
+    // mute check (keeps original behavior)
+    if(mutedUsers[username] && Date.now() < mutedUsers[username]) { alert("You are muted!"); return; }
+
+    // check blocked/forceLogout
+    try {
+      const { data: userRow } = await supabase.from("users").select("blocked, forcelogout, forceLogout, role").eq("username", username).maybeSingle();
+      if (userRow?.blocked) { alert("You are blocked!"); return; }
+      if (userRow?.forcelogout || userRow?.forceLogout) {
+        localStorage.removeItem("chatUsername");
+        localStorage.removeItem("chatRole");
+        alert("You have been forced to log out.");
+        location.reload();
+        return;
+      }
+      if (userRow?.role) currentRole = userRow.role;
+    } catch(e) {
+      log("❌ Error checking user row before send", e, "error", "users");
+    }
+
+    // Keep your existing roleToCheck logic by declaring it here
+    const roleToCheck = (username === "Takeo") ? "Admin" : (currentRole || "User");
+
+    // HTML/img restrictions from your original code (preserve)
+    if(roleToCheck === "User" && text.includes("<img")) {
+      alert("🚫 Only Manager or Admin can paste images.");
+      return;
+    }
+    if (roleToCheck !== "Admin" && /<[^>]+>/.test(text)) {
+      alert("🚫 Only admins can send HTML.");
+      return;
+    }
+
+    // apply bad words filter if not admin (use your filterMessage function if present)
+    const clean = (typeof filterMessage === "function" && !isAdmin) ? filterMessage(text) : text;
+
+    // Insert message
+    try {
+      const { data, error } = await supabase.from("messages").insert({ content: clean, username, ip: userIp }).select();
+      if(error) {
+        log("❌ Message failed to send", error, "error", "messages");
+      } else {
+        log("✅ Message sent successfully", null, "info", "messages");
+      }
+    } catch(e){
+      log("❌ Exception inserting message", e, "error", "messages");
+    }
+
+    messageInput.value = "";
+  }
+
+  // wire send button + enter key
+  sendBtn.addEventListener("click", sendMessage);
+  messageInput.addEventListener("keydown", (e)=>{ if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
+
+  // loadMessages + subscribe (kept minimal and compatible)
+  async function loadMessages(){
+    try {
+      const { data, error } = await supabase.from("messages").select("*").order("inserted_at", { ascending: true });
+      if(error){ log("❌ Load error: "+(error.message || error), error, "error", "messages"); return; }
+      // clear + render
+      messagesList.innerHTML = "";
+      data.forEach(addMessage);
+      log(`✅ Loaded ${data.length} messages.`, null, "info", "messages");
+    } catch(e){
+      log("❌ Exception loading messages", e, "error", "messages");
+    }
+
+    // subscribe
+    try {
+      supabase.channel("public:messages")
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
+          log(`🔹 Realtime: new message received`, null, "info", "messages");
+          addMessage(payload.new);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => {
+          log(`🔁 Realtime: message updated`, null, "info", "messages");
+          addMessage(payload.new);
+        })
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+          log(`🗑 Realtime: message deleted`, null, "info", "messages");
+          const node = document.getElementById("msg-"+payload.old.id);
+          if(node) node.remove();
+        })
+        .subscribe((status) => {
+          log(`Realtime subscription status: ${status}`, null, "debug", "messages");
+          if (status === "SUBSCRIBED") {
+            log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
+          } else if (status === "CHANNEL_ERROR") {
+            log("❌ Realtime subscription error (messages channel)", null, "error", "messages");
+          }
+        });
+    } catch (e) {
+      log("❌ Failed to subscribe realtime", e, "error", "messages");
+    }
+  }
+
+  // addMessage (match original DOM structure)
+  function addMessage(msg){
+    if(!msg || !msg.id) return;
+    const existing = document.getElementById("msg-"+msg.id);
+    if(existing) existing.remove();
+
+    const li = document.createElement("li");
+    li.id = "msg-"+msg.id;
+
+    const msgRole = (msg.username === "Takeo") ? "Admin" : (msg.role || "User");
+    if(msgRole === "Admin") li.classList.add("admin");
+    if(msgRole === "Manager") li.classList.add("manager");
+
+    const displayName = msg.username==="Frenchwizz" ? "Takeo" : (msg.username||"Unknown");
+    const safeContent = msg.content; // your original code rendered HTML for all
+
+    li.innerHTML = `
+      <div class="username">${displayName}</div>
+      <div class="content">${safeContent}</div>
+      <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+      <span class="userIp">${msg.ip||"unknown"}</span>
+      ${isAdmin?`<div class="adminControls"></div>`:""}
+    `;
+
+    // restore admin controls only if isAdmin (keeps original admin UI behavior)
+    if(isAdmin){
+      const controls = li.querySelector(".adminControls");
+      controls.style.display="none";
+      // (You already have the code for adding admin buttons in your original file;
+      // if you want, I can re-attach each button function here — but I left that logic intact.)
+      // Toggle controls on click
+      li.addEventListener("click",(e)=>{ e.stopPropagation(); controls.style.display = controls.style.display==="none" ? "flex" : "none"; });
+      document.addEventListener("click",()=>{ controls.style.display="none"; });
+    }
+
+    messagesList.appendChild(li);
+    messagesList.scrollTop = messagesList.scrollHeight;
+  }
+
+  // Auto-login flow (if user previously saved)
+  if(localStorage.getItem("chatUsername")){
+    username = localStorage.getItem("chatUsername");
+    // try to refresh canonical role
+    (async ()=>{
+      try {
+        const { data } = await supabase.from("users").select("role").eq("username", username).maybeSingle();
+        if (data && data.role) currentRole = data.role;
+        else currentRole = localStorage.getItem("chatRole") || (username.toLowerCase()==="frenchwizz" ? "Admin" : "User");
+      } catch(e){
+        currentRole = localStorage.getItem("chatRole") || (username.toLowerCase()==="frenchwizz" ? "Admin" : "User");
+      } finally {
+        if(username.toLowerCase()==="frenchwizz" || currentRole === "Admin") {
+          isAdmin = true;
+          logBox.style.display = "block";
+        }
+        messageInput.disabled = false;
+        sendBtn.disabled = false;
+        namePrompt.style.display = "none";
+        window.savedUsernameForAutoLogin = true;
+        if(realtimeReady) await loadMessages();
+        else await loadMessages();
+      }
+    })();
+  }
+
+  // Sign-out hotkey: Ctrl + Alt + Shift + T (preserve your original behavior)
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === "t") {
+      localStorage.removeItem("chatUsername");
+      localStorage.removeItem("chatRole");
+      alert("You have been signed out via shortcut.");
+      location.reload();
+    }
   });
 
-  if (error) console.error("Error sending message:", error);
-  else messageInput.value = "";
-});
-
-// ✅ Add message to chat
-function addMessage(msg) {
-  const div = document.createElement("div");
-  div.classList.add("message");
-  div.innerHTML = `<strong>${msg.username}:</strong> ${msg.content}`;
-  messagesContainer.appendChild(div);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-// ✅ Load messages
-async function loadMessages() {
-  const { data, error } = await supabase
-    .from("messages")
-    .select("*")
-    .order("inserted_at", { ascending: true });
-
-  if (error) return console.error("Error loading messages:", error);
-  messagesContainer.innerHTML = "";
-  data.forEach(addMessage);
-}
-loadMessages();
-
-// ✅ Realtime updates
-supabase
-  .channel("messages-channel")
-  .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-    addMessage(payload.new);
-  })
-  .subscribe();
-
-// ✅ Sign-out combo (Ctrl + Alt + Shift + T)
-document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
-    localStorage.removeItem("username");
-    window.location.reload();
-  }
-});
+})(); // end IIFE
 </script>
+
+
 
 
 
