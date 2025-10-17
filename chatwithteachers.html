@@ -371,16 +371,43 @@ function createAdminControls(li, msg){
     if(!isAdmin) return;
     const adminDiv = li.querySelector(".adminControls");
     if(!adminDiv) return;
+    /*Insert buttons here*/
 
-    const signOutBtn = document.createElement("button");
-    signOutBtn.textContent = "Sign Out (Ctrl+Shift+Alt+T)";
-    signOutBtn.onclick = () => {
-        localStorage.removeItem("chatUsername");
-        localStorage.removeItem("chatRole");
-        location.reload();
+        // Highlight message button
+        const highlightBtn = document.createElement("button");
+    highlightBtn.textContent = "Highlight";
+    highlightBtn.onclick = () => li.classList.toggle("highlighted");
+    adminDiv.appendChild(highlightBtn);
+
+    // Delete message button
+    const deleteBtn = document.createElement("button");
+    deleteBtn.textContent = "Delete";
+    deleteBtn.onclick = async () => {
+        try {
+            const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+            if(error) log("❌ Failed to delete message", error, "error", "admin");
+            else li.remove();
+        } catch(e){
+            log("❌ Exception deleting message", e, "error", "admin");
+        }
     };
+    adminDiv.appendChild(deleteBtn);
 
-    adminDiv.appendChild(signOutBtn);
+    // Edit message button
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => {
+        const newText = prompt("Edit message content:", msg.content || "");
+        if(newText === null) return;
+        li.querySelector(".content").textContent = newText;
+        // Update in Supabase
+        supabase.from("messages").update({content:newText}).eq("id", msg.id).then(({error})=>{
+            if(error) log("❌ Failed to update message", error, "error", "admin");
+        });
+    };
+    adminDiv.appendChild(editBtn);
+
+
 }
 
 document.addEventListener("keydown", (e)=>{
