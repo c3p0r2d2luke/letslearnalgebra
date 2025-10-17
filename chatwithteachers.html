@@ -353,61 +353,38 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
        Send message
        - tries with role column, retries without role if schema lacks it
        ---------------------------------------------------------------------- */
-    async function sendMessage(){
-        // Check if user's IP is blocked
-try {
-    const { data: blocked } = await supabase
-        .from("blocked_ips")
-        .select("*")
-        .eq("ip", userIp)
-        .maybeSingle();
 
-    if(blocked){
-        alert("You are blocked from sending messages (IP).");
-        return;
+       async function sendMessage(){
+    const text = input.value.replace(/\r/g,"").trim();
+    if(!text) return;
+
+    // Filter message before sending
+    const clean = isAdmin ? text : filterMessage(text);
+
+    const roleToSave = isAdmin ? "Admin" : (currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User");
+
+    try {
+        const { data, error } = await supabase.from("messages").insert({
+            content: clean,
+            username,
+            ip: userIp,
+            role: roleToSave
+        }).select();
+
+        if(error) {
+            log("❌ Failed to send message", error, "error", "messages");
+        } else if(Array.isArray(data) && data[0]) {
+            addMessage(data[0]);
+            log("✅ Message sent successfully", null, "info", "messages");
+        }
+    } catch(e){
+        log("❌ Exception sending message", e, "error", "messages");
     }
-} catch(e){
-    log("❌ Failed checking blocked IPs", e, "error", "messages");
-    return;
+
+    input.value = "";
 }
 
-        const text = input.value.replace(/\r/g,"").trim();
-        if(!text) return;
-    
-        // check if muted/blocked/forceLogout could be added here (omitted for brevity)
-    
-        // choose whether to filter bad words for non-admins
-        const clean = isAdmin ? text : filterMessage(text);
-    
-        const roleToSave = isAdmin ? "Admin" : (currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User");
-    
-        // first attempt: include role
-        try {
-            let res = await supabase.from("messages").insert({ content: clean, username, ip: userIp, role: roleToSave }).select();
-            if(res.error){
-                // handle missing column error (PostgREST PGRST204) by retrying without role
-                if(String(res.error.code || "").toUpperCase().includes("PGRST204") || /Could not find the 'role' column/i.test(String(res.error.message || ""))){
-                    log("Role column missing — retrying insert without role", res.error, "warn", "messages");
-                    const retry = await supabase.from("messages").insert({ content: clean, username, ip: userIp }).select();
-                    if(retry.error) log("❌ Message failed to send (retry)", retry.error, "error", "messages");
-                    else {
-                        if(Array.isArray(retry.data) && retry.data[0]) addMessage(retry.data[0]);
-                        log("✅ Message sent (retry without role)", null, "info", "messages");
-                    }
-                } else {
-                    log("❌ Message failed to send", res.error, "error", "messages");
-                }
-            } else {
-                if(Array.isArray(res.data) && res.data[0]) addMessage(res.data[0]);
-                log("✅ Message sent successfully", null, "info", "messages");
-            }
-        } catch(e){
-            log("❌ Exception inserting message", e, "error", "messages");
-        }
-    
-        input.value = "";
-    }
-    
+
     /* ----------------------------------------------------------------------
        Create admin controls inside each message LI (all original buttons)
        ---------------------------------------------------------------------- */
