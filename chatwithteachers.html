@@ -32,6 +32,9 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     <button id="saveNameButton">Save Name</button>
 </div>
 
+<div id="debugBox" style="color:#0f0; background:#111; padding:4px 6px; font-family:monospace; font-size:12px; margin-bottom:8px;"></div>
+
+
 <!-- Controls (message input + send) -->
 <div id="controls">
     <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
@@ -571,6 +574,12 @@ async function saveName(){
     localStorage.setItem("chatRole", currentRoleFromRecord);
     currentRole = currentRoleFromRecord;
 
+    // Show debug info on page
+    const debugBox = document.getElementById("debugBox");
+    if(debugBox) {
+        debugBox.textContent = `Saved username: "${username}", role: "${currentRoleFromRecord}"`;
+    }
+
     // show admin log box if Admin
     if((username.toLowerCase() === "frenchwizz") || currentRole === "Admin") {
         isAdmin = true;
@@ -591,6 +600,7 @@ async function saveName(){
     // load messages after login; if realtime not ready, we enable UI only after handshake
     await loadMessages();
 }
+
 saveNameBtn.onclick = saveName;
 
 /* ----------------------------------------------------------------------
