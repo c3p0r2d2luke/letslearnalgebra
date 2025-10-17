@@ -182,22 +182,64 @@
     }
   });
 
-  async function sendMessage() {
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = "";
+  async function sendMessage(){
+    const text = input.value.replace(/\r/g,"").trim();
+    if(!text) return;
+    if(mutedUsers[username] && Date.now() < mutedUsers[username]) { alert("You are muted!"); return; }
 
-    const clean = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const { error } = await supabase
-      .from("messages")
-      .insert({ content: clean, username, role: currentRole, ip: userIp });
-
-    if (error) {
-      console.error("Insert error:", error);
-      alert("Message failed: " + error.message);
+    // check users table for blocked state (best-effort)
+    try {
+        const { data: userRow } = await supabase.from("users").select("blocked, forceLogout, role").eq("username", username).maybeSingle();
+        if (userRow?.blocked) { alert("You are blocked!"); return; }
+        if (userRow?.forceLogout) {
+            localStorage.removeItem("chatUsername");
+            localStorage.removeItem("chatRole");
+            alert("You have been forced to log out.");
+            location.reload();
+            return;
+        }
+        if(userRow?.role) currentRole = userRow.role;
+    } catch(e) {
+        log("❌ Error checking user row before send", e, "error", "users");
     }
-  }
+
+    // image restriction: only Manager and Admin allowed to send content containing <img
+    if(!isAdmin) {
+        const roleToCheck = (username === "Takeo") ? "Admin" : (currentRole || "User");
+        if(roleToCheck === "User" && text.includes("<img")) {
+            alert("🚫 Only Manager or Admin can paste images.");
+            return;
+        }
+    }
+
+    // NEW: only Admins can send *any* HTML
+    const roleToCheck = (username === "Takeo") ? "Admin" : (currentRole || "User");
+    if (roleToCheck !== "Admin" && /<[^>]+>/.test(text)) {
+        alert("🚫 Only admins can send HTML.");
+        return;
+    }
+
+    // filter bad words (this will trigger email notifications if found)
+    const clean = isAdmin ? text : filterMessage(text);
+
+    // insert message WITHOUT role column
+    try {
+        const { data, error } = await supabase
+            .from("messages")
+            .insert({ content: clean, username, ip: userIp }) // <-- removed role
+            .select();
+        if(error) {
+            log("❌ Message failed to send", null, "error", "messages");
+        } else {
+            log("✅ Message sent successfully", null, "info", "messages");
+        }
+    } catch(e) {
+        log("❌ Exception inserting message", e, "error", "messages");
+    }
+
+    input.value = "";
+}
+
 
   // ---- Load messages ----
   async function loadMessages() {
