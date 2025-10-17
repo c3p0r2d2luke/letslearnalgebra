@@ -212,6 +212,36 @@ async function verifyRealtimeConnection() {
 }
 verifyRealtimeConnection();
 
+async function loadMessages() {
+    if (!username) return;
+    if (!messagesChannel) {
+        messagesChannel = supabase.channel("public:messages");
+        messagesChannel
+            .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+            .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+                const node = document.getElementById("msg-"+payload.old.id);
+                if(node) node.remove();
+            })
+            .subscribe((status) => console.log("Subscription status:", status));
+    }
+    // optionally fetch existing messages once
+    const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
+    if (error) return log("❌ Failed to load messages", error, "error", "messages");
+    data.forEach(msg => addMessage(msg));
+}
+
+
+function addMessage(msg){
+    if(!msg || !msg.id) return;
+    const li = document.createElement("li");
+    li.id = "msg-" + msg.id;
+    li.innerHTML = `<div class="username">${msg.username}</div><div class="content">${msg.content}</div>`;
+    messagesList.appendChild(li);
+    messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+
 </script>
 
 
