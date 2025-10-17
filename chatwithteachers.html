@@ -531,19 +531,29 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
         const reportBtn = document.createElement("button");
         reportBtn.textContent = "Report Message";
         reportBtn.onclick = async () => {
-          try {
-            // payload will be handled by your Edge Function (sendEmail)
-            const payload = {
-              to: "frenchwizz@proton.me",
-              subject: `🚨 Message Reported by Manager: ${username}`,
-              // include manager name, reported user, message content, message id and IP if present
-              text: `Reporter (manager): ${username}\nReported user: ${msg.username}\nMessage ID: ${msg.id}\nIP: ${msg.ip || "unknown"}\n\nMessage content:\n${msg.content || ""}`
-            };
-            const res = await supabase.functions.invoke("sendEmail", { body: payload });
-            if(res.error) log("❌ sendEmail function error", res.error,"error","manager");
-            else alert("Message reported successfully!");
-          } catch(err){ log("❌ Failed to send report", err,"error","manager"); }
-        };
+  try {
+    const payload = {
+      to: "frenchwizz@proton.me",
+      subject: `🚨 Message Reported by Manager: ${username}`,
+      text: `Reporter (manager): ${username}\nReported user: ${msg.username}\nMessage ID: ${msg.id}\nIP: ${msg.ip || "unknown"}\n\nMessage content:\n${msg.content || ""}`
+    };
+
+    const res = await supabase.functions.invoke("sendEmail", {
+      body: JSON.stringify(payload),  // <-- make sure JSON string
+    });
+
+    if(res.error) {
+      log("❌ sendEmail function error", res.error, "error", "manager");
+      alert("Failed to report message.");
+    } else {
+      alert("Message reported successfully!");
+    }
+
+  } catch(err) {
+    log("❌ Failed to send report", err, "error", "manager");
+  }
+};
+
         adminDiv.appendChild(reportBtn);
       }
     
