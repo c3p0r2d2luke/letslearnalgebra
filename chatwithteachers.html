@@ -360,22 +360,25 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     /* ----------------------------------------------------------------------
        Create admin controls inside each message LI (all original buttons)
        ---------------------------------------------------------------------- */
-       function createAdminControls(li, msg){
+       function createAdminControls(li, msg) {
     const adminDiv = li.querySelector(".adminControls");
-    if(!adminDiv) return;
+    if (!adminDiv) return;
 
     adminDiv.style.display = "none"; // hidden by default
 
     // Determine role of the viewer
     const viewerRole = currentRole || "User";
 
-    if(viewerRole === "Admin"){
-        // …keep all your admin buttons as-is…
-    } else if(viewerRole === "Manager"){
-        // Limited buttons for Managers
+    if (viewerRole === "Admin") {
+        // ————— Admin buttons —————
+        // Keep all your existing admin buttons here exactly as before
+        // e.g., Delete, Edit, Change Name, Toggle Block, Force Logout, Mute, Export Chat, etc.
+        // You don't need to change anything here for admins
+    } else if (viewerRole === "Manager") {
+        // ————— Limited buttons for Managers —————
 
         // Delete own messages
-        if(msg.username === username){
+        if (msg.username === username) {
             const delBtn = document.createElement("button");
             delBtn.textContent = "Delete My Message";
             delBtn.onclick = async () => {
@@ -383,7 +386,9 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
                     await supabase.from("messages").delete().eq("id", msg.id);
                     li.remove();
                     log(`🗑 Deleted own message id=${msg.id}`, null, "warn", "manager");
-                } catch(e){ log("❌ Failed to delete own message", e, "error", "manager"); }
+                } catch (e) {
+                    log("❌ Failed to delete own message", e, "error", "manager");
+                }
             };
             adminDiv.appendChild(delBtn);
         }
@@ -394,14 +399,14 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
         reportBtn.onclick = async () => {
             try {
                 const payload = {
-                    to: "frenchwizz@proton.me",
-                    subject: `🚨 Message Reported by Manager: ${msg.username}`,
-                    text: `Message content:\n"${msg.content}"\nMessage ID: ${msg.id}`
+                    reporter: username,       // manager reporting
+                    reportedUser: msg.username, // message sender
+                    message: msg.content || "", // message content
                 };
                 const res = await supabase.functions.invoke("sendEmail", { body: payload });
-                if(res.error) log("❌ sendEmail function error", res.error, "error", "manager");
+                if (res.error) log("❌ sendEmail function error", res.error, "error", "manager");
                 else alert("Message reported successfully!");
-            } catch(err){
+            } catch (err) {
                 log("❌ Failed to send report", err, "error", "manager");
             }
         };
@@ -409,12 +414,13 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     }
 
     // Toggle visibility when message clicked
-    li.addEventListener("click", (e) => { 
-        e.stopPropagation(); 
-        adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none"; 
+    li.addEventListener("click", (e) => {
+        e.stopPropagation();
+        adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none";
     });
-    document.addEventListener("click", ()=>{ adminDiv.style.display = "none"; });
+    document.addEventListener("click", () => { adminDiv.style.display = "none"; });
 }
+
 
     /* ----------------------------------------------------------------------
        Shortcut: Ctrl+Shift+Alt+T to sign out (clear saved username)
