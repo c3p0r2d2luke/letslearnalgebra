@@ -354,6 +354,23 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
        - tries with role column, retries without role if schema lacks it
        ---------------------------------------------------------------------- */
     async function sendMessage(){
+        // Check if user's IP is blocked
+try {
+    const { data: blocked } = await supabase
+        .from("blocked_ips")
+        .select("*")
+        .eq("ip", userIp)
+        .maybeSingle();
+
+    if(blocked){
+        alert("You are blocked from sending messages (IP).");
+        return;
+    }
+} catch(e){
+    log("❌ Failed checking blocked IPs", e, "error", "messages");
+    return;
+}
+
         const text = input.value.replace(/\r/g,"").trim();
         if(!text) return;
     
@@ -465,14 +482,36 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
         const blockBtn = document.createElement("button");
         blockBtn.textContent = "Toggle Block";
         blockBtn.onclick = async () => {
-            try {
-                const { data: userRow } = await supabase.from("users").select("blocked").eq("username", msg.username).maybeSingle();
-                const blockedNow = !(userRow?.blocked || false);
-                await supabase.from("users").update({ blocked: blockedNow }).eq("username", msg.username);
-                alert(`${msg.username} is now ${blockedNow ? "blocked" : "unblocked"}`);
-                log(`🔒 ${blockedNow ? "Blocked" : "Unblocked"} ${msg.username}`, null, "warn", "admin");
-            } catch(e){ log("❌ Failed toggling block", e, "error", "admin"); }
-        };
+    if(!msg.ip || msg.ip === "unknown") {
+        alert("Cannot block: user IP unknown.");
+        return;
+    }
+
+    try {
+        // Check if this IP is already blocked
+        const { data: existing } = await supabase
+            .from("blocked_ips")
+            .select("*")
+            .eq("ip", msg.ip)
+            .maybeSingle();
+
+        if(existing){
+            // IP is blocked → unblock
+            await supabase.from("blocked_ips").delete().eq("ip", msg.ip);
+            alert(`${msg.username}'s IP (${msg.ip}) is now unblocked`);
+            log(`🔓 Unblocked IP ${msg.ip} for ${msg.username}`, null, "warn", "admin");
+        } else {
+            // IP is not blocked → block
+            await supabase.from("blocked_ips").insert({ ip: msg.ip, username: msg.username });
+            alert(`${msg.username}'s IP (${msg.ip}) is now blocked`);
+            log(`🔒 Blocked IP ${msg.ip} for ${msg.username}`, null, "warn", "admin");
+        }
+
+    } catch(e){
+        log("❌ Failed toggling IP block", e, "error", "admin");
+    }
+};
+
         adminDiv.appendChild(blockBtn);
     
         // Force Logout
