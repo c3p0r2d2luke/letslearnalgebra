@@ -539,15 +539,18 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     };
 
     const res = await supabase.functions.invoke("sendEmail", {
-      body: JSON.stringify(payload),  // <-- make sure JSON string
-    });
+  body: payload, // <-- pass as object, not string
+});
 
-    if(res.error) {
-      log("❌ sendEmail function error", res.error, "error", "manager");
-      alert("Failed to report message.");
-    } else {
-      alert("Message reported successfully!");
-    }
+
+if(res.error) {
+  log("❌ sendEmail function error", res.error, "error", "manager");
+  alert("Failed to report message.");
+} else {
+  console.log("sendEmail response:", res); // see the function result
+  alert("Message reported successfully!");
+}
+
 
   } catch(err) {
     log("❌ Failed to send report", err, "error", "manager");
