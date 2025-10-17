@@ -544,12 +544,13 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
 
 
 if(res.error) {
+  const errMsg = res.error.message || JSON.stringify(res.error);
   log("❌ sendEmail function error", res.error, "error", "manager");
   alert("Failed to report message:\n" + errMsg);
 } else {
-  console.log("sendEmail response:", res); // see the function result
   alert("Message reported successfully!");
 }
+
 
 
   } catch(err) {
