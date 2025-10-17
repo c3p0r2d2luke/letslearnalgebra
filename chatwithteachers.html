@@ -180,6 +180,38 @@ async function saveName(){
 document.addEventListener("DOMContentLoaded", ()=>{
     if(saveNameBtn) saveNameBtn.onclick = saveName;
 });
+
+/* ----------------------------------------------------------------------
+    Enable Realtime
+   ---------------------------------------------------------------------- */
+function enableUIAfterHandshake() {
+    input.disabled = false;
+    button.disabled = false;
+
+    // only subscribe if we haven't already
+    if(username && !messagesChannel) {
+        if(realtimeReady) {
+            loadMessages().catch(e => log("Error loading messages after handshake", e, "error", "messages"));
+        } else {
+            // retry in 1 second if the realtime socket isn't ready yet
+            setTimeout(enableUIAfterHandshake, 1000);
+        }
+    }
+}
+
+async function verifyRealtimeConnection() {
+    const testChannel = supabase.channel("debug-connection-" + Math.random().toString(36).slice(2,8));
+    testChannel
+        .on("system", { event: "connected" }, () => {
+            realtimeReady = true;
+            log("✅ Realtime connection established", null, "info", "realtime");
+            if(savedUsernameForAutoLogin) enableUIAfterHandshake();
+            testChannel.unsubscribe().catch(()=>{});
+        })
+        .subscribe();
+}
+verifyRealtimeConnection();
+
 </script>
 
 
