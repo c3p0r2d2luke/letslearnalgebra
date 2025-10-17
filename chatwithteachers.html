@@ -34,7 +34,6 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
 
 <div id="debugBox" style="color:#0f0; background:#111; padding:4px 6px; font-family:monospace; font-size:12px; margin-bottom:8px;"></div>
 
-
 <!-- Controls (message input + send) -->
 <div id="controls">
     <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
@@ -74,9 +73,9 @@ let username = localStorage.getItem("chatUsername") || "";
 let isAdmin = false;
 let currentRole = localStorage.getItem("chatRole") || null;
 let savedUsernameForAutoLogin = false;
-let realtimeReady = false;      // required for handshake logic
-let messagesChannel = null;     // keep single messages channel
-let userIp = "unknown";         // optional: left as "unknown" to keep minimal changes
+let realtimeReady = false;
+let messagesChannel = null;
+let userIp = "unknown";
 
 /* ----------------------------------------------------------------------
    SUPER VERBOSE ADMIN LOG BOX
@@ -153,14 +152,15 @@ async function saveName(){
     if(!val) return alert("Name required!");
     username = val;
 
+    // read or create user row
     const userRecord = await fetchOrCreateUserRecord(username);
     currentRoleFromRecord = userRecord.role || "User";
     currentRoleFromRecord = currentRoleFromRecord.charAt(0).toUpperCase() + currentRoleFromRecord.slice(1);
+
     try {
         localStorage.setItem("chatUsername", username);
         localStorage.setItem("chatRole", currentRoleFromRecord);
-    } catch(e) {
-        // localStorage might be unavailable; show error in debug box
+    } catch (e) {
         if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
     }
     currentRole = currentRoleFromRecord;
@@ -168,64 +168,75 @@ async function saveName(){
     // Show debug info
     if(debugBox) debugBox.textContent = `✅ Saved username: "${username}", role: "${currentRoleFromRecord}"`;
 
+    // local admin override (keeps backwards compatibility)
     if((username.toLowerCase()==="frenchwizz") || currentRole==="Admin"){
         isAdmin = true;
         logBox.style.display="block";
         log("Logged in as ADMIN.", null, "info", "auth");
-    } else { isAdmin=false; }
+    } else {
+        isAdmin = false;
+    }
 
     namePrompt.style.display="none";
     input.disabled=false;
     button.disabled=false;
     savedUsernameForAutoLogin=true;
 
-    // ensure subscription begins as soon as possible
-    if(realtimeReady) {
-        await loadMessages();
-    } else {
-        // loadMessages will be triggered by enableUIAfterHandshake once handshake completes
-    }
+    // load messages right away (subscribe + fetch)
+    await loadMessages().catch(e => log("Error loading messages after saveName", e, "error", "messages"));
 }
 
 /* ----------------------------------------------------------------------
-   Attach button handler after DOM loaded
+   DOM ready wiring + autologin
    ---------------------------------------------------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
-    if (username) {
-        // auto-login
-        saveNameBtn.disabled = true;
-        nameInput.value = username;
+    // attach handlers
+    if (saveNameBtn) saveNameBtn.onclick = saveName;
+    if (button) button.addEventListener("click", sendMessage);
+    if (input) input.addEventListener("keydown", (e) => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
+
+    // autologin if saved username exists in localStorage
+    const saved = localStorage.getItem("chatUsername");
+    if (saved) {
+        username = saved;
+        currentRole = localStorage.getItem("chatRole") || (username.toLowerCase()==="frenchwizz" ? "Admin" : "User");
+        if(username.toLowerCase()==="frenchwizz" || currentRole === "Admin"){
+            isAdmin = true;
+            logBox.style.display = "block";
+        }
+        namePrompt.style.display = "none";
+        input.disabled = false;
+        button.disabled = false;
         savedUsernameForAutoLogin = true;
-        saveName(); // triggers fetch/create user record and loads messages
+        if(debugBox) debugBox.textContent = `✅ Auto-logged as "${username}", role: "${currentRole}"`;
+        // load messages immediately
+        loadMessages().catch(e => log("Error loading messages on autologin", e, "error", "messages"));
     } else {
+        // show prompt and disable controls until user saves name
         namePrompt.style.display = "block";
         input.disabled = true;
         button.disabled = true;
-        saveNameBtn.onclick = saveName;
     }
 });
 
-
 /* ----------------------------------------------------------------------
-    Enable Realtime helper
+    Enable Realtime helper (used by handshake)
    ---------------------------------------------------------------------- */
 function enableUIAfterHandshake() {
     input.disabled = false;
     button.disabled = false;
 
-    // only subscribe if we haven't already
     if(username && !messagesChannel) {
         if(realtimeReady) {
             loadMessages().catch(e => log("Error loading messages after handshake", e, "error", "messages"));
         } else {
-            // retry in 1 second if the realtime socket isn't ready yet
             setTimeout(enableUIAfterHandshake, 1000);
         }
     }
 }
 
 /* ----------------------------------------------------------------------
-   Realtime handshake (test) — sets realtimeReady when socket is available
+   Realtime handshake test — sets realtimeReady when socket is available
    ---------------------------------------------------------------------- */
 async function verifyRealtimeConnection() {
     try {
@@ -238,14 +249,13 @@ async function verifyRealtimeConnection() {
                 testChannel.unsubscribe().catch(()=>{});
             })
             .on("system", { event: "heartbeat" }, () => {
-                // optional heartbeat logging
+                // no-op
             })
             .subscribe();
     } catch (err) {
         log("Realtime connection test failed", err, "error", "realtime");
     }
 }
-// start handshake test immediately
 verifyRealtimeConnection();
 
 /* ----------------------------------------------------------------------
@@ -254,7 +264,6 @@ verifyRealtimeConnection();
 async function loadMessages() {
     if (!username) return;
 
-    // create single subscription channel if missing
     if (!messagesChannel) {
         messagesChannel = supabase.channel("public:messages");
         messagesChannel
@@ -265,7 +274,6 @@ async function loadMessages() {
                 if(node) node.remove();
             })
             .subscribe((status) => {
-                // supabase-js might give "SUBSCRIBED", "CHANNEL_ERROR", "CLOSED", etc.
                 log(`Realtime subscription status: ${status}`, null, "debug", "messages");
                 if (status === "SUBSCRIBED") {
                     log("✅ Realtime subscription confirmed (messages channel)", null, "info", "messages");
@@ -277,7 +285,7 @@ async function loadMessages() {
             });
     }
 
-    // fetch existing messages once (safe try/catch)
+    // fetch existing messages once
     try {
         const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
         if (error) {
@@ -292,52 +300,60 @@ async function loadMessages() {
 
 /* ----------------------------------------------------------------------
    Render a message to DOM
-   - Admins (msg.role === "Admin") will have their content rendered as HTML.
-   - Display name maps "Frenchwizz" -> "Takeo" (UI only).
+   - Render HTML only when message is from 'Frenchwizz' OR msg.role === 'Admin'
    ---------------------------------------------------------------------- */
 function addMessage(msg){
     if(!msg || !msg.id) return;
 
-    // Fallbacks for missing fields
     const msgRole = msg.role || "User";
-    const displayName = msg.username === "Frenchwizz" ? "Takeo" : (msg.username || "Unknown");
-    const content = (msgRole === "Admin") ? (msg.content || "") : escapeHtml(msg.content || "");
+    const displayName = (msg.username === "Frenchwizz") ? "Takeo" : (msg.username || "Unknown");
+    const isMsgAdmin = (msg.username === "Frenchwizz") || (String(msgRole).toLowerCase() === "admin");
 
+    // remove existing if re-rendering updated message
     const existing = document.getElementById("msg-"+msg.id);
     if(existing) existing.remove();
 
     const li = document.createElement("li");
     li.id = "msg-" + msg.id;
-    if(msgRole === "Admin") li.classList.add("admin");
-    if(msgRole === "Manager") li.classList.add("manager");
 
-    li.innerHTML = `
-        <div class="username">${escapeHtml(displayName)}</div>
-        <div class="content">${content}</div>
-        <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
-        <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
-        ${isAdmin ? `<div class="adminControls"></div>` : ""}
-    `;
+    if(isMsgAdmin) li.classList.add("admin");
+    else if(msgRole === "Manager") li.classList.add("manager");
+
+    if(isMsgAdmin) {
+        // render raw HTML for admin messages (trusted per your request)
+        li.innerHTML = `
+            <div class="username">${escapeHtml(displayName)}</div>
+            <div class="content">${msg.content || ""}</div>
+            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+            ${isAdmin ? `<div class="adminControls"></div>` : ""}
+        `;
+    } else {
+        // escape content for non-admins
+        li.innerHTML = `
+            <div class="username">${escapeHtml(displayName)}</div>
+            <div class="content">${escapeHtml(msg.content || "")}</div>
+            <div class="timestamp">${msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString() : "?"}</div>
+            <span class="userIp">${escapeHtml(msg.ip || "unknown")}</span>
+            ${isAdmin ? `<div class="adminControls"></div>` : ""}
+        `;
+    }
+
     messagesList.appendChild(li);
     messagesList.scrollTop = messagesList.scrollHeight;
 }
 
-
 /* ----------------------------------------------------------------------
-   Send message (minimal, saves role snapshot so admin HTML renders)
-   - Keeps behavior simple: we store raw content; rendering decides escaping.
+   Send message (stores role snapshot so admin HTML renders when appropriate)
    ---------------------------------------------------------------------- */
 async function sendMessage(){
     const text = input.value.replace(/\r/g,"").trim();
     if(!text) return;
 
-    // determine role snapshot to save with the message (TitleCase)
-    const roleToSave = (currentRole && typeof currentRole === "string")
-        ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1))
-        : (isAdmin ? "Admin" : "User");
+    // normalize role snapshot
+    const roleToSave = isAdmin ? "Admin" : (currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User");
 
     try {
-        // insert message with role snapshot
         const { data, error } = await supabase
             .from("messages")
             .insert({ content: text, username, ip: userIp, role: roleToSave })
@@ -347,7 +363,6 @@ async function sendMessage(){
             log("❌ Message failed to send", error, "error", "messages");
         } else {
             log("✅ Message sent successfully", null, "info", "messages");
-            // optimistic UI update: add message immediately (optional)
             if (Array.isArray(data) && data[0]) addMessage(data[0]);
         }
     } catch (e) {
@@ -357,15 +372,7 @@ async function sendMessage(){
     input.value = "";
 }
 
-/* ----------------------------------------------------------------------
-   Keyboard send and send button are wired in DOMContentLoaded above.
-   ---------------------------------------------------------------------- */
-
-/* ----------------------------------------------------------------------
-   End of script
-   ---------------------------------------------------------------------- */
 </script>
-
 
 </body>
 </html>
