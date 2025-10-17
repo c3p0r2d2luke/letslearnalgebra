@@ -600,9 +600,10 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
        ---------------------------------------------------------------------- */
     fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>{ userIp = d.ip; log("✅ IP: "+userIp, null, "info", "network"); }).catch(()=>{ userIp = "unknown"; log("❌ Failed to get IP", null, "warn", "network"); });
     
+// Check username on login
+if (username.toLowerCase() === "takeo") {
+    alert("You're not the admin!");
+}
     </script>
-    
-    
-
 </body>
 </html>
