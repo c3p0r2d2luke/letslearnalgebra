@@ -190,29 +190,21 @@ async function saveName(){
 /* ----------------------------------------------------------------------
    Attach button handler after DOM loaded
    ---------------------------------------------------------------------- */
-document.addEventListener("DOMContentLoaded", ()=>{
-    if(saveNameBtn) saveNameBtn.onclick = saveName;
-    // auto-login if already saved
-    const savedUsername = localStorage.getItem("chatUsername");
-    if(savedUsername){
-        username = savedUsername;
-        currentRole = localStorage.getItem("chatRole") || (username.toLowerCase()==="frenchwizz" ? "Admin" : "User");
-        if(username.toLowerCase()==="frenchwizz" || currentRole === "Admin"){
-            isAdmin = true;
-            logBox.style.display="block";
-        }
-        namePrompt.style.display = "none";
-        input.disabled = false;
-        button.disabled = false;
+document.addEventListener("DOMContentLoaded", () => {
+    if (username) {
+        // auto-login
+        saveNameBtn.disabled = true;
+        nameInput.value = username;
         savedUsernameForAutoLogin = true;
-        // if realtime ready, load; otherwise verifyRealtimeConnection will trigger enableUIAfterHandshake
-        if(realtimeReady) loadMessages().catch(e => log("Error loading messages on autologin", e, "error", "messages"));
+        saveName(); // triggers fetch/create user record and loads messages
+    } else {
+        namePrompt.style.display = "block";
+        input.disabled = true;
+        button.disabled = true;
+        saveNameBtn.onclick = saveName;
     }
-
-    // wire send button + keyboard after DOM loaded
-    if(button) button.addEventListener("click", sendMessage);
-    if(input) input.addEventListener("keydown", (e) => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
 });
+
 
 /* ----------------------------------------------------------------------
     Enable Realtime helper
