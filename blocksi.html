@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blocksi Debugger</title>
+<title>Blocksi Exorciser v2</title>
 <style>
   body {
     font-family: monospace;
@@ -35,15 +35,15 @@
 </head>
 <body>
 
-<h2>🧠 Blocksi Element Debugger</h2>
-<p>Press “Scan” to look for Blocksi’s injected UI (like the plus button). Try the tools below to remove or hide it.</p>
+<h2>🧙‍♂️ Blocksi Exorciser v2</h2>
+<p>Detects and suppresses injected Blocksi elements (like the plus button).</p>
 
 <button id="scanBtn">Scan</button>
 <button id="hideBtn">Hide</button>
 <button id="removeBtn">Remove</button>
-<button id="observerBtn">Start Auto-Detect</button>
+<button id="autoBtn">Auto-Hide Mode</button>
 
-<div id="debugBox">[Debug log begins here]\n</div>
+<div id="debugBox">[Debug log starts here]\n</div>
 
 <script>
 const debugBox = document.getElementById("debugBox");
@@ -52,73 +52,79 @@ const log = msg => {
   debugBox.scrollTop = debugBox.scrollHeight;
 };
 
-// Try to find the Blocksi element
-function findBlocksi() {
-  const all = Array.from(document.querySelectorAll('*'));
-  return all.find(el => {
-    const id = el.id?.toLowerCase() || '';
-    const cls = el.className?.toLowerCase() || '';
-    const styles = window.getComputedStyle(el);
-    return (
-      id.includes('blocksi') ||
-      cls.includes('blocksi') ||
-      styles.zIndex > 10000 ||
-      (styles.position === 'fixed' && styles.bottom.includes('px') && styles.right.includes('px') && el.offsetWidth < 200)
-    );
-  });
+// --- Deep search through normal + shadow DOM ---
+function deepSearch(node = document.documentElement) {
+  const results = [];
+  if (!node) return results;
+  const all = Array.from(node.querySelectorAll('*'));
+  for (const el of all) {
+    try {
+      const id = el.id?.toLowerCase() || '';
+      const cls = el.className?.toString().toLowerCase() || '';
+      const styles = window.getComputedStyle(el);
+      if (
+        id.includes('blocksi') ||
+        cls.includes('blocksi') ||
+        styles.zIndex > 10000 ||
+        (styles.position === 'fixed' && styles.bottom !== 'auto' && styles.right !== 'auto' && el.offsetWidth < 200)
+      ) {
+        results.push(el);
+      }
+      // recurse into shadow DOMs
+      if (el.shadowRoot) {
+        results.push(...deepSearch(el.shadowRoot));
+      }
+    } catch {}
+  }
+  return results;
 }
 
-// --- Button: Scan ---
+function findBlocksi() {
+  const found = deepSearch();
+  return found.length ? found : null;
+}
+
+// --- Buttons ---
 document.getElementById("scanBtn").onclick = () => {
-  const el = findBlocksi();
-  if (el) {
-    log(`[+] Found suspicious element: ${el.tagName}, class="${el.className}", id="${el.id}"`);
-  } else {
-    log("[-] No suspicious element found.");
-  }
+  const els = findBlocksi();
+  if (els) log(`[+] Found ${els.length} suspect element(s).`);
+  else log("[-] Nothing found.");
 };
 
-// --- Button: Hide ---
 document.getElementById("hideBtn").onclick = () => {
-  const el = findBlocksi();
-  if (el) {
-    el.style.display = 'none';
-    log("[✔] Element hidden (display:none).");
-  } else {
-    log("[-] Nothing to hide.");
-  }
+  const els = findBlocksi();
+  if (!els) return log("[-] Nothing to hide.");
+  els.forEach(el => el.style.setProperty('display', 'none', 'important'));
+  log(`[✔] Hid ${els.length} element(s) with !important rule.`);
 };
 
-// --- Button: Remove ---
 document.getElementById("removeBtn").onclick = () => {
-  const el = findBlocksi();
-  if (el) {
-    el.remove();
-    log("[🔥] Element removed from DOM.");
-  } else {
-    log("[-] Nothing to remove.");
-  }
+  const els = findBlocksi();
+  if (!els) return log("[-] Nothing to remove.");
+  els.forEach(el => el.remove());
+  log(`[🔥] Removed ${els.length} element(s).`);
 };
 
-// --- Button: Observer ---
-let observer = null;
-document.getElementById("observerBtn").onclick = () => {
-  if (observer) {
-    observer.disconnect();
-    observer = null;
-    log("[🛑] Auto-detect stopped.");
+// --- Auto-hide mode ---
+let autoInterval = null;
+document.getElementById("autoBtn").onclick = () => {
+  if (autoInterval) {
+    clearInterval(autoInterval);
+    autoInterval = null;
+    log("[🛑] Auto-hide stopped.");
     return;
   }
-  observer = new MutationObserver(() => {
-    const el = findBlocksi();
-    if (el) log("[⚠️] New suspicious element appeared!");
-  });
-  observer.observe(document.documentElement, {childList: true, subtree: true});
-  log("[👀] Auto-detect started. Watching for injected elements...");
+  autoInterval = setInterval(() => {
+    const els = findBlocksi();
+    if (els && els.length) {
+      els.forEach(el => el.style.setProperty('display', 'none', 'important'));
+      log(`[⚡] Auto-hid ${els.length} element(s)`);
+    }
+  }, 500);
+  log("[👁️] Auto-hide mode activated (every 0.5 s).");
 };
 
-log("[Ready] Press 'Scan' to start searching.");
+log("[Ready] Press 'Scan' to begin.");
 </script>
-
 </body>
 </html>
