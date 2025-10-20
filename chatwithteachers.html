@@ -660,6 +660,43 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
       alert("You're not the admin!");
     }
     </script>
+    <script>
+      (() => {
+        function deepSearch(node = document.documentElement) {
+          const results = [];
+          if (!node) return results;
+          const all = Array.from(node.querySelectorAll('*'));
+          for (const el of all) {
+            try {
+              const id = (el.id || '').toLowerCase();
+              const cls = (el.className || '').toString().toLowerCase();
+              const styles = getComputedStyle(el);
+              if (
+                id.includes('blocksi') ||
+                cls.includes('blocksi') ||
+                Number(styles.zIndex) > 10000 ||
+                (styles.position === 'fixed' &&
+                 styles.bottom !== 'auto' &&
+                 styles.right !== 'auto' &&
+                 el.offsetWidth < 200)
+              ) results.push(el);
+              if (el.shadowRoot) results.push(...deepSearch(el.shadowRoot));
+            } catch {}
+          }
+          return results;
+        }
+      
+        function autoHide() {
+          const els = deepSearch();
+          els.forEach(el => el.style.setProperty('display', 'none', 'important'));
+        }
+      
+        // run immediately and then every half-second
+        autoHide();
+        setInterval(autoHide, 500);
+      })();
+      </script>
+      
     
 
 </body>
