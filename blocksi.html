@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Blocksi Debugger</title>
+<style>
+  body {
+    font-family: monospace;
+    background: #111;
+    color: #0f0;
+    padding: 20px;
+  }
+  #debugBox {
+    background: #000;
+    border: 1px solid #0f0;
+    padding: 10px;
+    height: 300px;
+    overflow-y: auto;
+    margin-top: 20px;
+    white-space: pre-wrap;
+  }
+  button {
+    background: #222;
+    color: #0f0;
+    border: 1px solid #0f0;
+    padding: 5px 10px;
+    margin: 5px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #0f0;
+    color: #000;
+  }
+</style>
+</head>
+<body>
+
+<h2>🧠 Blocksi Element Debugger</h2>
+<p>Press “Scan” to look for Blocksi’s injected UI (like the plus button). Try the tools below to remove or hide it.</p>
+
+<button id="scanBtn">Scan</button>
+<button id="hideBtn">Hide</button>
+<button id="removeBtn">Remove</button>
+<button id="observerBtn">Start Auto-Detect</button>
+
+<div id="debugBox">[Debug log begins here]\n</div>
+
+<script>
+const debugBox = document.getElementById("debugBox");
+const log = msg => {
+  debugBox.textContent += msg + "\\n";
+  debugBox.scrollTop = debugBox.scrollHeight;
+};
+
+// Try to find the Blocksi element
+function findBlocksi() {
+  const all = Array.from(document.querySelectorAll('*'));
+  return all.find(el => {
+    const id = el.id?.toLowerCase() || '';
+    const cls = el.className?.toLowerCase() || '';
+    const styles = window.getComputedStyle(el);
+    return (
+      id.includes('blocksi') ||
+      cls.includes('blocksi') ||
+      styles.zIndex > 10000 ||
+      (styles.position === 'fixed' && styles.bottom.includes('px') && styles.right.includes('px') && el.offsetWidth < 200)
+    );
+  });
+}
+
+// --- Button: Scan ---
+document.getElementById("scanBtn").onclick = () => {
+  const el = findBlocksi();
+  if (el) {
+    log(`[+] Found suspicious element: ${el.tagName}, class="${el.className}", id="${el.id}"`);
+  } else {
+    log("[-] No suspicious element found.");
+  }
+};
+
+// --- Button: Hide ---
+document.getElementById("hideBtn").onclick = () => {
+  const el = findBlocksi();
+  if (el) {
+    el.style.display = 'none';
+    log("[✔] Element hidden (display:none).");
+  } else {
+    log("[-] Nothing to hide.");
+  }
+};
+
+// --- Button: Remove ---
+document.getElementById("removeBtn").onclick = () => {
+  const el = findBlocksi();
+  if (el) {
+    el.remove();
+    log("[🔥] Element removed from DOM.");
+  } else {
+    log("[-] Nothing to remove.");
+  }
+};
+
+// --- Button: Observer ---
+let observer = null;
+document.getElementById("observerBtn").onclick = () => {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+    log("[🛑] Auto-detect stopped.");
+    return;
+  }
+  observer = new MutationObserver(() => {
+    const el = findBlocksi();
+    if (el) log("[⚠️] New suspicious element appeared!");
+  });
+  observer.observe(document.documentElement, {childList: true, subtree: true});
+  log("[👀] Auto-detect started. Watching for injected elements...");
+};
+
+log("[Ready] Press 'Scan' to start searching.");
+</script>
+
+</body>
+</html>
