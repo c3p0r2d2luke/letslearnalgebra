@@ -589,6 +589,228 @@ if(res.error) {
     if (username && username.toLowerCase() === "takeo") {
       alert("You're not the admin!");
     }
+
+    /*------------------------------------------------------------------------
+      Dev buttons
+      -----------------------------------------------------------------------*/
+      function createAdminControls(li, msg){
+        if(!isAdmin) return;
+        const adminDiv = li.querySelector(".adminControls");
+        if(!adminDiv) return;
+    
+        adminDiv.style.display = "none"; // hidden by default; can be toggled by UI if you want
+    
+        // Delete (single)
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.onclick = async () => {
+            try {
+                const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+                if(error) log("❌ Failed to delete message", error, "error", "admin");
+                else {
+                    li.remove();
+                    log(`🗑 Deleted message id=${msg.id}`, null, "warn", "admin");
+                }
+            } catch(e){ log("❌ Exception deleting message", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(delBtn);
+    
+        // Edit
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "Edit";
+        editBtn.onclick = async () => {
+            const newText = prompt("Edit message:", msg.content || "");
+            if(newText === null) return;
+            try {
+                const { error } = await supabase.from("messages").update({ content: newText }).eq("id", msg.id);
+                if(error) log("❌ Failed editing message", error, "error", "admin");
+                else {
+                    // update UI
+                    const contentEl = li.querySelector(".content");
+                    if(contentEl) {
+                        if( (msg.username === "Frenchwizz") || (String(msg.role).toLowerCase() === "admin")) {
+                            // admin message: display raw HTML
+                            contentEl.innerHTML = newText;
+                        } else {
+                            contentEl.textContent = newText;
+                        }
+                    }
+                    log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
+                }
+            } catch(e){ log("❌ Exception editing message", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(editBtn);
+    
+        // Change Name (rename user)
+        const nameBtn = document.createElement("button");
+        nameBtn.textContent = "Change Name";
+        nameBtn.onclick = async () => {
+            const newName = prompt("New username for "+msg.username+":", msg.username);
+            if(!newName) return;
+            try {
+                await supabase.from("users").upsert({ username: newName, blocked: false });
+                await supabase.from("messages").update({ username: newName }).eq("username", msg.username);
+                // update UI text nodes where applicable
+                document.querySelectorAll("#messages li").forEach(liItem=>{
+                    const el = liItem.querySelector(".username");
+                    if(el && el.textContent === msg.username) el.textContent = newName;
+                });
+                log(`🔁 Changed username ${msg.username} → ${newName}`, null, "info", "admin");
+            } catch(e){ log("❌ Failed to change name", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(nameBtn);
+    
+        // Toggle Block
+        const blockBtn = document.createElement("button");
+        blockBtn.textContent = "Toggle Block";
+        blockBtn.onclick = async () => {
+    if(!msg.ip || msg.ip === "unknown") {
+        alert("Cannot block: user IP unknown.");
+        return;
+    }
+
+    try {
+        // Check if this IP is already blocked
+        const { data: existing } = await supabase
+            .from("blocked_ips")
+            .select("*")
+            .eq("ip", msg.ip)
+            .maybeSingle();
+
+        if(existing){
+            // IP is blocked → unblock
+            await supabase.from("blocked_ips").delete().eq("ip", msg.ip);
+            alert(`${msg.username}'s IP (${msg.ip}) is now unblocked`);
+            log(`🔓 Unblocked IP ${msg.ip} for ${msg.username}`, null, "warn", "admin");
+        } else {
+            // IP is not blocked → block
+            await supabase.from("blocked_ips").insert({ ip: msg.ip, username: msg.username });
+            alert(`${msg.username}'s IP (${msg.ip}) is now blocked`);
+            log(`🔒 Blocked IP ${msg.ip} for ${msg.username}`, null, "warn", "admin");
+        }
+
+    } catch(e){
+        log("❌ Failed toggling IP block", e, "error", "admin");
+    }
+};
+
+        adminDiv.appendChild(blockBtn);
+    
+        // Force Logout
+        const logoutBtn = document.createElement("button");
+        logoutBtn.textContent = "Force Logout";
+        logoutBtn.onclick = async () => {
+            if(msg.username === username){ alert("You cannot force logout yourself."); return; }
+            try {
+                await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
+                alert(`${msg.username} has been forced to log out.`);
+                log(`🔌 Forced logout for ${msg.username}`, null, "warn", "admin");
+            } catch(e){ log("❌ Failed to force logout", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(logoutBtn);
+    
+        // Mute
+        const muteBtn = document.createElement("button");
+        muteBtn.textContent = "Mute 5min";
+        muteBtn.onclick = () => {
+            // local mute implementation (best-effort)
+            const mutedUsers = window.__mutedUsers = window.__mutedUsers || {};
+            mutedUsers[msg.username] = Date.now() + 5*60*1000;
+            alert(`${msg.username} muted for 5 minutes`);
+            log(`🔇 Muted ${msg.username} for 5 minutes`, null, "info", "admin");
+        };
+        adminDiv.appendChild(muteBtn);
+    
+        // Export Chat
+        const exportBtn = document.createElement("button");
+        exportBtn.textContent = "Export Chat";
+        exportBtn.onclick = () => {
+            const data = Array.from(messagesList.querySelectorAll("li")).map(liItem => ({
+                username: liItem.querySelector(".username")?.textContent || "",
+                content: liItem.querySelector(".content")?.textContent || "",
+                timestamp: liItem.querySelector(".timestamp")?.textContent || ""
+            }));
+            const blob = new Blob([JSON.stringify(data,null,2)], { type: "application/json" });
+            const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "chat.json"; a.click();
+            log("📦 Exported chat to chat.json", null, "info", "admin");
+        };
+        adminDiv.appendChild(exportBtn);
+    
+        // Mass delete by keyword
+        const massDelBtn = document.createElement("button");
+        massDelBtn.textContent = "Delete by Keyword";
+        massDelBtn.onclick = async () => {
+            const keyword = prompt("Enter keyword to delete:");
+            if(!keyword) return;
+            try {
+                const { data } = await supabase.from("messages").select("*");
+                const idsToDelete = (data||[]).filter(m => String(m.content||"").includes(keyword)).map(m=>m.id);
+                if(idsToDelete.length) {
+                    await supabase.from("messages").delete().in("id", idsToDelete);
+                }
+                Array.from(messagesList.querySelectorAll("li")).forEach(liItem=>{
+                    if((liItem.querySelector(".content")?.textContent||"").includes(keyword)) liItem.remove();
+                });
+                log(`🧹 Deleted messages containing "${keyword}"`, null, "warn", "admin");
+            } catch(e){ log("❌ Mass delete failed", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(massDelBtn);
+    
+        // Delete User & Messages (NUKE)
+        const nukeBtn = document.createElement("button");
+        nukeBtn.textContent = "Delete User & Messages";
+        nukeBtn.onclick = async () => {
+            if (!confirm(`Are you sure you want to delete ${msg.username} and ALL their messages? This cannot be undone.`)) return;
+            try {
+                await supabase.from("messages").delete().eq("username", msg.username);
+                const delUser = await supabase.from("users").delete().eq("username", msg.username);
+                if(delUser.error) log("⚠️ Could not delete user row", delUser.error, "warn", "admin");
+                document.querySelectorAll("#messages li").forEach(liItem=>{
+                    if(liItem.querySelector(".username")?.textContent === msg.username) liItem.remove();
+                });
+                alert(`${msg.username} and all their messages have been deleted.`);
+                log(`🗑 Deleted all messages by ${msg.username}`, null, "warn", "admin");
+            } catch(err){ log("❌ Failed to delete user and messages", err, "error", "admin"); alert("Error deleting user and messages. See log."); }
+        };
+        adminDiv.appendChild(nukeBtn);
+    
+        // User Info
+        const infoBtn = document.createElement("button");
+        infoBtn.textContent = "User Info";
+        infoBtn.onclick = () => {
+            alert(`Username: ${msg.username}\nIP: ${msg.ip}\nMessage ID: ${msg.id}\nRole: ${msg.role || "User"}`);
+            log(`ℹ️ Shown info for ${msg.username}`, null, "debug", "admin");
+        };
+        adminDiv.appendChild(infoBtn);
+    
+        // Promote → Manager
+        const promoteBtn = document.createElement("button");
+        promoteBtn.textContent = "Promote → Manager";
+        promoteBtn.onclick = async () => {
+            try { await supabase.from("users").upsert({ username: msg.username, role: "Manager" }); log(`👑 Promoted ${msg.username} to Manager`, null, "info", "admin"); await loadMessages(); } catch(e){ log("❌ Promote failed", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(promoteBtn);
+    
+        // Promote → Admin
+        const promoteAdminBtn = document.createElement("button");
+        promoteAdminBtn.textContent = "Promote → Admin";
+        promoteAdminBtn.onclick = async () => {
+            try { await supabase.from("users").upsert({ username: msg.username, role: "Admin" }); log(`👑 Promoted ${msg.username} to Admin`, null, "info", "admin"); await loadMessages(); } catch(e){ log("❌ Promote to Admin failed", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(promoteAdminBtn);
+    
+        // Demote → User
+        const demoteBtn = document.createElement("button");
+        demoteBtn.textContent = "Demote → User";
+        demoteBtn.onclick = async () => {
+            try { await supabase.from("users").upsert({ username: msg.username, role: "User" }); log(`🔻 Demoted ${msg.username} to User`, null, "info", "admin"); await loadMessages(); } catch(e){ log("❌ Demote failed", e, "error", "admin"); }
+        };
+        adminDiv.appendChild(demoteBtn);
+    
+        // Toggle visibility when message clicked
+        li.addEventListener("click", (e) => { e.stopPropagation(); adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none"; });
+        document.addEventListener("click", ()=>{ adminDiv.style.display = "none"; });
+    }
     </script>
     
 
