@@ -594,6 +594,7 @@ if(res.error) {
       Dev buttons
       -----------------------------------------------------------------------*/
       function createAdminControls(li, msg){
+        if(!(isAdmin || isManager)) return;
         if(!isAdmin) return;
         const adminDiv = li.querySelector(".adminControls");
         if(!adminDiv) return;
@@ -806,6 +807,40 @@ if(res.error) {
             try { await supabase.from("users").upsert({ username: msg.username, role: "User" }); log(`🔻 Demoted ${msg.username} to User`, null, "info", "admin"); await loadMessages(); } catch(e){ log("❌ Demote failed", e, "error", "admin"); }
         };
         adminDiv.appendChild(demoteBtn);
+
+      // --- MANAGER: limited controls ---
+if(isManager && !isAdmin){
+    adminDiv.style.display = "none";
+
+    // Manager: Delete own message
+    if(msg.username === username){
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete My Message";
+        delBtn.onclick = async () => {
+            try {
+                await supabase.from("messages").delete().eq("id", msg.id);
+                li.remove();
+                log(`🗑 Manager deleted own message id=${msg.id}`, null, "warn", "manager");
+            } catch(e){ log("❌ Manager delete failed", e, "error", "manager"); }
+        };
+        adminDiv.appendChild(delBtn);
+    }
+
+    // Manager: Report message
+    const reportBtn = document.createElement("button");
+    reportBtn.textContent = "Report Message";
+    reportBtn.onclick = async () => {
+        try {
+            await supabase.functions.invoke("sendEmail", {
+                body: { subject: "Reported Message", text: JSON.stringify(msg, null, 2) }
+            });
+            alert("Message reported!");
+            log(`🚨 Manager reported message id=${msg.id}`, null, "info", "manager");
+        } catch(e){ log("❌ Failed to report message", e, "error", "manager"); }
+    };
+    adminDiv.appendChild(reportBtn);
+}
+
     
         // Toggle visibility when message clicked
         li.addEventListener("click", (e) => { e.stopPropagation(); adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none"; });
