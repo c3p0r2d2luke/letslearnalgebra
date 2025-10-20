@@ -46,85 +46,97 @@
 <div id="debugBox">[Debug log starts here]\n</div>
 
 <script>
-const debugBox = document.getElementById("debugBox");
-const log = msg => {
-  debugBox.textContent += msg + "\\n";
-  debugBox.scrollTop = debugBox.scrollHeight;
-};
-
-// --- Deep search through normal + shadow DOM ---
-function deepSearch(node = document.documentElement) {
-  const results = [];
-  if (!node) return results;
-  const all = Array.from(node.querySelectorAll('*'));
-  for (const el of all) {
-    try {
-      const id = el.id?.toLowerCase() || '';
-      const cls = el.className?.toString().toLowerCase() || '';
-      const styles = window.getComputedStyle(el);
-      if (
-        id.includes('blocksi') ||
-        cls.includes('blocksi') ||
-        styles.zIndex > 10000 ||
-        (styles.position === 'fixed' && styles.bottom !== 'auto' && styles.right !== 'auto' && el.offsetWidth < 200)
-      ) {
-        results.push(el);
+    const debugBox = document.getElementById("debugBox");
+    const log = msg => {
+      debugBox.textContent += msg + "\\n";
+      debugBox.scrollTop = debugBox.scrollHeight;
+    };
+    
+    function deepSearch(node = document.documentElement) {
+      const results = [];
+      if (!node) return results;
+      const all = Array.from(node.querySelectorAll('*'));
+      for (const el of all) {
+        try {
+          const id = el.id?.toLowerCase() || '';
+          const cls = el.className?.toString().toLowerCase() || '';
+          const styles = window.getComputedStyle(el);
+          if (
+            id.includes('blocksi') ||
+            cls.includes('blocksi') ||
+            styles.zIndex > 10000 ||
+            (styles.position === 'fixed' && styles.bottom !== 'auto' && styles.right !== 'auto' && el.offsetWidth < 200)
+          ) {
+            results.push(el);
+          }
+          if (el.shadowRoot) results.push(...deepSearch(el.shadowRoot));
+        } catch {}
       }
-      // recurse into shadow DOMs
-      if (el.shadowRoot) {
-        results.push(...deepSearch(el.shadowRoot));
-      }
-    } catch {}
-  }
-  return results;
-}
-
-function findBlocksi() {
-  const found = deepSearch();
-  return found.length ? found : null;
-}
-
-// --- Buttons ---
-document.getElementById("scanBtn").onclick = () => {
-  const els = findBlocksi();
-  if (els) log(`[+] Found ${els.length} suspect element(s).`);
-  else log("[-] Nothing found.");
-};
-
-document.getElementById("hideBtn").onclick = () => {
-  const els = findBlocksi();
-  if (!els) return log("[-] Nothing to hide.");
-  els.forEach(el => el.style.setProperty('display', 'none', 'important'));
-  log(`[✔] Hid ${els.length} element(s) with !important rule.`);
-};
-
-document.getElementById("removeBtn").onclick = () => {
-  const els = findBlocksi();
-  if (!els) return log("[-] Nothing to remove.");
-  els.forEach(el => el.remove());
-  log(`[🔥] Removed ${els.length} element(s).`);
-};
-
-// --- Auto-hide mode ---
-let autoInterval = null;
-document.getElementById("autoBtn").onclick = () => {
-  if (autoInterval) {
-    clearInterval(autoInterval);
-    autoInterval = null;
-    log("[🛑] Auto-hide stopped.");
-    return;
-  }
-  autoInterval = setInterval(() => {
-    const els = findBlocksi();
-    if (els && els.length) {
-      els.forEach(el => el.style.setProperty('display', 'none', 'important'));
-      log(`[⚡] Auto-hid ${els.length} element(s)`);
+      return results;
     }
-  }, 500);
-  log("[👁️] Auto-hide mode activated (every 0.5 s).");
-};
-
-log("[Ready] Press 'Scan' to begin.");
-</script>
+    
+    function findBlocksi() {
+      const found = deepSearch();
+      return found.length ? found : null;
+    }
+    
+    function highlightElement(el) {
+      const oldOutline = el.style.outline;
+      el.style.outline = "3px solid red";
+      setTimeout(() => { el.style.outline = oldOutline; }, 1500);
+    }
+    
+    // --- Buttons ---
+    document.getElementById("scanBtn").onclick = () => {
+      const els = findBlocksi();
+      if (els) {
+        log(`[+] Found ${els.length} suspect element(s).`);
+        els.forEach(el => highlightElement(el));
+      } else log("[-] Nothing found.");
+    };
+    
+    document.getElementById("hideBtn").onclick = () => {
+      const els = findBlocksi();
+      if (!els) return log("[-] Nothing to hide.");
+      els.forEach(el => {
+        highlightElement(el);
+        el.style.setProperty('display', 'none', 'important');
+      });
+      log(`[✔] Hid ${els.length} element(s) with !important rule.`);
+    };
+    
+    document.getElementById("removeBtn").onclick = () => {
+      const els = findBlocksi();
+      if (!els) return log("[-] Nothing to remove.");
+      els.forEach(el => {
+        highlightElement(el);
+        el.remove();
+      });
+      log(`[🔥] Removed ${els.length} element(s).`);
+    };
+    
+    let autoInterval = null;
+    document.getElementById("autoBtn").onclick = () => {
+      if (autoInterval) {
+        clearInterval(autoInterval);
+        autoInterval = null;
+        log("[🛑] Auto-hide stopped.");
+        return;
+      }
+      autoInterval = setInterval(() => {
+        const els = findBlocksi();
+        if (els && els.length) {
+          els.forEach(el => {
+            el.style.setProperty('display', 'none', 'important');
+          });
+          log(`[⚡] Auto-hid ${els.length} element(s)`);
+        }
+      }, 500);
+      log("[👁️] Auto-hide mode activated (every 0.5 s).");
+    };
+    
+    log("[Ready] Press 'Scan' to begin.");
+    </script>
+    
 </body>
 </html>
