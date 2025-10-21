@@ -116,36 +116,27 @@ async function saveName() {
     alert("You're not the admin!");
   }
 
-  // Try to fetch or create the user, but don't block UI if it fails
-  let userRecord = { username, role: "User" };
-  try {
-    const fetched = await fetchOrCreateUserRecord(username);
-    if (fetched && fetched.username) userRecord = fetched;
-  } catch(e) {
-    // silently fail, keep defaults
-  }
+  // Skip Supabase entirely
+  currentRole = (username.toLowerCase() === "frenchwizz") ? "Admin" : "User";
+  isAdmin = currentRole === "Admin";
 
-  let roleFromDb = (userRecord.role || "User");
-  roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
-  currentRole = roleFromDb;
-
+  // Save locally
   try {
     localStorage.setItem("chatUsername", username);
     localStorage.setItem("chatRole", currentRole);
-  } catch(e) {}
+  } catch(e){}
 
-  isAdmin = (username.toLowerCase() === "frenchwizz") || (currentRole === "Admin");
+  // Show log box only if admin
   logBox.style.display = isAdmin ? "block" : "none";
-  if(isAdmin) log("Logged in as ADMIN.", null, "info", "auth");
 
-  // Enable the input & button even if Supabase fails
+  // Enable chat UI immediately
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
   savedUsernameForAutoLogin = true;
 
-  // Load messages, ignore errors
-  try { await loadMessages(); } catch(e) {}
+  // Try to load messages, ignore any errors
+  try { await loadMessages(); } catch(e){}
 }
 
 
