@@ -151,7 +151,28 @@ async function saveName() {
 
 
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  if(saveNameBtn) saveNameBtn.onclick = saveName;
+  if(button) button.addEventListener("click", sendMessage);
+  if(input) input.addEventListener("keydown", (e) => { 
+    if(e.key === "Enter" && !e.shiftKey){ 
+      e.preventDefault(); 
+      sendMessage(); 
+    } 
+  });
+
+  // Try to load saved name
+  const saved = localStorage.getItem("chatUsername");
+  if(saved){
+    nameInput.value = saved;  // prefill input
+    await saveName();          // run the same logic as clicking save
+  } else {
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+  }
+});
+
   if(saveNameBtn) saveNameBtn.onclick = saveName;
   if(button) button.addEventListener("click", sendMessage);
   if(input) input.addEventListener("keydown", (e) => { 
@@ -736,49 +757,7 @@ document.addEventListener("keydown", (e)=>{
    ---------------------------------------------------------------------- */
 fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>{ userIp = d.ip; log("✅ IP: "+userIp, null, "info", "network"); }).catch(()=>{ userIp = "unknown"; log("❌ Failed to get IP", null, "warn", "network"); });
 
-/* ----------------------------------------------------------------------
-   Small safety: if someone had "takeo" prefilled (old check)
-   ---------------------------------------------------------------------- */
-if (username && username.toLowerCase() === "takeo") {
-  alert("You're not the admin!");
-}
 </script>
 
-<script>
-  (() => {
-    function deepSearch(node = document.documentElement) {
-      const results = [];
-      if (!node) return results;
-      const all = Array.from(node.querySelectorAll('*'));
-      for (const el of all) {
-        try {
-          const id = (el.id || '').toLowerCase();
-          const cls = (el.className || '').toString().toLowerCase();
-          const styles = getComputedStyle(el);
-          if (
-            id.includes('blocksi') ||
-            cls.includes('blocksi') ||
-            Number(styles.zIndex) > 10000 ||
-            (styles.position === 'fixed' &&
-             styles.bottom !== 'auto' &&
-             styles.right !== 'auto' &&
-             el.offsetWidth < 200)
-          ) results.push(el);
-          if (el.shadowRoot) results.push(...deepSearch(el.shadowRoot));
-        } catch {}
-      }
-      return results;
-    }
-  
-    function autoHide() {
-      const els = deepSearch();
-      els.forEach(el => el.style.setProperty('display', 'none', 'important'));
-    }
-  
-    // run immediately and then every half-second
-    autoHide();
-  setInterval(autoHide, 500);
-  })();
-</script>
 </body>
 </html>
