@@ -15,18 +15,22 @@
   <div id="consoleOutput"></div>
 
   <script>
-    const consoleOutput = document.getElementById('consoleOutput');
+    window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data?.type) return;
 
-    window.addEventListener('message', (ev) => {
-      const data = ev.data;
-      if (!data || data.type !== 'console') return;
+  switch(data.type) {
+    case "console":
+      console.log("Child log:", ...data.payload.args);
+      break;
 
-      const line = `[${data.level.toUpperCase()}] ${data.args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}`;
-      const div = document.createElement('div');
-      div.textContent = line;
-      consoleOutput.appendChild(div);
-      consoleOutput.scrollTop = consoleOutput.scrollHeight;
-    });
+    case "nameSaved":
+      console.log("Child saved name:", data.payload.username, "Role:", data.payload.role);
+      // You can update your parent UI here if needed
+      break;
+  }
+});
+
   </script>
 </body>
 </html>
