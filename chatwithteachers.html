@@ -332,20 +332,27 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
   if (viewerRole === "Admin") {
     // Delete (single)
     const delBtn = document.createElement("button");
-    delBtn.textContent = "Delete";
-    delBtn.onclick = async () => {
-      try {
-        const { error } = await supabase.from("messages").delete().eq("id", msg.id);
-        if (error) log("❌ Failed to delete message", error, "error", "admin");
-        else {
-          li.remove();
-          log(`🗑 Deleted message id=${msg.id}`, null, "warn", "admin");
-        }
-      } catch (e) {
-        log("❌ Exception deleting message", e, "error", "admin");
-      }
-    };
-    adminDiv.appendChild(delBtn);
+delBtn.textContent = "Delete";
+delBtn.onclick = async () => {
+  // NEW: prevent deleting pinned messages
+  if (li.dataset.pinned === "true") {
+    alert("Cannot delete a pinned message!");
+    return; // stop deletion
+  }
+
+  try {
+    const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+    if (error) log("❌ Failed to delete message", error, "error", "admin");
+    else {
+      li.remove();
+      log(`🗑 Deleted message id=${msg.id}`, null, "warn", "admin");
+    }
+  } catch (e) {
+    log("❌ Exception deleting message", e, "error", "admin");
+  }
+};
+adminDiv.appendChild(delBtn);
+
 
     // Edit
     const editBtn = document.createElement("button");
