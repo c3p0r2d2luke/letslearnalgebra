@@ -331,10 +331,7 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
   // --- ADMIN: full set of controls ---
   if (viewerRole === "Admin") {
     // Delete (single)
-    const delBtn = document.createElement("button");
-delBtn.textContent = "Delete";
 delBtn.onclick = async () => {
-  // NEW: prevent deleting pinned messages
   if (li.dataset.pinned === "true") {
     alert("Cannot delete a pinned message!");
     return; // stop deletion
@@ -351,7 +348,7 @@ delBtn.onclick = async () => {
     log("❌ Exception deleting message", e, "error", "admin");
   }
 };
-adminDiv.appendChild(delBtn);
+
 
 
     // Edit
@@ -589,22 +586,36 @@ adminDiv.appendChild(delBtn);
     adminDiv.appendChild(demoteBtn);
   }
 
-// Pin / unpin button
+// Pin / Unpin button
 const pinBtn = document.createElement("button");
 pinBtn.textContent = "Pin";
 
 // Save the original index of the message
 let originalIndex = Array.from(messagesList.children).indexOf(li);
 
+// Check localStorage on load
+let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+if (pinnedMessages.includes(msg.id)) {
+  li.dataset.pinned = "true";
+  li.style.border = "2px solid red";
+  pinBtn.textContent = "Unpin";
+  messagesList.insertBefore(li, messagesList.firstChild); // move pinned to top
+}
+
 pinBtn.onclick = () => {
   const isPinned = li.dataset.pinned === "true";
+  let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
 
   if (!isPinned) {
-    // Move to top
+    // Pin: move to top and style
     messagesList.insertBefore(li, messagesList.firstChild);
-    li.style.border = "2px solid red"; // red border to indicate pinned
+    li.style.border = "2px solid red";
     li.dataset.pinned = "true";
     pinBtn.textContent = "Unpin";
+
+    if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
+    localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
+
     log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
   } else {
     // Unpin: restore original position
@@ -614,14 +625,19 @@ pinBtn.onclick = () => {
     } else {
       messagesList.insertBefore(li, children[originalIndex]);
     }
-    li.style.border = ""; // remove red border
+    li.style.border = "";
     li.dataset.pinned = "false";
     pinBtn.textContent = "Pin";
+
+    pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
+    localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
+
     log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
   }
 };
 
 adminDiv.appendChild(pinBtn);
+
 
 
 
