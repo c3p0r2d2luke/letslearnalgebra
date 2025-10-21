@@ -111,7 +111,20 @@ async function saveName() {
   if (!val) return alert("Name required!");
   username = val;
 
-  const userRecord = await fetchOrCreateUserRecord(username);
+  // Keep the Takeo alert
+  if (username.toLowerCase() === "takeo") {
+    alert("You're not the admin!");
+  }
+
+  // Try to fetch or create the user, but don't block UI if it fails
+  let userRecord = { username, role: "User" };
+  try {
+    const fetched = await fetchOrCreateUserRecord(username);
+    if (fetched && fetched.username) userRecord = fetched;
+  } catch(e) {
+    // silently fail, keep defaults
+  }
+
   let roleFromDb = (userRecord.role || "User");
   roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
   currentRole = roleFromDb;
@@ -125,13 +138,17 @@ async function saveName() {
   logBox.style.display = isAdmin ? "block" : "none";
   if(isAdmin) log("Logged in as ADMIN.", null, "info", "auth");
 
+  // Enable the input & button even if Supabase fails
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
   savedUsernameForAutoLogin = true;
 
-  await loadMessages();
+  // Load messages, ignore errors
+  try { await loadMessages(); } catch(e) {}
 }
+
+
 
 document.addEventListener("DOMContentLoaded", ()=>{
   if(saveNameBtn) saveNameBtn.onclick = saveName;
@@ -751,7 +768,7 @@ if (username && username.toLowerCase() === "takeo") {
   
     // run immediately and then every half-second
     autoHide();
-    setInterval(autoHide, 500);
+  setInterval(autoHide, 500);
   })();
 </script>
 </body>
