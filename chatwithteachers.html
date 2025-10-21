@@ -582,6 +582,21 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     adminDiv.appendChild(demoteBtn);
   }
 
+  // Pin button
+const pinBtn = document.createElement("button");
+pinBtn.textContent = "Pin";
+pinBtn.onclick = () => {
+  // Make the message fixed at the top
+  li.style.position = "sticky";
+  li.style.top = "0px";
+  li.style.zIndex = "9999"; // make sure it stays on top
+  li.style.border = "2px solid red"; // red border to indicate pinned
+  li.style.backgroundColor = "#2f3136"; // optional: keep background visible
+  log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
+};
+adminDiv.appendChild(pinBtn);
+
+
   // --- MANAGER: limited controls (delete own message, report) ---
   if (viewerRole === "Manager") {
     if (msg.username === username) {
