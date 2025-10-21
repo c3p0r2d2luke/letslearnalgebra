@@ -263,6 +263,11 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
       const li = document.createElement("li");
       li.id = "msg-" + msg.id;
     
+// Save the original order index in a dataset if not already set
+if (!li.dataset.originalIndex) {
+  li.dataset.originalIndex = messagesList.children.length;
+}
+
       if(isMsgAdmin) li.classList.add("admin");
       else if(msgRole === "Manager") li.classList.add("manager");
     
@@ -593,14 +598,15 @@ pinBtn.textContent = "Pin";
 // Save the original index of the message
 let originalIndex = Array.from(messagesList.children).indexOf(li);
 
-// Check localStorage on load
+// After creating li in addMessage
 let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
 if (pinnedMessages.includes(msg.id)) {
   li.dataset.pinned = "true";
   li.style.border = "2px solid red";
   pinBtn.textContent = "Unpin";
-  messagesList.insertBefore(li, messagesList.firstChild); // move pinned to top
+  messagesList.insertBefore(li, messagesList.firstChild);
 }
+
 
 pinBtn.onclick = () => {
   const isPinned = li.dataset.pinned === "true";
@@ -615,15 +621,14 @@ pinBtn.onclick = () => {
 
     if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
     localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-
-    log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
   } else {
     // Unpin: restore original position
     const children = Array.from(messagesList.children).filter(c => c !== li);
-    if (originalIndex >= children.length) {
+    const origIdx = parseInt(li.dataset.originalIndex, 10);
+    if (origIdx >= children.length) {
       messagesList.appendChild(li);
     } else {
-      messagesList.insertBefore(li, children[originalIndex]);
+      messagesList.insertBefore(li, children[origIdx]);
     }
     li.style.border = "";
     li.dataset.pinned = "false";
@@ -631,10 +636,9 @@ pinBtn.onclick = () => {
 
     pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
     localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-
-    log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
   }
 };
+
 
 adminDiv.appendChild(pinBtn);
 
