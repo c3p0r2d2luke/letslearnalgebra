@@ -585,24 +585,37 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
 // Pin / unpin button
 const pinBtn = document.createElement("button");
 pinBtn.textContent = "Pin";
+
+// Save the original index of the message
+let originalIndex = Array.from(messagesList.children).indexOf(li);
+
 pinBtn.onclick = () => {
   const isPinned = li.dataset.pinned === "true";
 
   if (!isPinned) {
     // Move to top
     messagesList.insertBefore(li, messagesList.firstChild);
-    // Style as pinned
-    li.style.border = "2px solid red";
+    li.style.border = "2px solid red"; // red border to indicate pinned
     li.dataset.pinned = "true";
+    pinBtn.textContent = "Unpin";
     log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
   } else {
-    // Unpin: remove red border
-    li.style.border = "";
+    // Unpin: restore original position
+    const children = Array.from(messagesList.children).filter(c => c !== li);
+    if (originalIndex >= children.length) {
+      messagesList.appendChild(li);
+    } else {
+      messagesList.insertBefore(li, children[originalIndex]);
+    }
+    li.style.border = ""; // remove red border
     li.dataset.pinned = "false";
+    pinBtn.textContent = "Pin";
     log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
   }
 };
+
 adminDiv.appendChild(pinBtn);
+
 
 
 
