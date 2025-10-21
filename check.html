@@ -31,6 +31,15 @@
   }
 });
 
+function sendToParent(type, payload) {
+    try {
+        parent.postMessage({ type, payload }, "*"); // "*" works for testing; you can restrict origin later
+    } catch (e) {
+        console.error("Failed to send message to parent:", e);
+    }
+}
+
+
   </script>
 </body>
 </html>

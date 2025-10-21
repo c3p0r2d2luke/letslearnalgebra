@@ -63,29 +63,48 @@ let userIp = "unknown";
 
 function escapeHtml(str=""){ return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-function log(msg, obj=null, level="info", context=null){
+function log(msg, obj = null, level = "info", context = null) {
   const now = new Date();
   const timestamp = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}.${now.getMilliseconds()}`;
-  const colors = { info:"#0f0", warn:"#ff0", error:"#f00", debug:"#0ff" };
-  const color = colors[level]||"#0f0";
-  console.log(`[${timestamp}] ${level.toUpperCase()}${context ? " ("+context+")" : ""}:`, msg, obj);
-  if(!isAdmin) return;
+  const colors = { info: "#0f0", warn: "#ff0", error: "#f00", debug: "#0ff" };
+  const color = colors[level] || "#0f0";
+
+  // 1️⃣ Log to iframe console
+  console.log(`[${timestamp}] ${level.toUpperCase()}${context ? " (" + context + ")" : ""}:`, msg, obj);
+
+  // 2️⃣ Send to parent iframe
+  try {
+    parent.postMessage({ type: "console", payload: { args: [msg, obj], level, context } }, "*");
+  } catch (e) {
+    console.warn("Failed to send log to parent:", e);
+  }
+
+  // 3️⃣ Render in logBox only for admins
+  if (!isAdmin) return;
   const entry = document.createElement("div");
   entry.style.marginBottom = "6px";
   entry.style.borderBottom = "1px solid #333";
   entry.style.paddingBottom = "4px";
   entry.innerHTML = `<div><strong style="color:${color}">[${timestamp}] ${level.toUpperCase()}</strong> ${context ? `<em style="color:#aaa">(${context})</em>` : ""}</div><div style="margin-left:8px">${escapeHtml(String(msg))}</div>`;
-  if(obj){
+  if (obj) {
     const pre = document.createElement("pre");
-    try { pre.textContent = JSON.stringify(obj, null, 2); } catch(e){ pre.textContent = String(obj); }
-    pre.style.background="#111"; pre.style.color="#0f0"; pre.style.padding="4px"; pre.style.borderRadius="4px"; pre.style.overflowX="auto"; pre.style.fontSize="11px"; pre.style.maxHeight="150px"; pre.style.overflowY="auto";
+    try { pre.textContent = JSON.stringify(obj, null, 2); } catch (e) { pre.textContent = String(obj); }
+    pre.style.background = "#111";
+    pre.style.color = "#0f0";
+    pre.style.padding = "4px";
+    pre.style.borderRadius = "4px";
+    pre.style.overflowX = "auto";
+    pre.style.fontSize = "11px";
+    pre.style.maxHeight = "150px";
+    pre.style.overflowY = "auto";
     entry.appendChild(pre);
   }
   const MAX_LOGS = 200;
-  if(logBox.children.length > MAX_LOGS) logBox.removeChild(logBox.firstChild);
+  if (logBox.children.length > MAX_LOGS) logBox.removeChild(logBox.firstChild);
   logBox.appendChild(entry);
   logBox.scrollTop = logBox.scrollHeight;
 }
+
 
 async function fetchOrCreateUserRecord(name){
   if(!name) return { username: name, role: "User" };
