@@ -173,35 +173,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-  if(saveNameBtn) saveNameBtn.onclick = saveName;
-  if(button) button.addEventListener("click", sendMessage);
-  if(input) input.addEventListener("keydown", (e) => { 
-    if(e.key === "Enter" && !e.shiftKey){ 
-      e.preventDefault(); 
-      sendMessage(); 
-    } 
-  });
-
-  // Try to load saved name
-  const saved = localStorage.getItem("chatUsername");
-  if(saved){
-    username = saved;
-    currentRole = localStorage.getItem("chatRole") || ((username.toLowerCase() === "frenchwizz") ? "Admin" : "User");
-    isAdmin = (currentRole === "Admin");
-    logBox.style.display = isAdmin ? "block" : "none";
-    namePrompt.style.display = "none";
-    input.disabled = false;
-    button.disabled = false;
-    savedUsernameForAutoLogin = true;
-
-    // Load messages safely
-    try { loadMessages().catch(()=>{}); } catch(e){}
-  } else {
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-  }
-});
 
 /* ----------------------------------------------------------------------
    Realtime connection test (handshake)
