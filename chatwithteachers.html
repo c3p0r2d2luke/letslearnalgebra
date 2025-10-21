@@ -807,6 +807,120 @@ if (username && username.toLowerCase() === "takeo") {
     setInterval(autoHide, 500);
   })();
 </script>
+<!-- DEBUG & SAFER saveName() KIT - paste this right after the supabase script tag -->
+<script>
+console.log("DEBUG KIT: starting checks...");
+
+// 1) Basic runtime checks
+try {
+  if (!window.supabase) {
+    console.error("DEBUG: window.supabase is missing — CDN did not load or was blocked.");
+  } else if (!window.supabase.createClient) {
+    console.error("DEBUG: supabase.createClient missing — wrong version?");
+  } else {
+    console.log("DEBUG: Supabase client factory present.");
+  }
+} catch (e) {
+  console.error("DEBUG: error checking supabase:", e);
+}
+
+// 2) Quick supabase create-client test (no side-effects)
+let _testSup = null;
+try {
+  _testSup = window.supabase ? window.supabase.createClient("https://qjajtkdchvapthnidtwj.supabase.co", "anon") : null;
+  console.log("DEBUG: created test supabase client (no requests yet).");
+} catch(e) {
+  console.error("DEBUG: creating supabase client failed:", e);
+}
+
+// 3) Test fetching messages (safe, read-only). This shows exact response in console.
+(async function testFetch(){
+  if(!_testSup){
+    console.warn("DEBUG: skipping fetch test because supabase client unavailable.");
+    return;
+  }
+  try {
+    console.log("DEBUG: attempting simple select(*) from messages...");
+    const resp = await _testSup.from("messages").select().limit(5);
+    console.log("DEBUG: select response:", resp);
+    if(resp.error) console.error("DEBUG: select returned error:", resp.error);
+    else console.log("DEBUG: select returned rows:", resp.data && resp.data.length);
+  } catch(e) {
+    console.error("DEBUG: exception during test fetch:", e);
+  }
+})();
+
+// 4) Defensive saveName wiring & implementation
+(function wireSaveNameSafely(){
+  // ensure elements exist
+  const nameInput = document.getElementById("nameInput");
+  const saveBtn = document.getElementById("saveNameButton");
+  if(!nameInput || !saveBtn) { console.warn("DEBUG: nameInput or saveNameButton not found"); return; }
+
+  // attach a robust handler that always persists locally and logs db action
+  async function saferSaveName(e){
+    e && e.preventDefault && e.preventDefault();
+    const val = (nameInput.value || "").trim();
+    if(!val) { alert("Name required!"); return; }
+
+    console.log("DEBUG: saferSaveName called with:", val);
+    // persist locally immediately (guarantee UI unlock)
+    try {
+      localStorage.setItem("chatUsername", val);
+      // default role while we fetch
+      localStorage.setItem("chatRole", "User");
+    } catch(err) {
+      console.warn("DEBUG: unable to write localStorage:", err);
+    }
+
+    // try to create/fetch user in DB but do not block UI on failure
+    try {
+      const sup = window.supabase && window.supabase.createClient ? window.supabase.createClient("https://qjajtkdchvapthnidtwj.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M") : null;
+      if(!sup) { console.warn("DEBUG: supabase client unavailable for DB create/fetch"); return; }
+      // try select
+      const { data, error } = await sup.from("users").select("username,role").eq("username", val).maybeSingle();
+      console.log("DEBUG: users.select result:", {data, error});
+      if (error) {
+        // try upsert
+        console.warn("DEBUG: select had error, attempting upsert...", error);
+        const up = await sup.from("users").upsert({ username: val, role: "User" }).select();
+        console.log("DEBUG: upsert result:", up);
+        if(up.error) console.error("DEBUG: upsert error:", up.error);
+        if(up.data && up.data[0] && up.data[0].role) {
+          localStorage.setItem("chatRole", up.data[0].role);
+        }
+      } else if (data && data.role) {
+        localStorage.setItem("chatRole", data.role);
+      }
+    } catch(err) {
+      console.error("DEBUG: DB fetch/upsert threw:", err);
+    }
+
+    // finally unlock UI so user isn't stuck
+    try {
+      document.getElementById("namePrompt").style.display = "none";
+      document.getElementById("messageInput").disabled = false;
+      document.getElementById("sendButton").disabled = false;
+      console.log("DEBUG: UI unlocked after saving name locally.");
+      // optionally trigger your loadMessages if defined
+      if (typeof loadMessages === "function") {
+        try { loadMessages(); } catch(e){ console.error("DEBUG: loadMessages() threw:", e); }
+      }
+    } catch(err) {
+      console.error("DEBUG: unlocking UI failed:", err);
+    }
+  }
+
+  // remove previous handlers then attach ours
+  saveBtn.replaceWith(saveBtn.cloneNode(true));
+  const newBtn = document.getElementById("saveNameButton");
+  newBtn.addEventListener("click", saferSaveName);
+  // also allow Enter on input to save
+  nameInput.addEventListener("keydown", (ev)=>{ if(ev.key === "Enter"){ ev.preventDefault(); saferSaveName(); } });
+
+  console.log("DEBUG: saferSaveName wired to Save Name button.");
+})();
+</script>
 
 </body>
 </html>
