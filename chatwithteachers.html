@@ -221,29 +221,41 @@ li.highlighted { background-color: #4f545c !important; } /* optional highlight e
     /* ----------------------------------------------------------------------
        loadMessages + Realtime subscription
        ---------------------------------------------------------------------- */
-    async function loadMessages(){
-      if(!username) return;
-    
-      try {
-        const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
-        if(error) log("❌ Failed to load messages", error, "error", "messages");
-        else data.forEach(m => addMessage(m));
-      } catch(e){
-        log("❌ Exception loading messages", e, "error", "messages");
-      }
-    
-      if(!messagesChannel){
-        messagesChannel = supabase.channel("public:messages");
-        messagesChannel
-          .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-          .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
-          .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
-            const node = document.getElementById("msg-"+payload.old.id);
-            if(node) node.remove();
-          })
-          .subscribe((status) => log(`Realtime subscription status: ${status}`, null, "debug", "messages"));
-      }
+    async function loadMessages() {
+  if (!username) return;
+
+  try {
+    const { data, error } = await supabase.from("messages").select().order("inserted_at", { ascending: true });
+    if (error) {
+      log("❌ Failed to load messages", error, "error", "messages");
+      return;
     }
+
+    const pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+
+    // First render pinned messages
+    data.filter(m => pinnedMessages.includes(m.id)).forEach(addMessage);
+
+    // Then render non-pinned messages
+    data.filter(m => !pinnedMessages.includes(m.id)).forEach(addMessage);
+
+  } catch (e) {
+    log("❌ Exception loading messages", e, "error", "messages");
+  }
+
+  if (!messagesChannel) {
+    messagesChannel = supabase.channel("public:messages");
+    messagesChannel
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => addMessage(payload.new))
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => {
+        const node = document.getElementById("msg-" + payload.old.id);
+        if (node) node.remove();
+      })
+      .subscribe((status) => log(`Realtime subscription status: ${status}`, null, "debug", "messages"));
+  }
+}
+
     
     /* ----------------------------------------------------------------------
        Render message to DOM
@@ -283,7 +295,6 @@ if (!li.dataset.originalIndex) {
         ${(isAdmin || currentRole === "Manager") ? `<div class="adminControls"></div>` : ""}
       `;
     
-      messagesList.appendChild(li);
       messagesList.scrollTop = messagesList.scrollHeight;
     
       // Attach controls for viewer if admin or manager
