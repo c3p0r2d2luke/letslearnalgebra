@@ -41,21 +41,6 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
-
-(function () {
-  const origLog = console.log;
-  console.log = function (...args) {
-    // send logs to parent if inside an iframe
-    if (window.parent && window.parent !== window) {
-        try {
-            window.parent.postMessage({ type: 'console', level: 'log', args }, '*');
-        } catch(e) {}
-    }
-    origLog.apply(console, args);
-  };
-})();
-
-
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
@@ -126,33 +111,24 @@ async function saveName() {
   if (!val) return alert("Name required!");
   username = val;
 
-  // Keep the Takeo alert
-  if (username.toLowerCase() === "takeo") {
-    alert("You're not the admin!");
-  }
-
-  // Skip Supabase entirely
   currentRole = (username.toLowerCase() === "frenchwizz") ? "Admin" : "User";
   isAdmin = currentRole === "Admin";
 
-  // Save locally
-  try {
-    localStorage.setItem("chatUsername", username);
-    localStorage.setItem("chatRole", currentRole);
-  } catch(e){}
+  localStorage.setItem("chatUsername", username);
+  localStorage.setItem("chatRole", currentRole);
 
-  // Show log box only if admin
   logBox.style.display = isAdmin ? "block" : "none";
-
-  // Enable chat UI immediately
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
   savedUsernameForAutoLogin = true;
 
-  // Try to load messages, ignore any errors
   try { await loadMessages(); } catch(e){}
+
+  // 🔹 Notify parent that name was saved
+  sendToParent("nameSaved", { username, role: currentRole });
 }
+
 
 
 
