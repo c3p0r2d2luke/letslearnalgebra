@@ -3,15 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>Chat With Teachers</title>
-<!-- Use official Supabase CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
 <style>
 body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:800px; margin:24px auto; padding:0 16px; background:#2f3136; color:#ddd; }
 #logBox { background:#111; color:#0f0; font-family:monospace; font-size:13px; padding:10px; height:180px; overflow-y:auto; margin-top:12px; border-radius:6px; display:none; }
 #messages { margin-top:12px; padding:0; list-style:none; font-family:sans-serif; }
 #messages li { background:#36393f; margin:6px 0; padding:8px 10px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-direction:column; position:relative; transition: background 0.2s ease; }
-#messages li.admin { background:#7289da; font-weight:700; color:#fff; } /* Discord blue for admin messages */
-#messages li.manager { background:#43b581; font-weight:700; color:#fff; } /* green for managers */
+#messages li.admin { background:#7289da; font-weight:700; color:#fff; }
+#messages li.manager { background:#43b581; font-weight:700; color:#fff; }
 #messages li .username { font-weight:700; cursor:pointer; display:flex; gap:4px; align-items:center; }
 #messages li .content { white-space:pre-wrap; word-break:break-word; }
 #messages li button { margin:2px 2px 0 0; font-size:12px; padding:4px 6px; border-radius:4px; border:1px solid #ccc; background:#7289da; color:#fff; cursor:pointer; }
@@ -21,41 +20,31 @@ button { padding:8px; font-size:14px; border-radius:6px; border:1px solid #ccc; 
 #controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
 .userIp { font-size:10px; color:#888; margin-left:6px; }
 .adminControls { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
-li.highlighted { background-color: #4f545c !important; } /* optional highlight effect */
+li.highlighted { background-color: #4f545c !important; }
 </style>
 </head>
 <body>
 <h1>Chat Room</h1>
 
-<!-- Name prompt -->
 <div id="namePrompt" style="margin-bottom:10px;">
     <input id="nameInput" placeholder="Enter your real name, or you will be banned..." />
     <button id="saveNameButton">Save Name</button>
 </div>
 
-<!-- Controls (message input + send) -->
 <div id="controls">
     <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
     <button id="sendButton" disabled>Send</button>
 </div>
 
-<!-- messages list -->
 <ul id="messages"></ul>
 
-<!-- verbose admin log -->
 <div id="logBox"></div>
 
 <script>
-/* ----------------------------------------------------------------------
-   Supabase client
-   ---------------------------------------------------------------------- */
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-/* ----------------------------------------------------------------------
-   DOM references
-   ---------------------------------------------------------------------- */
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
@@ -63,11 +52,7 @@ const logBox = document.getElementById("logBox");
 const namePrompt = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
 const saveNameBtn = document.getElementById("saveNameButton");
-const debugBox = document.getElementById("debugBox"); // optional debug area if present
 
-/* ----------------------------------------------------------------------
-   Local state
-   ---------------------------------------------------------------------- */
 let username = localStorage.getItem("chatUsername") || "";
 let isAdmin = false;
 let currentRole = localStorage.getItem("chatRole") || null;
@@ -76,12 +61,7 @@ let realtimeReady = false;
 let messagesChannel = null;
 let userIp = "unknown";
 
-/* ----------------------------------------------------------------------
-   Helpers
-   ---------------------------------------------------------------------- */
-function escapeHtml(str=""){
-  return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
+function escapeHtml(str=""){ return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 function log(msg, obj=null, level="info", context=null){
   const now = new Date();
@@ -94,10 +74,7 @@ function log(msg, obj=null, level="info", context=null){
   entry.style.marginBottom = "6px";
   entry.style.borderBottom = "1px solid #333";
   entry.style.paddingBottom = "4px";
-  entry.innerHTML = `
-    <div><strong style="color:${color}">[${timestamp}] ${level.toUpperCase()}</strong> ${context ? `<em style="color:#aaa">(${context})</em>` : ""}</div>
-    <div style="margin-left:8px">${escapeHtml(String(msg))}</div>
-  `;
+  entry.innerHTML = `<div><strong style="color:${color}">[${timestamp}] ${level.toUpperCase()}</strong> ${context ? `<em style="color:#aaa">(${context})</em>` : ""}</div><div style="margin-left:8px">${escapeHtml(String(msg))}</div>`;
   if(obj){
     const pre = document.createElement("pre");
     try { pre.textContent = JSON.stringify(obj, null, 2); } catch(e){ pre.textContent = String(obj); }
@@ -110,63 +87,39 @@ function log(msg, obj=null, level="info", context=null){
   logBox.scrollTop = logBox.scrollHeight;
 }
 
-/* ----------------------------------------------------------------------
-   Fetch or create user record in users table
-   - Always return a usable object; be defensive if Supabase fails.
-   ---------------------------------------------------------------------- */
 async function fetchOrCreateUserRecord(name){
   if(!name) return { username: name, role: "User" };
   try {
-    // try fetching
     const { data, error } = await supabase.from("users").select("username,role,blocked,forceLogout").eq("username", name).maybeSingle();
-    if(error){
-      log("❌ Error fetching user record", error, "error", "users");
-    }
+    if(error) log("❌ Error fetching user record", error, "error", "users");
     if(data){
       if(!data.role) data.role = "User";
       return { username: data.username, role: data.role, blocked: !!data.blocked, forceLogout: !!data.forceLogout };
+    } else {
+      const up = await supabase.from("users").upsert({ username: name, role: "User", blocked:false, forceLogout:false });
+      if(up.error) log("❌ Error upserting default user", up.error, "error", "users");
+      return { username: name, role: "User", blocked:false, forceLogout:false };
     }
-
-    // not found -> try upsert/insert
-    const up = await supabase.from("users").upsert({ username: name, role: "User", blocked:false, forceLogout:false }).select();
-    if(up.error){
-      log("❌ Error upserting default user", up.error, "error", "users");
-    }
-    if(up.data && up.data[0]){
-      const row = up.data[0];
-      return { username: row.username, role: row.role || "User", blocked: !!row.blocked, forceLogout: !!row.forceLogout };
-    }
-
-    // fallback if DB didn't cooperate
-    return { username: name, role: "User", blocked:false, forceLogout:false };
-
   } catch(e){
     log("❌ Exception fetching/creating user", e, "error", "users");
-    return { username: name, role: "User", blocked:false, forceLogout:false };
+    return { username: name, role: "User" };
   }
 }
 
-/* ----------------------------------------------------------------------
-   Save username (onboarding)
-   - Always persist locally so UI doesn't get stuck; still try DB.
-   ---------------------------------------------------------------------- */
 async function saveName() {
   const val = nameInput.value.trim();
   if (!val) return alert("Name required!");
   username = val;
 
-  // attempt db fetch/create, but proceed even if it fails
   const userRecord = await fetchOrCreateUserRecord(username);
-  let roleFromDb = (userRecord && userRecord.role) ? userRecord.role : "User";
+  let roleFromDb = (userRecord.role || "User");
   roleFromDb = roleFromDb.charAt(0).toUpperCase() + roleFromDb.slice(1);
   currentRole = roleFromDb;
 
   try {
     localStorage.setItem("chatUsername", username);
     localStorage.setItem("chatRole", currentRole);
-  } catch(e) {
-    if(debugBox) debugBox.textContent = `⚠️ Could not persist to localStorage: ${e}`;
-  }
+  } catch(e) {}
 
   isAdmin = (username.toLowerCase() === "frenchwizz") || (currentRole === "Admin");
   logBox.style.display = isAdmin ? "block" : "none";
@@ -177,14 +130,9 @@ async function saveName() {
   button.disabled = false;
   savedUsernameForAutoLogin = true;
 
-  if(debugBox) debugBox.textContent = `✅ Saved username: "${username}", role: "${currentRole}"`;
-
   await loadMessages();
 }
 
-/* ----------------------------------------------------------------------
-   DOM wiring & autologin
-   ---------------------------------------------------------------------- */
 document.addEventListener("DOMContentLoaded", ()=>{
   if(saveNameBtn) saveNameBtn.onclick = saveName;
   if(button) button.addEventListener("click", sendMessage);
@@ -200,7 +148,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
     input.disabled = false;
     button.disabled = false;
     savedUsernameForAutoLogin = true;
-    if(debugBox) debugBox.textContent = `✅ Auto-logged as "${username}", role: "${currentRole}"`;
     loadMessages().catch(e=>log("Error loading messages on autologin", e, "error", "messages"));
   } else {
     namePrompt.style.display = "block";
@@ -212,7 +159,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 /* ----------------------------------------------------------------------
    Realtime connection test (handshake)
    ---------------------------------------------------------------------- */
-async function verifyRealtimeConnection(){
+   async function verifyRealtimeConnection(){
   try {
     const testChannel = supabase.channel("debug-connection-" + Math.random().toString(36).slice(2,8));
     testChannel.on("system", { event: "connected" }, () => {
@@ -807,120 +754,5 @@ if (username && username.toLowerCase() === "takeo") {
     setInterval(autoHide, 500);
   })();
 </script>
-<!-- DEBUG & SAFER saveName() KIT - paste this right after the supabase script tag -->
-<script>
-console.log("DEBUG KIT: starting checks...");
-
-// 1) Basic runtime checks
-try {
-  if (!window.supabase) {
-    console.error("DEBUG: window.supabase is missing — CDN did not load or was blocked.");
-  } else if (!window.supabase.createClient) {
-    console.error("DEBUG: supabase.createClient missing — wrong version?");
-  } else {
-    console.log("DEBUG: Supabase client factory present.");
-  }
-} catch (e) {
-  console.error("DEBUG: error checking supabase:", e);
-}
-
-// 2) Quick supabase create-client test (no side-effects)
-let _testSup = null;
-try {
-  _testSup = window.supabase ? window.supabase.createClient("https://qjajtkdchvapthnidtwj.supabase.co", "anon") : null;
-  console.log("DEBUG: created test supabase client (no requests yet).");
-} catch(e) {
-  console.error("DEBUG: creating supabase client failed:", e);
-}
-
-// 3) Test fetching messages (safe, read-only). This shows exact response in console.
-(async function testFetch(){
-  if(!_testSup){
-    console.warn("DEBUG: skipping fetch test because supabase client unavailable.");
-    return;
-  }
-  try {
-    console.log("DEBUG: attempting simple select(*) from messages...");
-    const resp = await _testSup.from("messages").select().limit(5);
-    console.log("DEBUG: select response:", resp);
-    if(resp.error) console.error("DEBUG: select returned error:", resp.error);
-    else console.log("DEBUG: select returned rows:", resp.data && resp.data.length);
-  } catch(e) {
-    console.error("DEBUG: exception during test fetch:", e);
-  }
-})();
-
-// 4) Defensive saveName wiring & implementation
-(function wireSaveNameSafely(){
-  // ensure elements exist
-  const nameInput = document.getElementById("nameInput");
-  const saveBtn = document.getElementById("saveNameButton");
-  if(!nameInput || !saveBtn) { console.warn("DEBUG: nameInput or saveNameButton not found"); return; }
-
-  // attach a robust handler that always persists locally and logs db action
-  async function saferSaveName(e){
-    e && e.preventDefault && e.preventDefault();
-    const val = (nameInput.value || "").trim();
-    if(!val) { alert("Name required!"); return; }
-
-    console.log("DEBUG: saferSaveName called with:", val);
-    // persist locally immediately (guarantee UI unlock)
-    try {
-      localStorage.setItem("chatUsername", val);
-      // default role while we fetch
-      localStorage.setItem("chatRole", "User");
-    } catch(err) {
-      console.warn("DEBUG: unable to write localStorage:", err);
-    }
-
-    // try to create/fetch user in DB but do not block UI on failure
-    try {
-      const sup = window.supabase && window.supabase.createClient ? window.supabase.createClient("https://qjajtkdchvapthnidtwj.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M") : null;
-      if(!sup) { console.warn("DEBUG: supabase client unavailable for DB create/fetch"); return; }
-      // try select
-      const { data, error } = await sup.from("users").select("username,role").eq("username", val).maybeSingle();
-      console.log("DEBUG: users.select result:", {data, error});
-      if (error) {
-        // try upsert
-        console.warn("DEBUG: select had error, attempting upsert...", error);
-        const up = await sup.from("users").upsert({ username: val, role: "User" }).select();
-        console.log("DEBUG: upsert result:", up);
-        if(up.error) console.error("DEBUG: upsert error:", up.error);
-        if(up.data && up.data[0] && up.data[0].role) {
-          localStorage.setItem("chatRole", up.data[0].role);
-        }
-      } else if (data && data.role) {
-        localStorage.setItem("chatRole", data.role);
-      }
-    } catch(err) {
-      console.error("DEBUG: DB fetch/upsert threw:", err);
-    }
-
-    // finally unlock UI so user isn't stuck
-    try {
-      document.getElementById("namePrompt").style.display = "none";
-      document.getElementById("messageInput").disabled = false;
-      document.getElementById("sendButton").disabled = false;
-      console.log("DEBUG: UI unlocked after saving name locally.");
-      // optionally trigger your loadMessages if defined
-      if (typeof loadMessages === "function") {
-        try { loadMessages(); } catch(e){ console.error("DEBUG: loadMessages() threw:", e); }
-      }
-    } catch(err) {
-      console.error("DEBUG: unlocking UI failed:", err);
-    }
-  }
-
-  // remove previous handlers then attach ours
-  saveBtn.replaceWith(saveBtn.cloneNode(true));
-  const newBtn = document.getElementById("saveNameButton");
-  newBtn.addEventListener("click", saferSaveName);
-  // also allow Enter on input to save
-  nameInput.addEventListener("keydown", (ev)=>{ if(ev.key === "Enter"){ ev.preventDefault(); saferSaveName(); } });
-
-  console.log("DEBUG: saferSaveName wired to Save Name button.");
-})();
-</script>
-
 </body>
 </html>
