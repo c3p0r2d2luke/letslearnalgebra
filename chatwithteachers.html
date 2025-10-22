@@ -277,6 +277,25 @@ li.highlighted { background-color: #4f545c !important; }
       .then(r=>r.json()).then(d=>{ userIp=d.ip; log("IP fetched "+userIp,null,"info","network"); })
       .catch(()=>{ userIp="unknown"; log("IP fetch failed",null,"warn","network"); });
   });
+
+
+/* ===================== CLEAR NAME SHORTCUT ===================== */
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.altKey && e.shiftKey && e.code === "KeyT") {
+    log("Manual name reset triggered", null, "warn", "shortcut");
+    localStorage.removeItem("chatUsername");
+    localStorage.removeItem("chatRole");
+    username = "";
+    currentRole = null;
+    isAdmin = false;
+    input.disabled = true;
+    button.disabled = true;
+    namePrompt.style.display = "block";
+    logBox.style.display = "block";
+    nameInput.value = "";
+    messagesList.innerHTML = "";
+  }
+});
   </script>
   
   
