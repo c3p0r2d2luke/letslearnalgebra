@@ -360,6 +360,17 @@ function createAdminControls(li, msg) {
 
   li.appendChild(controls);
 }
+
+// Manual clear name shortcut
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+    localStorage.removeItem("username");
+    localStorage.removeItem("role");
+    alert("Name cleared! Reloading...");
+    location.reload();
+  }
+});
+
 </script>
 
 
