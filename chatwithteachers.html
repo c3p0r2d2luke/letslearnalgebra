@@ -36,205 +36,248 @@ li.pinned { border-left: 4px solid #f39c12; }
 <div id="logBox"></div>
 
 <script>
-const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
-
-let supabase, username, currentRole, isAdmin;
-let messagesChannel = null;
-let userIp = "unknown";
-
-const logBox = document.getElementById("logBox");
-const input = document.getElementById("messageInput");
-const button = document.getElementById("sendButton");
-const messagesList = document.getElementById("messages");
-
-function log(msg, obj=null, level="debug") {
-    const time = new Date().toLocaleTimeString();
-    const div = document.createElement("div");
-    div.innerHTML = `[${time}] ${level.toUpperCase()}: ${msg}`;
-    logBox.appendChild(div);
-    if(obj) {
+    const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
+    
+    let supabaseClient, username, currentRole, isAdmin;
+    let messagesChannel = null;
+    let userIp = "unknown";
+    
+    const logBox = document.getElementById("logBox");
+    const input = document.getElementById("messageInput");
+    const button = document.getElementById("sendButton");
+    const messagesList = document.getElementById("messages");
+    
+    function log(level, msg, data) {
+      const time = new Date().toLocaleTimeString();
+      const line = document.createElement("div");
+      line.innerHTML = `[${time}] ${level.toUpperCase()}: ${msg}`;
+      logBox.appendChild(line);
+      if (data) {
         const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify(obj,null,2);
+        pre.textContent = JSON.stringify(data, null, 2);
         logBox.appendChild(pre);
+      }
+      logBox.scrollTop = logBox.scrollHeight;
     }
-    logBox.scrollTop = logBox.scrollHeight;
-}
-
-function initSupabase() {
-    log("Initializing Supabase...", null, "debug");
-    try {
-        supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_KEY);
-        log("Supabase initialized successfully", {supabaseUrl: SUPABASE_URL}, "info");
-    } catch(err) {
-        log("Supabase initialization failed", err, "error");
+    
+    // --- Initialize Supabase ---
+    async function initSupabase() {
+      try {
+        log("DEBUG", "Loading Supabase library...");
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js";
+        document.head.appendChild(script);
+    
+        await new Promise((resolve, reject) => {
+          script.onload = resolve;
+          script.onerror = () => reject(new Error("Failed to load Supabase library"));
+        });
+    
+        if (typeof window.supabase === "undefined" || typeof window.supabase.createClient !== "function") {
+          throw new Error("Supabase library loaded but createClient is missing.");
+        }
+    
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        log("INFO", "Supabase initialized successfully!", { url: SUPABASE_URL });
+    
+        // Hook into network for verbose logs
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+          const [url, options] = args;
+          log("NETWORK", "➡️ Fetch: " + url, options);
+          const response = await originalFetch(...args);
+          const clone = response.clone();
+          try {
+            const json = await clone.json();
+            log("NETWORK", "⬅️ Response: " + url, json);
+          } catch {
+            log("NETWORK", "⬅️ Non-JSON response: " + url);
+          }
+          return response;
+        };
+    
+        // Setup realtime logs
+        const realtime = supabaseClient.realtime;
+        realtime.onOpen(() => log("REALTIME", "Connected to Supabase Realtime"));
+        realtime.onClose(() => log("REALTIME", "Disconnected from Realtime"));
+        realtime.onError((e) => log("REALTIME", "Realtime error", e));
+        realtime.connect();
+    
+        // Test connection
+        const { data, error } = await supabaseClient.from("messages").select("*").limit(1);
+        if (error) throw error;
+        log("INFO", "Database connection test passed", data);
+      } catch (err) {
+        log("ERROR", "Supabase initialization failed: " + err.message, { stack: err.stack });
+      }
     }
-}
-
-async function loadMessages() {
-    if (!supabase) return log("Supabase not ready", null, "error");
-    try {
-        const { data, error } = await supabase.from("messages").select("*").order("inserted_at", {ascending:true});
-        if(error) return log("Failed to load messages", error, "error");
+    
+    // --- Load Messages ---
+    async function loadMessages() {
+      if (!supabaseClient) return log("ERROR", "Supabase not ready");
+      try {
+        const { data, error } = await supabaseClient.from("messages").select("*").order("inserted_at", { ascending: true });
+        if (error) return log("ERROR", "Failed to load messages", error);
+    
         messagesList.innerHTML = "";
         const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-        data.forEach(m => addMessage(m, { treatAsPinnedLoad: pinned.includes(m.id) }));
-        if(!messagesChannel) subscribeToRealtime();
-    } catch(e) {
-        log("Exception loading messages", e, "error");
+        data.forEach((m) => addMessage(m, { treatAsPinnedLoad: pinned.includes(m.id) }));
+    
+        if (!messagesChannel) subscribeToRealtime();
+      } catch (e) {
+        log("ERROR", "Exception loading messages", e);
+      }
     }
-}
-
-function addMessage(msg, opts={}) {
-    if(!msg || !msg.id) return;
-    const li = document.createElement("li");
-    li.id = "msg-" + msg.id;
-    li.className = msg.role || "User";
-    if(opts.treatAsPinnedLoad) li.classList.add("pinned");
-
-    const header = document.createElement("div");
-    header.className = "username";
-    header.textContent = msg.username + " (" + (msg.role || "User") + ")";
-    const body = document.createElement("div");
-    body.className = "content";
-    body.textContent = msg.content;
-
-    li.appendChild(header);
-    li.appendChild(body);
-
-    if(isAdmin) createAdminControls(li, msg);
-
-    messagesList.appendChild(li);
-    li.addEventListener("click", () => {
-        if(isAdmin) {
-            const controls = li.querySelector(".adminControls");
-            if(controls) controls.style.display = controls.style.display === "flex" ? "none" : "flex";
+    
+    // --- Add Message to UI ---
+    function addMessage(msg, opts = {}) {
+      if (!msg || !msg.id) return;
+      const li = document.createElement("li");
+      li.id = "msg-" + msg.id;
+      li.className = msg.role || "User";
+      if (opts.treatAsPinnedLoad) li.classList.add("pinned");
+    
+      const header = document.createElement("div");
+      header.className = "username";
+      header.textContent = `${msg.username} (${msg.role || "User"})`;
+    
+      const body = document.createElement("div");
+      body.className = "content";
+      body.textContent = msg.content;
+    
+      li.appendChild(header);
+      li.appendChild(body);
+    
+      // Add admin controls (hidden until clicked)
+      if (isAdmin) createAdminControls(li, msg);
+    
+      li.addEventListener("click", () => {
+        if (isAdmin) {
+          const controls = li.querySelector(".adminControls");
+          if (controls) controls.style.display = controls.style.display === "flex" ? "none" : "flex";
         }
-    });
-
-    messagesList.scrollTop = messagesList.scrollHeight;
-}
-
-function createAdminControls(li, msg) {
-    const controls = document.createElement("div");
-    controls.className = "adminControls";
-
-    const mkBtn = (text, handler, color="#666") => {
+      });
+    
+      messagesList.appendChild(li);
+      messagesList.scrollTop = messagesList.scrollHeight;
+    }
+    
+    // --- Create Admin Buttons ---
+    function createAdminControls(li, msg) {
+      const controls = document.createElement("div");
+      controls.className = "adminControls";
+      controls.style.display = "none"; // Hidden by default
+    
+      const mkBtn = (label, fn, color) => {
         const b = document.createElement("button");
-        b.textContent = text;
+        b.textContent = label;
         b.style.background = color;
         b.style.color = "#fff";
-        b.onclick = handler;
+        b.onclick = fn;
         return b;
-    };
-
-    // Delete
-    controls.appendChild(mkBtn("Delete", async () => {
-        try {
-            await supabase.from("messages").delete().eq("id", msg.id);
-            li.remove();
-            log(`Deleted message #${msg.id}`, msg, "info");
-        } catch(err) { log("Delete failed", err, "error"); }
-    }, "#c33"));
-
-    // Pin/Unpin
-    const pinnedList = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-    const isPinned = pinnedList.includes(msg.id);
-    controls.appendChild(mkBtn(isPinned ? "Unpin" : "Pin", () => {
+      };
+    
+      // Delete
+      controls.appendChild(mkBtn("Delete", async () => {
+        await supabaseClient.from("messages").delete().eq("id", msg.id);
+        li.remove();
+        log("INFO", `Deleted message #${msg.id}`);
+      }, "#d33"));
+    
+      // Pin / Unpin
+      const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+      const isPinned = pinned.includes(msg.id);
+      controls.appendChild(mkBtn(isPinned ? "Unpin" : "Pin", () => {
         const list = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-        if(isPinned) {
-            const idx = list.indexOf(msg.id); if(idx>=0) list.splice(idx,1);
-            li.classList.remove("pinned");
+        if (isPinned) {
+          const idx = list.indexOf(msg.id);
+          if (idx >= 0) list.splice(idx, 1);
+          li.classList.remove("pinned");
         } else {
-            list.push(msg.id);
-            li.classList.add("pinned");
+          list.push(msg.id);
+          li.classList.add("pinned");
         }
         localStorage.setItem("pinnedMessages", JSON.stringify(list));
-        log(`${isPinned ? "Unpinned" : "Pinned"} #${msg.id}`, null, "info");
-    }, "#3c3"));
-
-    // Mute/Unmute (client only)
-    const mutedList = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
-    const isMuted = mutedList.includes(msg.username);
-    controls.appendChild(mkBtn(isMuted ? "Unmute" : "Mute", () => {
+      }, "#3a3"));
+    
+      // Mute
+      const muted = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
+      const isMuted = muted.includes(msg.username);
+      controls.appendChild(mkBtn(isMuted ? "Unmute" : "Mute", () => {
         const list = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
-        if(isMuted) {
-            const idx = list.indexOf(msg.username); if(idx>=0) list.splice(idx,1);
+        if (isMuted) {
+          const idx = list.indexOf(msg.username);
+          if (idx >= 0) list.splice(idx, 1);
         } else list.push(msg.username);
         localStorage.setItem("mutedUsers", JSON.stringify(list));
-        log(`${isMuted ? "Unmuted" : "Muted"} ${msg.username}`, null, "debug");
-    }, "#09c"));
-
-    // Promote/Demote
-    controls.appendChild(mkBtn("Promote", async () => {
-        try {
-            await supabase.from("messages").update({role:"Admin"}).eq("username", msg.username);
-            log(`Promoted ${msg.username}`, null, "info");
-        } catch(err) { log("Promote failed", err, "error"); }
-    }, "#b5a"));
-
-    controls.appendChild(mkBtn("Demote", async () => {
-        try {
-            await supabase.from("messages").update({role:"User"}).eq("username", msg.username);
-            log(`Demoted ${msg.username}`, null, "info");
-        } catch(err) { log("Demote failed", err, "error"); }
-    }, "#a55"));
-
-    li.appendChild(controls);
-}
-
-async function sendMessage() {
-    if(!supabase) return log("Supabase not ready", null, "error");
-    const text = input.value.trim();
-    if(!text) return;
-    try {
-        const { data, error } = await supabase.from("messages").insert([{username, content:text, role:currentRole, ip:userIp}]);
-        if(error) return log("Failed to send message", error, "error");
-        input.value = "";
-        log(`Message sent`, data, "info");
-    } catch(e) { log("Exception sending message", e, "error"); }
-}
-
-function subscribeToRealtime() {
-    messagesChannel = supabase.channel("public:messages").on("postgres_changes", { event: "*", schema:"public", table:"messages" }, payload => {
-        addMessage(payload.new);
-        log("Realtime update", payload, "debug");
-    }).subscribe();
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-    log("DOM loaded", null, "debug");
-    const saved = localStorage.getItem("chatUsername");
-    if(saved) {
-        username = saved;
-        currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
-        isAdmin = currentRole === "Admin";
-        log(`Loaded saved username: "${username}", role: ${currentRole}`, null, "info");
-    } else {
+        log("INFO", `${isMuted ? "Unmuted" : "Muted"} ${msg.username}`);
+      }, "#09c"));
+    
+      // Promote/Demote
+      controls.appendChild(mkBtn("Promote", async () => {
+        await supabaseClient.from("messages").update({ role: "Admin" }).eq("username", msg.username);
+        log("INFO", `Promoted ${msg.username}`);
+      }, "#a3a"));
+    
+      controls.appendChild(mkBtn("Demote", async () => {
+        await supabaseClient.from("messages").update({ role: "User" }).eq("username", msg.username);
+        log("INFO", `Demoted ${msg.username}`);
+      }, "#a55"));
+    
+      li.appendChild(controls);
+    }
+    
+    // --- Realtime ---
+    function subscribeToRealtime() {
+      messagesChannel = supabaseClient.channel("public:messages")
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+          addMessage(payload.new);
+          log("DEBUG", "Realtime update", payload);
+        })
+        .subscribe();
+    }
+    
+    // --- Send Message ---
+    async function sendMessage() {
+      if (!supabaseClient) return log("ERROR", "Supabase not ready");
+      const text = input.value.trim();
+      if (!text) return;
+      const { data, error } = await supabaseClient.from("messages").insert([{ username, content: text, role: currentRole, ip: userIp }]);
+      if (error) log("ERROR", "Failed to send message", error);
+      else log("INFO", "Message sent", data);
+      input.value = "";
+    }
+    
+    // --- DOM Ready ---
+    document.addEventListener("DOMContentLoaded", async () => {
+      log("DEBUG", "DOM loaded");
+      username = localStorage.getItem("chatUsername");
+      if (!username) {
         username = prompt("Enter your name:");
         localStorage.setItem("chatUsername", username);
-        currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
-        isAdmin = currentRole === "Admin";
-        log(`Username set: "${username}", role: ${currentRole}`, null, "info");
-    }
-    input.disabled = false;
-    button.disabled = false;
-    button.onclick = sendMessage;
-    initSupabase();
-    loadMessages();
-
-    // Shortcut to clear name
-    document.addEventListener("keydown", e => {
-        if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
-            username = null;
-            currentRole = "User";
-            isAdmin = false;
-            localStorage.removeItem("chatUsername");
-            log("Username cleared via Ctrl+Alt+Shift+T", null, "info");
-            location.reload();
+      }
+    
+      currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
+      isAdmin = currentRole === "Admin";
+      log("INFO", `User: ${username}, Role: ${currentRole}`);
+    
+      await initSupabase();
+      await loadMessages();
+    
+      input.disabled = false;
+      button.disabled = false;
+      button.onclick = sendMessage;
+    
+      document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+          localStorage.removeItem("chatUsername");
+          log("INFO", "Username cleared, reloading...");
+          location.reload();
         }
+      });
     });
-});
-</script>
+    </script>
+    
 </body>
 </html>
