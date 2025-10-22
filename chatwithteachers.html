@@ -41,6 +41,16 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
+  document.getElementById("saveNameButton").onclick = () => {
+    const name = document.getElementById("nameInput").value.trim();
+    if (!name) return alert("You gotta type something!");
+    localStorage.setItem("username", name);
+    document.getElementById("logBox").textContent = "Name saved: " + name;
+  };
+  </script>
+  
+
+<script>
   /* ============================================================
      CHAT CORE - Supabase after name entry + logBox debug
      ============================================================ */
