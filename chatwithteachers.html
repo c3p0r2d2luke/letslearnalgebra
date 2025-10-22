@@ -41,6 +41,7 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
+
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
@@ -63,7 +64,50 @@ function logBoxWrite(level, msg) {
 
 (async () => {
   logBoxWrite("DEBUG", "Testing Supabase connectivity...");
-  ...
+  
+  try {
+    // Test network access to Supabase REST API
+    const test = await fetch(supabaseUrl + "/rest/v1", { method: "HEAD" });
+    if (!test.ok) throw new Error("Blocked or unreachable");
+
+    // Initialize Supabase client
+    supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+    window.supabaseClient = supabase;
+
+    logBoxWrite("INFO", "✅ Supabase connection verified.");
+  } catch (err) {
+    logBoxWrite("WARN", "⚠️ Supabase blocked. Switching to offline mock mode.");
+
+    // Offline mock
+    const fake = {
+      from: () => ({
+        select: async () => ({
+          data: JSON.parse(localStorage.getItem("mock_messages") || "[]"),
+          error: null
+        }),
+        insert: async (obj) => {
+          let msgs = JSON.parse(localStorage.getItem("mock_messages") || "[]");
+          const msg = { ...obj[0], id: Date.now(), inserted_at: new Date().toISOString() };
+          msgs.push(msg);
+          localStorage.setItem("mock_messages", JSON.stringify(msgs));
+          return { data: [msg], error: null };
+        },
+        delete: () => ({ eq: async (col, val) => {
+          let msgs = JSON.parse(localStorage.getItem("mock_messages") || "[]")
+            .filter(m => m.id !== val);
+          localStorage.setItem("mock_messages", JSON.stringify(msgs));
+          return { error: null };
+        }}),
+        update: () => ({ eq: async () => ({ error: null }) })
+      }),
+      channel: () => ({ on: () => fake.channel(), subscribe: () => ({ unsubscribe: () => {} }) }),
+      functions: { invoke: async () => ({ data: "mocked", error: null }) }
+    };
+
+    supabase = fake;
+    window.supabaseClient = fake;
+    logBoxWrite("INFO", "💡 Running in offline mock mode.");
+  }
 })();
 
 
