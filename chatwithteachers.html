@@ -290,23 +290,27 @@ li.highlighted { background-color: #4f545c !important; }
     }, "#09c"));
   
     // --- Promote / Demote ---
-    controls.appendChild(mkBtn("Promote", async ()=>{ 
-      try { 
-        const { error } = await supabase.from("messages").update({ role:"Admin"}).eq("username", msg.username);
-        if(error) log("Promote failed",error,"error","admin");
-        else log(`Promoted ${msg.username}`,null,"info","admin");
-      } catch(err){ log("Promote exception",err,"error","admin"); }
-    }, "#b5a"));
-  
-    controls.appendChild(mkBtn("Demote", async ()=>{ 
-      try { 
-        const { error } = await supabase.from("messages").update({ role:"User"}).eq("username", msg.username);
-        if(error) log("Demote failed",error,"error","admin");
-        else log(`Demoted ${msg.username}`,null,"info","admin");
-      } catch(err){ log("Demote exception",err,"error","admin"); }
-    }, "#a55"));
-  
-    li.appendChild(controls);
+    // --- Promote / Demote (update users table) ---
+controls.appendChild(mkBtn("Promote", async ()=>{ 
+  try { 
+    const { error } = await supabase.from("users")
+      .update({ role:"Admin" })
+      .eq("username", msg.username);
+    if(error) log("Promote failed", error, "error", "admin");
+    else log(`Promoted ${msg.username}`, null, "info", "admin");
+  } catch(err){ log("Promote exception", err, "error", "admin"); }
+}, "#b5a"));
+
+controls.appendChild(mkBtn("Demote", async ()=>{ 
+  try { 
+    const { error } = await supabase.from("users")
+      .update({ role:"User" })
+      .eq("username", msg.username);
+    if(error) log("Demote failed", error, "error", "admin");
+    else log(`Demoted ${msg.username}`, null, "info", "admin");
+  } catch(err){ log("Demote exception", err, "error", "admin"); }
+}, "#a55"));
+
   }
   
   /* ============================================================
