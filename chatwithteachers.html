@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Chat With Teachers</title>
+<title>Chat Room with Admin Controls</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.76.1/dist/umd/supabase.js"></script>
 <style>
 body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:800px; margin:24px auto; padding:0 16px; background:#2f3136; color:#ddd; }
-#logBox { background:#111; color:#0f0; font-family:monospace; font-size:13px; padding:10px; height:180px; overflow-y:auto; margin-top:12px; border-radius:6px; display:none; }
+#logBox { background:#111; color:#0f0; font-family:monospace; font-size:13px; padding:10px; height:180px; overflow-y:auto; margin-top:12px; border-radius:6px; display:block; }
 #messages { margin-top:12px; padding:0; list-style:none; font-family:sans-serif; }
-#messages li { background:#36393f; margin:6px 0; padding:8px 10px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-direction:column; position:relative; transition: background 0.2s ease; }
+#messages li { background:#36393f; margin:6px 0; padding:8px 10px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-direction:column; position:relative; transition: background 0.2s ease; cursor:pointer; }
 #messages li.admin { background:#7289da; font-weight:700; color:#fff; }
 #messages li.manager { background:#43b581; font-weight:700; color:#fff; }
 #messages li .username { font-weight:700; cursor:pointer; display:flex; gap:4px; align-items:center; }
@@ -17,18 +18,14 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-wid
 textarea { padding:8px; font-size:14px; border-radius:6px; border:1px solid #ccc; resize:vertical; min-height:48px; width:100%; }
 button { padding:8px; font-size:14px; border-radius:6px; border:1px solid #ccc; cursor:pointer; }
 #controls { display:flex; gap:8px; align-items:center; margin-top:8px; }
-.userIp { font-size:10px; color:#888; margin-left:6px; }
-.adminControls { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+.adminControls { display:none; flex-wrap:wrap; gap:4px; margin-top:4px; }
 li.highlighted { background-color: #4f545c !important; }
+li.pinned { border-left: 4px solid #f39c12; }
 </style>
 </head>
 <body>
-<h1>Chat Room</h1>
 
-<div id="namePrompt" style="margin-bottom:10px;">
-    <input id="nameInput" placeholder="Enter your real name, or you will be banned..." />
-    <button id="saveNameButton">Save Name</button>
-</div>
+<h1>Chat Room</h1>
 
 <div id="controls">
     <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
@@ -36,325 +33,208 @@ li.highlighted { background-color: #4f545c !important; }
 </div>
 
 <ul id="messages"></ul>
-
 <div id="logBox"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.76.1/dist/umd/supabase.js"></script>
 <script>
-    /* ============================================================
-       CHAT CORE - Supabase + Debug Logging + Name Prompt
-       ============================================================ */
-    
-    const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
-    
-    let supabase;
-    let username = "";
-    let currentRole = null;
-    let isAdmin = false;
-    let userIp = "unknown";
-    let messagesChannel = null;
-    let realtimeReady = false;
-    
-    // DOM elements
-    const input = document.getElementById("messageInput");
-    const button = document.getElementById("sendButton");
-    const messagesList = document.getElementById("messages");
-    const logBox = document.getElementById("logBox");
-    const namePrompt = document.getElementById("namePrompt");
-    const nameInput = document.getElementById("nameInput");
-    const saveNameBtn = document.getElementById("saveNameButton");
-    
-    /* ============================================================
-       LOGGING SYSTEM
-       ============================================================ */
-    function escapeHtml(str = "") {
-      return String(str).replace(/[&<>"']/g, m => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
-      }[m]));
-    }
-    
-    function log(msg, obj = null, level = "debug", ctx = "") {
-      const now = new Date();
-      const time = `${now.toLocaleTimeString()}.${now.getMilliseconds()}`;
-      const colors = { info: "#0f0", warn: "#ff0", error: "#f00", debug: "#0ff" };
-      const color = colors[level] || "#0f0";
-    
-      const wrap = document.createElement("div");
-      wrap.style.borderBottom = "1px solid #333";
-      wrap.style.padding = "4px 0";
-      wrap.innerHTML = `<div><b style="color:${color}">[${time}] ${level.toUpperCase()}</b> 
-        ${ctx ? `<em style="color:#aaa">(${ctx})</em>` : ""}</div>
-        <div style="margin-left:6px">${escapeHtml(String(msg))}</div>`;
-      if (obj) {
+const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co";
+const SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY_HERE";
+
+let supabase, username, currentRole, isAdmin;
+let messagesChannel = null;
+let userIp = "unknown";
+
+const logBox = document.getElementById("logBox");
+const input = document.getElementById("messageInput");
+const button = document.getElementById("sendButton");
+const messagesList = document.getElementById("messages");
+
+function log(msg, obj=null, level="debug") {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement("div");
+    div.innerHTML = `[${time}] ${level.toUpperCase()}: ${msg}`;
+    logBox.appendChild(div);
+    if(obj) {
         const pre = document.createElement("pre");
-        try { pre.textContent = JSON.stringify(obj, null, 2); }
-        catch { pre.textContent = String(obj); }
-        pre.style.background = "#111";
-        pre.style.color = "#0f0";
-        pre.style.padding = "4px";
-        pre.style.overflowX = "auto";
-        pre.style.fontSize = "11px";
-        pre.style.maxHeight = "140px";
-        wrap.appendChild(pre);
-      }
-      if (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
-      logBox.appendChild(wrap);
-      logBox.scrollTop = logBox.scrollHeight;
+        pre.textContent = JSON.stringify(obj,null,2);
+        logBox.appendChild(pre);
     }
-    
-    /* ============================================================
-       INITIALIZE SUPABASE
-       ============================================================ */
-    function initSupabase() {
-      log("Initializing Supabase...", null, "debug");
-      try {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        log("Supabase initialized successfully", supabase, "info");
-      } catch(err) {
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+function initSupabase() {
+    log("Initializing Supabase...", null, "debug");
+    try {
+        supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_KEY);
+        log("Supabase initialized successfully", {supabaseUrl: SUPABASE_URL}, "info");
+    } catch(err) {
         log("Supabase initialization failed", err, "error");
-      }
     }
-    
-    /* ============================================================
-       SAVE NAME
-       ============================================================ */
-    async function saveName() {
-      const val = nameInput.value.trim();
-      if(!val) { alert("Enter a name!"); return; }
-      username = val;
-      currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
-      isAdmin = currentRole === "Admin";
-    
-      localStorage.setItem("chatUsername", username);
-      localStorage.setItem("chatRole", currentRole);
-    
-      log(`Username saved as "${username}", role: ${currentRole}`, null, "info", "username");
-    
-      namePrompt.style.display = "none";
-      input.disabled = false;
-      button.disabled = false;
-      logBox.style.display = isAdmin ? "block" : "none";
-    
-      if(!supabase) initSupabase();
-    
-      await loadMessages();
-    }
-    
-    /* ============================================================
-       LOAD MESSAGES
-       ============================================================ */
-    async function loadMessages() {
-      if(!supabase) return log("Supabase not ready", null, "error", "messages");
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("*")
-          .order("inserted_at", { ascending: true });
-        if(error) return log("Load messages error", error, "error", "messages");
-    
+}
+
+async function loadMessages() {
+    if (!supabase) return log("Supabase not ready", null, "error");
+    try {
+        const { data, error } = await supabase.from("messages").select("*").order("inserted_at", {ascending:true});
+        if(error) return log("Failed to load messages", error, "error");
         messagesList.innerHTML = "";
         const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-    
-        for(const m of data) {
-          const opts = pinned.includes(m.id) ? { treatAsPinnedLoad: true } : {};
-          addMessage(m, opts);
+        data.forEach(m => addMessage(m, { treatAsPinnedLoad: pinned.includes(m.id) }));
+        if(!messagesChannel) subscribeToRealtime();
+    } catch(e) {
+        log("Exception loading messages", e, "error");
+    }
+}
+
+function addMessage(msg, opts={}) {
+    if(!msg || !msg.id) return;
+    const li = document.createElement("li");
+    li.id = "msg-" + msg.id;
+    li.className = msg.role || "User";
+    if(opts.treatAsPinnedLoad) li.classList.add("pinned");
+
+    const header = document.createElement("div");
+    header.className = "username";
+    header.textContent = msg.username + " (" + (msg.role || "User") + ")";
+    const body = document.createElement("div");
+    body.className = "content";
+    body.textContent = msg.content;
+
+    li.appendChild(header);
+    li.appendChild(body);
+
+    if(isAdmin) createAdminControls(li, msg);
+
+    messagesList.appendChild(li);
+    li.addEventListener("click", () => {
+        if(isAdmin) {
+            const controls = li.querySelector(".adminControls");
+            if(controls) controls.style.display = controls.style.display === "flex" ? "none" : "flex";
         }
-    
-        if(!messagesChannel) {
-          messagesChannel = supabase.channel("public:messages");
-          messagesChannel
-            .on("postgres_changes", { event: "INSERT", schema:"public", table:"messages" }, p=>addMessage(p.new))
-            .on("postgres_changes", { event: "UPDATE", schema:"public", table:"messages" }, p=>addMessage(p.new))
-            .on("postgres_changes", { event: "DELETE", schema:"public", table:"messages" }, p=>{
-              const n = document.getElementById("msg-"+p.old.id);
-              if(n) n.remove();
-            })
-            .subscribe(()=>log("Subscribed to realtime messages", null, "debug", "realtime"));
-        }
-      } catch(err) {
-        log("Exception loading messages", err, "error", "messages");
-      }
-    }
-    
-    /* ============================================================
-       SEND MESSAGE
-       ============================================================ */
-    async function sendMessage() {
-      if(!supabase) return log("Supabase not ready", null, "error", "messages");
-      const text = input.value.trim();
-      if(!text) return;
-      const safe = isAdmin ? text : escapeHtml(text);
-    
-      try {
-        const res = await supabase.from("messages").insert({
-          content: safe, username, role: currentRole, ip: userIp
-        }).select();
-        if(res.error) log("Message send failed", res.error, "error", "messages");
-        else addMessage(res.data[0]);
-      } catch(e) {
-        log("Send exception", e, "error", "messages");
-      }
-      input.value = "";
-    }
-    
-    /* ============================================================
-       MESSAGE RENDERING + ADMIN CONTROLS
-       ============================================================ */
-    function addMessage(msg, opts={}) {
-      if(!msg || !msg.id) return;
-      const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-      const existing = document.getElementById("msg-"+msg.id);
-      if(existing) existing.remove();
-    
-      const li = document.createElement("li");
-      li.id = "msg-"+msg.id;
-      li.className = "msg "+(msg.role||"User");
-      if(pinned.includes(msg.id) || opts.treatAsPinnedLoad) li.classList.add("pinned");
-    
-      const header = document.createElement("div");
-      header.className = "msgHeader";
-      header.innerHTML = `<b>${escapeHtml(msg.username||"Anon")}</b> 
-        <span style="color:#888;font-size:0.8em">(${msg.role||"User"})</span>`;
-    
-      const body = document.createElement("div");
-      body.className = "msgBody";
-      body.innerHTML = msg.content || "";
-    
-      li.appendChild(header);
-      li.appendChild(body);
-    
-      if(isAdmin) createAdminControls(li, msg);
-    
-      messagesList.appendChild(li);
-      messagesList.scrollTop = messagesList.scrollHeight;
-    }
-    
-    /* ============================================================
-       ADMIN CONTROLS
-       ============================================================ */
-    function createAdminControls(li, msg) {
-      const controls = document.createElement("div");
-      controls.className = "adminControls";
-      controls.style.marginTop = "4px";
-    
-      const mkBtn = (text, handler, color="#666")=>{
+    });
+
+    messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+function createAdminControls(li, msg) {
+    const controls = document.createElement("div");
+    controls.className = "adminControls";
+
+    const mkBtn = (text, handler, color="#666") => {
         const b = document.createElement("button");
         b.textContent = text;
-        b.style.marginRight = "4px";
-        b.style.fontSize = "11px";
-        b.style.padding = "2px 6px";
-        b.style.borderRadius = "6px";
         b.style.background = color;
         b.style.color = "#fff";
         b.onclick = handler;
         return b;
-      };
-    
-      // Delete
-      controls.appendChild(mkBtn("Delete", async ()=>{
+    };
+
+    // Delete
+    controls.appendChild(mkBtn("Delete", async () => {
         try {
-          const { error } = await supabase.from("messages").delete().eq("id", msg.id);
-          if(error) log("Delete failed", error, "error","admin");
-          else {
-            document.getElementById("msg-"+msg.id)?.remove();
-            log(`Deleted message #${msg.id}`, msg,"info","admin");
-          }
-        } catch(err){ log("Delete exception", err,"error","admin"); }
-      },"#c33"));
-    
-      // Pin/Unpin
-      const pinned = JSON.parse(localStorage.getItem("pinnedMessages")||"[]");
-      const isPinned = pinned.includes(msg.id);
-      controls.appendChild(mkBtn(isPinned?"Unpin":"Pin", ()=>{
-        const list = JSON.parse(localStorage.getItem("pinnedMessages")||"[]");
-        if(isPinned) { const i=list.indexOf(msg.id); if(i>=0) list.splice(i,1); li.classList.remove("pinned"); }
-        else { list.push(msg.id); li.classList.add("pinned"); }
+            await supabase.from("messages").delete().eq("id", msg.id);
+            li.remove();
+            log(`Deleted message #${msg.id}`, msg, "info");
+        } catch(err) { log("Delete failed", err, "error"); }
+    }, "#c33"));
+
+    // Pin/Unpin
+    const pinnedList = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+    const isPinned = pinnedList.includes(msg.id);
+    controls.appendChild(mkBtn(isPinned ? "Unpin" : "Pin", () => {
+        const list = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+        if(isPinned) {
+            const idx = list.indexOf(msg.id); if(idx>=0) list.splice(idx,1);
+            li.classList.remove("pinned");
+        } else {
+            list.push(msg.id);
+            li.classList.add("pinned");
+        }
         localStorage.setItem("pinnedMessages", JSON.stringify(list));
-      },"#3c3"));
-    
-      // Mute/Unmute
-      const mutedUsers = JSON.parse(localStorage.getItem("mutedUsers")||"[]");
-      const isMuted = mutedUsers.includes(msg.username);
-      controls.appendChild(mkBtn(isMuted?"Unmute":"Mute", ()=>{
-        const list = JSON.parse(localStorage.getItem("mutedUsers")||"[]");
-        if(isMuted){ const i=list.indexOf(msg.username); if(i>=0) list.splice(i,1); }
-        else list.push(msg.username);
+        log(`${isPinned ? "Unpinned" : "Pinned"} #${msg.id}`, null, "info");
+    }, "#3c3"));
+
+    // Mute/Unmute (client only)
+    const mutedList = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
+    const isMuted = mutedList.includes(msg.username);
+    controls.appendChild(mkBtn(isMuted ? "Unmute" : "Mute", () => {
+        const list = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
+        if(isMuted) {
+            const idx = list.indexOf(msg.username); if(idx>=0) list.splice(idx,1);
+        } else list.push(msg.username);
         localStorage.setItem("mutedUsers", JSON.stringify(list));
-        log(`${isMuted?"Unmuted":"Muted"} ${msg.username}`, null,"debug","admin");
-      },"#09c"));
-    
-      // Promote/Demote
-      controls.appendChild(mkBtn("Promote", async ()=>{
+        log(`${isMuted ? "Unmuted" : "Muted"} ${msg.username}`, null, "debug");
+    }, "#09c"));
+
+    // Promote/Demote
+    controls.appendChild(mkBtn("Promote", async () => {
         try {
-          const { error } = await supabase.from("users").update({role:"Admin"}).eq("username",msg.username);
-          if(error) log("Promote failed", error,"error","admin");
-          else log(`Promoted ${msg.username} to Admin`, msg,"info","admin");
-        } catch(err){ log("Promote exception",err,"error","admin"); }
-      },"#c90"));
-      controls.appendChild(mkBtn("Demote", async ()=>{
+            await supabase.from("messages").update({role:"Admin"}).eq("username", msg.username);
+            log(`Promoted ${msg.username}`, null, "info");
+        } catch(err) { log("Promote failed", err, "error"); }
+    }, "#b5a"));
+
+    controls.appendChild(mkBtn("Demote", async () => {
         try {
-          const { error } = await supabase.from("users").update({role:"User"}).eq("username",msg.username);
-          if(error) log("Demote failed", error,"error","admin");
-          else log(`Demoted ${msg.username} to User`, msg,"info","admin");
-        } catch(err){ log("Demote exception",err,"error","admin"); }
-      },"#c90"));
-    
-      li.appendChild(controls);
+            await supabase.from("messages").update({role:"User"}).eq("username", msg.username);
+            log(`Demoted ${msg.username}`, null, "info");
+        } catch(err) { log("Demote failed", err, "error"); }
+    }, "#a55"));
+
+    li.appendChild(controls);
+}
+
+async function sendMessage() {
+    if(!supabase) return log("Supabase not ready", null, "error");
+    const text = input.value.trim();
+    if(!text) return;
+    try {
+        const { data, error } = await supabase.from("messages").insert([{username, content:text, role:currentRole, ip:userIp}]);
+        if(error) return log("Failed to send message", error, "error");
+        input.value = "";
+        log(`Message sent`, data, "info");
+    } catch(e) { log("Exception sending message", e, "error"); }
+}
+
+function subscribeToRealtime() {
+    messagesChannel = supabase.channel("public:messages").on("postgres_changes", { event: "*", schema:"public", table:"messages" }, payload => {
+        addMessage(payload.new);
+        log("Realtime update", payload, "debug");
+    }).subscribe();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    log("DOM loaded", null, "debug");
+    const saved = localStorage.getItem("chatUsername");
+    if(saved) {
+        username = saved;
+        currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
+        isAdmin = currentRole === "Admin";
+        log(`Loaded saved username: "${username}", role: ${currentRole}`, null, "info");
+    } else {
+        username = prompt("Enter your name:");
+        localStorage.setItem("chatUsername", username);
+        currentRole = username.toLowerCase() === "frenchwizz" ? "Admin" : "User";
+        isAdmin = currentRole === "Admin";
+        log(`Username set: "${username}", role: ${currentRole}`, null, "info");
     }
-    
-    /* ============================================================
-       EVENT HANDLERS
-       ============================================================ */
-    saveNameBtn.onclick = saveName;
+    input.disabled = false;
+    button.disabled = false;
     button.onclick = sendMessage;
-    input.onkeypress = e => { if(e.key==="Enter") sendMessage(); };
-    
-    /* ============================================================
-       CLEAR NAME SHORTCUT
-       ============================================================ */
-    document.addEventListener("keydown", e=>{
-      if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase()==="t") {
-        username=""; currentRole=null; isAdmin=false;
-        localStorage.removeItem("chatUsername");
-        localStorage.removeItem("chatRole");
-        log("Username cleared via Ctrl+Alt+Shift+T","", "info","username");
-        namePrompt.style.display="block";
-      }
-    });
-    
-    /* ============================================================
-       INIT ON DOM LOAD
-       ============================================================ */
-    document.addEventListener("DOMContentLoaded", async ()=>{
-      log("DOM loaded","", "debug","startup");
-    
-      // Initialize Supabase first
-      initSupabase();
-    
-      // Check if username already exists
-      const storedName = localStorage.getItem("chatUsername");
-      const storedRole = localStorage.getItem("chatRole");
-      if(storedName) {
-        username = storedName;
-        currentRole = storedRole;
-        isAdmin = currentRole==="Admin";
-        namePrompt.style.display="none";
-        input.disabled = false;
-        button.disabled = false;
-        log(`Loaded saved username: "${username}", role: ${currentRole}`,null,"info","username");
-        await loadMessages();
-      } else {
-        namePrompt.style.display="block";
-        input.disabled = true;
-        button.disabled = true;
-      }
-    });
-    </script>
-    
-  
+    initSupabase();
+    loadMessages();
 
-  
-
+    // Shortcut to clear name
+    document.addEventListener("keydown", e => {
+        if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+            username = null;
+            currentRole = "User";
+            isAdmin = false;
+            localStorage.removeItem("chatUsername");
+            log("Username cleared via Ctrl+Alt+Shift+T", null, "info");
+            location.reload();
+        }
+    });
+});
+</script>
 </body>
 </html>
