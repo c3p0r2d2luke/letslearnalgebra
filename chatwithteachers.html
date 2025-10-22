@@ -42,7 +42,7 @@ li.highlighted { background-color: #4f545c !important; }
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@1.35.7/dist/supabase.min.js"></script>
 <script>
 /* ============================================================
-   CHAT CORE - Supabase with logBox and name handling
+   CHAT CORE - FULL VERBOSE DEBUG
    ============================================================ */
 
 const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co";
@@ -65,9 +65,9 @@ const namePrompt = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
 const saveNameBtn = document.getElementById("saveNameButton");
 
-/* ============================================================
-   LOGGING SYSTEM (shows in #logBox for Admins)
-   ============================================================ */
+// ============================================================
+// VERBOSE LOGGING SYSTEM
+// ============================================================
 function escapeHtml(str = "") {
   return String(str).replace(/[&<>"']/g, m => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
@@ -75,7 +75,6 @@ function escapeHtml(str = "") {
 }
 
 function log(msg, obj = null, level = "info", ctx = "") {
-  if (!isAdmin) return;
   const now = new Date();
   const time = `${now.toLocaleTimeString()}.${now.getMilliseconds()}`;
   const colors = { info: "#0f0", warn: "#ff0", error: "#f00", debug: "#0ff" };
@@ -83,7 +82,7 @@ function log(msg, obj = null, level = "info", ctx = "") {
 
   const wrap = document.createElement("div");
   wrap.style.borderBottom = "1px solid #333";
-  wrap.style.padding = "4px 0";
+  wrap.style.padding = "2px 0";
   wrap.innerHTML = `<div><b style="color:${color}">[${time}] ${level.toUpperCase()}</b> 
     ${ctx ? `<em style="color:#aaa">(${ctx})</em>` : ""}</div>
     <div style="margin-left:6px">${escapeHtml(String(msg))}</div>`;
@@ -96,29 +95,32 @@ function log(msg, obj = null, level = "info", ctx = "") {
     pre.style.padding = "4px";
     pre.style.overflowX = "auto";
     pre.style.fontSize = "11px";
-    pre.style.maxHeight = "140px";
+    pre.style.maxHeight = "200px";
     wrap.appendChild(pre);
   }
-  if (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
   logBox.appendChild(wrap);
+  if (logBox.children.length > 500) logBox.removeChild(logBox.firstChild);
   logBox.scrollTop = logBox.scrollHeight;
+  logBox.style.display = "block"; // always show
 }
 
-/* ============================================================
-   SUPABASE INIT
-   ============================================================ */
+// ============================================================
+// SUPABASE INIT
+// ============================================================
 function initSupabase() {
+  log("Initializing Supabase...", null, "debug", "init");
   if (!supabase) {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    log("Supabase initialized", null, "info", "init");
+    log("Supabase client created", null, "info", "init");
   }
 }
 
-/* ============================================================
-   USERNAME HANDLING
-   ============================================================ */
+// ============================================================
+// USERNAME HANDLING
+// ============================================================
 async function saveName() {
   const val = nameInput.value.trim();
+  log(`Attempting to save username: "${val}"`, null, "debug", "username");
   if (!val) return alert("Please enter your name!");
 
   username = val;
@@ -131,53 +133,58 @@ async function saveName() {
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
-  logBox.style.display = isAdmin ? "block" : "none";
 
+  log(`Username saved as "${username}", role: ${currentRole}`, null, "info", "username");
   initSupabase();
   await verifyRealtimeConnection();
   await loadMessages();
 }
 
-/* ============================================================
-   CLEAR NAME SHORTCUT
-   ============================================================ */
+// ============================================================
+// CLEAR NAME SHORTCUT
+// ============================================================
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+    log("Manual clear name triggered via Ctrl+Alt+Shift+T", null, "warn", "username");
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
     location.reload();
   }
 });
 
-/* ============================================================
-   REALTIME CONNECTION CHECK
-   ============================================================ */
+// ============================================================
+// REALTIME CONNECTION CHECK
+// ============================================================
 async function verifyRealtimeConnection() {
-  if (!supabase) return;
+  if (!supabase) return log("Supabase not initialized for realtime", null, "error", "realtime");
   try {
-    const test = supabase.channel("debug-" + Math.random().toString(36).slice(2, 8));
-    test.on("system", { event: "connected" }, () => {
+    const testChannel = supabase.channel("debug-" + Math.random().toString(36).slice(2, 8));
+    testChannel.on("system", { event: "connected" }, () => {
       realtimeReady = true;
       log("Realtime connection verified", null, "info", "realtime");
-      test.unsubscribe().catch(()=>{});
+      testChannel.unsubscribe().catch(()=>{});
     }).subscribe();
+    log("Subscribed to test realtime channel", null, "debug", "realtime");
   } catch (err) {
     log("Realtime connection failed", err, "error", "realtime");
   }
 }
 
-/* ============================================================
-   LOAD MESSAGES
-   ============================================================ */
+// ============================================================
+// LOAD MESSAGES
+// ============================================================
 async function loadMessages() {
-  if (!supabase) return;
+  log("Loading messages from Supabase...", null, "debug", "messages");
+  if (!supabase) return log("Supabase not initialized for message load", null, "error", "messages");
+
   try {
     const { data, error } = await supabase
       .from("messages")
       .select("*")
       .order("inserted_at", { ascending: true });
-    if (error) return log("Load failed", error, "error", "messages");
+    if (error) return log("Failed to load messages", error, "error", "messages");
 
+    log(`Loaded ${data.length} messages`, null, "info", "messages");
     messagesList.innerHTML = "";
     const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
 
@@ -189,45 +196,63 @@ async function loadMessages() {
     if (!messagesChannel) {
       messagesChannel = supabase.channel("public:messages");
       messagesChannel
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => addMessage(p.new))
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, p => addMessage(p.new))
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => {
+          log("Realtime INSERT event received", p.new, "debug", "messages");
+          addMessage(p.new);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, p => {
+          log("Realtime UPDATE event received", p.new, "debug", "messages");
+          addMessage(p.new);
+        })
         .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, p => {
+          log("Realtime DELETE event received", p.old, "debug", "messages");
           const n = document.getElementById("msg-" + p.old.id);
           if (n) n.remove();
         })
-        .subscribe(() => log("Subscribed to realtime messages", null, "debug", "realtime"));
+        .subscribe(() => log("Subscribed to realtime messages channel", null, "info", "realtime"));
     }
+
   } catch (err) {
-    log("Exception loading messages", err, "error", "messages");
+    log("Exception during message load", err, "error", "messages");
   }
 }
 
-/* ============================================================
-   SEND MESSAGE
-   ============================================================ */
+// ============================================================
+// SEND MESSAGE
+// ============================================================
 async function sendMessage() {
-  if (!supabase) return alert("Supabase not ready!");
+  log("Attempting to send message...", { content: input.value }, "debug", "sendMessage");
+  if (!supabase) {
+    log("Supabase not ready", null, "error", "sendMessage");
+    return alert("Supabase not ready!");
+  }
+
   const text = input.value.trim();
-  if (!text) return;
+  if (!text) return log("Empty message ignored", null, "warn", "sendMessage");
   const safe = isAdmin ? text : escapeHtml(text);
 
   try {
     const res = await supabase.from("messages").insert({
       content: safe, username, role: currentRole, ip: userIp
     }).select();
-    if (res.error) log("Message send failed", res.error, "error", "messages");
-    else addMessage(res.data[0]);
+    if (res.error) log("Message send failed", res.error, "error", "sendMessage");
+    else {
+      log("Message sent successfully", res.data[0], "info", "sendMessage");
+      addMessage(res.data[0]);
+    }
   } catch (e) {
-    log("Send exception", e, "error", "messages");
+    log("Exception sending message", e, "error", "sendMessage");
   }
   input.value = "";
 }
 
-/* ============================================================
-   MESSAGE RENDERING + ADMIN CONTROLS
-   ============================================================ */
+// ============================================================
+// MESSAGE RENDERING + ADMIN CONTROLS
+// ============================================================
 function addMessage(msg, opts = {}) {
-  if (!msg || !msg.id) return;
+  log("Rendering message", msg, "debug", "addMessage");
+  if (!msg || !msg.id) return log("Invalid message skipped", msg, "warn", "addMessage");
+
   const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
   const existing = document.getElementById("msg-" + msg.id);
   if (existing) existing.remove();
@@ -255,94 +280,11 @@ function addMessage(msg, opts = {}) {
   messagesList.scrollTop = messagesList.scrollHeight;
 }
 
-/* ============================================================
-   ADMIN CONTROLS
-   ============================================================ */
-function createAdminControls(li, msg) {
-  const controls = document.createElement("div");
-  controls.className = "adminControls";
-  controls.style.marginTop = "4px";
-
-  const mkBtn = (text, handler, color = "#666") => {
-    const b = document.createElement("button");
-    b.textContent = text;
-    b.style.marginRight = "4px";
-    b.style.fontSize = "11px";
-    b.style.padding = "2px 6px";
-    b.style.borderRadius = "6px";
-    b.style.background = color;
-    b.style.color = "#fff";
-    b.onclick = handler;
-    return b;
-  };
-
-  // --- Delete message ---
-  controls.appendChild(mkBtn("Delete", async () => {
-    try {
-      const { error } = await supabase.from("messages").delete().eq("id", msg.id);
-      if (error) log("Delete failed", error, "error", "admin");
-      else {
-        document.getElementById("msg-" + msg.id)?.remove();
-        log(`Deleted message #${msg.id}`, msg, "info", "admin");
-      }
-    } catch (err) { log("Delete exception", err, "error", "admin"); }
-  }, "#c33"));
-
-  // --- Pin / Unpin ---
-  const pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-  const isPinned = pinned.includes(msg.id);
-  controls.appendChild(mkBtn(isPinned ? "Unpin" : "Pin", () => {
-    const pins = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-    if (isPinned) {
-      const i = pins.indexOf(msg.id);
-      if (i >= 0) pins.splice(i, 1);
-      li.classList.remove("pinned");
-    } else {
-      pins.push(msg.id);
-      li.classList.add("pinned");
-    }
-    localStorage.setItem("pinnedMessages", JSON.stringify(pins));
-  }, "#3c3"));
-
-  // --- Mute / Unmute ---
-  const mutedUsers = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
-  const isMuted = mutedUsers.includes(msg.username);
-  controls.appendChild(mkBtn(isMuted ? "Unmute" : "Mute", () => {
-    const list = JSON.parse(localStorage.getItem("mutedUsers") || "[]");
-    if (isMuted) {
-      const i = list.indexOf(msg.username);
-      if (i >= 0) list.splice(i, 1);
-    } else list.push(msg.username);
-    localStorage.setItem("mutedUsers", JSON.stringify(list));
-    log(`${isMuted ? "Unmuted" : "Muted"} ${msg.username}`, null, "debug", "admin");
-  }, "#09c"));
-
-  // --- Promote / Demote ---
-  controls.appendChild(mkBtn("Promote", async () => {
-    try {
-      const { error } = await supabase.from("messages")
-        .update({ role: "Admin" }).eq("username", msg.username);
-      if (error) log("Promote failed", error, "error", "admin");
-      else log(`Promoted ${msg.username}`, null, "info", "admin");
-    } catch (err) { log("Promote exception", err, "error", "admin"); }
-  }, "#b5a"));
-
-  controls.appendChild(mkBtn("Demote", async () => {
-    try {
-      const { error } = await supabase.from("messages")
-        .update({ role: "User" }).eq("username", msg.username);
-      if (error) log("Demote failed", error, "error", "admin");
-      else log(`Demoted ${msg.username}`, null, "info", "admin");
-    } catch (err) { log("Demote exception", err, "error", "admin"); }
-  }, "#a55"));
-
-  li.appendChild(controls);
-}
-
-/* ============================================================
-   STARTUP
-   ============================================================ */
+// ============================================================
+// STARTUP
+// ============================================================
 document.addEventListener("DOMContentLoaded", async () => {
+  log("DOM loaded", null, "debug", "startup");
   saveNameBtn.onclick = saveName;
   button.onclick = sendMessage;
   input.addEventListener("keydown", e => {
@@ -352,27 +294,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Always initialize Supabase first
   initSupabase();
 
   const saved = localStorage.getItem("chatUsername");
   if (saved) {
     nameInput.value = saved;
+    log(`Saved username detected: ${saved}`, null, "info", "startup");
     await saveName();
   } else {
     namePrompt.style.display = "block";
     input.disabled = true;
     button.disabled = true;
-    log("Waiting for username entry...", null, "info", "init");
+    log("Waiting for username entry...", null, "info", "startup");
   }
 
-  // Fetch user IP
   fetch("https://api.ipify.org?format=json")
     .then(r => r.json())
     .then(d => { userIp = d.ip; log("IP fetched " + userIp, null, "info", "network"); })
     .catch(() => { userIp = "unknown"; log("IP fetch failed", null, "warn", "network"); });
 });
 </script>
+
   
 
 </body>
