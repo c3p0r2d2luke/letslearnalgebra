@@ -137,7 +137,7 @@ async function sendMessage() {
   if (!content || !username) return;
 
   const newMsg = {
-    id: Date.now(),
+    id: Date.now(), // temporary ID until Supabase returns real one
     username,
     content,
     inserted_at: new Date().toISOString(),
@@ -147,7 +147,7 @@ async function sendMessage() {
     pending: true
   };
 
-  // Save locally
+  // Save locally first
   const localMsgs = getLocalMessages();
   localMsgs.push(newMsg);
   saveLocalMessages(localMsgs);
@@ -157,24 +157,35 @@ async function sendMessage() {
   input.value = "";
 
   // Try to send online
-  try {
-    if (supabase) {
-      const { error } = await supabase.from("messages").insert([{
-        username: newMsg.username,
-        content: newMsg.content,
-        role: newMsg.role,
-        is_pinned: false
-      }]);
-      if (!error) {
-        newMsg.pending = false;
-        saveLocalMessages(localMsgs);
+  if (supabase) {
+    try {
+      const { data: insertedData, error } = await supabase
+        .from("messages")
+        .insert([{
+          username: newMsg.username,
+          content: newMsg.content,
+          role: newMsg.role,
+          is_pinned: false
+        }])
+        .select(); // get DB-assigned ID
+
+      if (!error && insertedData.length > 0) {
+        // Replace temporary message with DB message in localStorage
+        const updatedLocalMsgs = getLocalMessages().map(m =>
+          m.id === newMsg.id ? insertedData[0] : m
+        );
+        saveLocalMessages(updatedLocalMsgs);
+        renderMessages(updatedLocalMsgs);
+
         log("✅ Message sent to Supabase");
       }
+    } catch (e) {
+      log("⚠️ Message saved offline", e, "warn");
     }
-  } catch (e) {
-    log("⚠️ Message saved offline", e, "warn");
   }
 }
+
+
 
 /* ----------------------------------------------------------------------
    Send button & Enter key
@@ -276,26 +287,35 @@ function renderMessages(list) {
 
     // --- Admin Controls (Admins only) ---
     if (viewerRole === "Admin") {
-      // Delete
       const delBtn = document.createElement("button");
-      delBtn.textContent = "Delete";
-      delBtn.onclick = async () => {
-        if (li.dataset.pinned === "true") {
-          alert("Cannot delete a pinned message!");
-          return;
-        }
-        try {
-          const { error } = await supabase.from("messages").delete().eq("id", msg.id);
-          if (error) log("❌ Failed to delete message", error, "error", "admin");
-          else {
-            li.remove();
-            log(`🗑 Deleted message id=${msg.id}`, null, "warn", "admin");
-          }
-        } catch (e) {
-          log("❌ Exception deleting message", e, "error", "admin");
-        }
-      };
-      adminDiv.appendChild(delBtn);
+delBtn.textContent = "Delete";
+delBtn.onclick = async () => {
+  if (li.dataset.pinned === "true") {
+    alert("Cannot delete a pinned message!");
+    return;
+  }
+
+  try {
+    if (supabase) {
+      const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+      if (error) {
+        log("❌ Failed to delete message", error, "error");
+      } else {
+        li.remove();
+
+        // Remove from local storage too
+        const localMsgs = getLocalMessages().filter(m => m.id !== msg.id);
+        saveLocalMessages(localMsgs);
+
+        log(`🗑 Deleted message id=${msg.id}`, null, "warn");
+      }
+    }
+  } catch (e) {
+    log("❌ Exception deleting message", e, "error");
+  }
+};
+adminDiv.appendChild(delBtn);
+
 
       // Edit
       const editBtn = document.createElement("button");
@@ -565,46 +585,45 @@ function renderMessages(list) {
 
 // --- PIN / UNPIN (Admins only) ---
 if (viewerRole === "Admin") {
+  // --- PIN / UNPIN (Admins & Managers) ---
+if (viewerRole === "Admin" || viewerRole === "Manager") {
   const pinBtn = document.createElement("button");
-  pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+  pinBtn.textContent = msg.is_pinned ? "Unpin" : "Pin";
 
-  if (!li.dataset.originalIndex) {
-    li.dataset.originalIndex = Array.from(messagesList.children).indexOf(li);
-    if (li.dataset.originalIndex === -1) li.dataset.originalIndex = messagesList.children.length;
-  }
-
-  const pinnedMessagesInitial = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-  if (pinnedMessagesInitial.includes(msg.id)) {
+  if (msg.is_pinned) {
     li.dataset.pinned = "true";
     li.style.border = "2px solid red";
-    pinBtn.textContent = "Unpin";
   }
 
-  pinBtn.onclick = () => {
+  pinBtn.onclick = async () => {
     const isPinned = li.dataset.pinned === "true";
-    let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-    if (!isPinned) {
-      messagesList.insertBefore(li, messagesList.firstChild);
-      li.style.border = "2px solid red";
-      li.dataset.pinned = "true";
-      pinBtn.textContent = "Unpin";
-      if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
-      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-      log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
-    } else {
-      const children = Array.from(messagesList.children).filter(c => c !== li);
-      const origIdx = parseInt(li.dataset.originalIndex || "0", 10);
-      if (origIdx >= children.length) messagesList.appendChild(li);
-      else messagesList.insertBefore(li, children[origIdx]);
-      li.style.border = "";
-      li.dataset.pinned = "false";
-      pinBtn.textContent = "Pin";
-      pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
-      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-      log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
+
+    try {
+      // Update Supabase
+      await supabase.from("messages").update({ is_pinned: !isPinned }).eq("id", msg.id);
+
+      // Update local object
+      msg.is_pinned = !isPinned;
+
+      // Update UI
+      li.dataset.pinned = msg.is_pinned ? "true" : "false";
+      li.style.border = msg.is_pinned ? "2px solid red" : "";
+      pinBtn.textContent = msg.is_pinned ? "Unpin" : "Pin";
+
+      log(`${msg.is_pinned ? "📌 Pinned" : "❌ Unpinned"} message id=${msg.id}`, null, "info");
+
+      // Move pinned messages to top
+      if (msg.is_pinned) messagesList.insertBefore(li, messagesList.firstChild);
+      else loadMessages(); // reload for original order
+    } catch (e) {
+      log("❌ Failed to pin/unpin message", e, "error");
     }
   };
+
   adminDiv.appendChild(pinBtn);
+}
+
+
 }
 
     // --- Toggle Admin / Manager Panel ---
