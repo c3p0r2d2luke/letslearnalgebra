@@ -252,8 +252,8 @@ function renderMessages(list) {
   for (const msg of list) {
     const li = document.createElement("li");
 
-// Add role classes
-if (msg.role === "Admin") li.classList.add("admin");
+    // Add role classes
+    if (msg.role === "Admin") li.classList.add("admin");
     else if (msg.role === "Manager") li.classList.add("manager");
 
     // Username
@@ -269,14 +269,14 @@ if (msg.role === "Admin") li.classList.add("admin");
     else contentDiv.textContent = msg.content || "";
     li.appendChild(contentDiv);
 
-    // --- Add Admin Buttons ---
+    // --- Admin / Manager Panel ---
     const adminDiv = document.createElement("div");
     adminDiv.className = "adminControls";
     adminDiv.style.display = "none";
 
-    // --- ADMIN CONTROLS ---
+    // --- Admin Controls (Admins only) ---
     if (viewerRole === "Admin") {
-      // Delete (single)
+      // Delete
       const delBtn = document.createElement("button");
       delBtn.textContent = "Delete";
       delBtn.onclick = async () => {
@@ -345,7 +345,7 @@ if (msg.role === "Admin") li.classList.add("admin");
       };
       adminDiv.appendChild(nameBtn);
 
-      // Toggle Block (IP)
+      // Toggle Block
       const blockBtn = document.createElement("button");
       blockBtn.textContent = "Toggle Block";
       blockBtn.onclick = async () => {
@@ -519,8 +519,52 @@ if (msg.role === "Admin") li.classList.add("admin");
       adminDiv.appendChild(demoteBtn);
     }
 
-// --- PIN / UNPIN ---
-const pinBtn = document.createElement("button");
+    // --- Manager Controls (Managers only) ---
+    if (viewerRole === "Manager") {
+      if (msg.username === username) {
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete My Message";
+        delBtn.onclick = async () => {
+          try {
+            await supabase.from("messages").delete().eq("id", msg.id);
+            li.remove();
+            log(`🗑 Deleted own message id=${msg.id}`, null, "warn", "manager");
+          } catch (e) {
+            log("❌ Failed to delete own message", e, "error", "manager");
+          }
+        };
+        adminDiv.appendChild(delBtn);
+      }
+
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "Report Message";
+      reportBtn.onclick = async () => {
+        try {
+          const payload = {
+            to: "frenchwizz@proton.me",
+            subject: `🚨 Message Reported by Manager: ${username}`,
+            text: `Reporter (manager): ${username}\nReported user: ${msg.username}\nMessage ID: ${msg.id}\nIP: ${msg.ip || "unknown"}\n\nMessage content:\n${msg.content || ""}`
+          };
+          const res = await supabase.functions.invoke("sendEmail", { body: payload });
+          if (res.error) {
+            const errMsg = res.error.message || JSON.stringify(res.error);
+            log("❌ sendEmail function error", res.error, "error", "manager");
+            alert("Failed to report message:\n" + errMsg);
+          } else alert("Message reported successfully!");
+        } catch (e) {
+          log("❌ Failed to report message", e, "error", "manager");
+        }
+      };
+      adminDiv.appendChild(reportBtn);
+    }
+
+    // --- User Controls (Users) ---
+    if (viewerRole === "User") {
+      adminDiv.style.display = "none"; // Users never see the panel
+    }
+
+    // --- PIN / UNPIN ---
+    const pinBtn = document.createElement("button");
     pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
 
     if (!li.dataset.originalIndex) {
@@ -561,54 +605,16 @@ const pinBtn = document.createElement("button");
     };
     adminDiv.appendChild(pinBtn);
 
-    // --- MANAGER CONTROLS ---
-    if (viewerRole === "Manager") {
-      if (msg.username === username) {
-        const delBtn = document.createElement("button");
-        delBtn.textContent = "Delete My Message";
-        delBtn.onclick = async () => {
-          try {
-            await supabase.from("messages").delete().eq("id", msg.id);
-            li.remove();
-            log(`🗑 Deleted own message id=${msg.id}`, null, "warn", "manager");
-          } catch (e) {
-            log("❌ Failed to delete own message", e, "error", "manager");
-          }
-        };
-        adminDiv.appendChild(delBtn);
-      }
-
-      const reportBtn = document.createElement("button");
-      reportBtn.textContent = "Report Message";
-      reportBtn.onclick = async () => {
-        try {
-          const payload = {
-            to: "frenchwizz@proton.me",
-            subject: `🚨 Message Reported by Manager: ${username}`,
-            text: `Reporter (manager): ${username}\nReported user: ${msg.username}\nMessage ID: ${msg.id}\nIP: ${msg.ip || "unknown"}\n\nMessage content:\n${msg.content || ""}`
-          };
-          const res = await supabase.functions.invoke("sendEmail", { body: payload });
-          if (res.error) {
-            const errMsg = res.error.message || JSON.stringify(res.error);
-            log("❌ sendEmail function error", res.error, "error", "manager");
-            alert("Failed to report message:\n" + errMsg);
-          } else alert("Message reported successfully!");
-        } catch (e) {
-          log("❌ Failed to report message", e, "error", "manager");
-        }
-      };
-      adminDiv.appendChild(reportBtn);
+    // --- Toggle Admin / Manager Panel ---
+    if (viewerRole !== "User") {
+      li.addEventListener("click", e => {
+        e.stopPropagation();
+        adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none";
+      });
+      document.addEventListener("click", () => {
+        adminDiv.style.display = "none";
+      });
     }
-
-    // --- TOGGLE VISIBILITY ---
-    li.addEventListener("click", e => {
-      e.stopPropagation();
-      adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none";
-    });
-
-    document.addEventListener("click", () => {
-      adminDiv.style.display = "none";
-    });
 
     li.appendChild(adminDiv);
     messagesList.appendChild(li);
