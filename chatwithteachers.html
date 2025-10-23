@@ -49,6 +49,78 @@ const namePrompt = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
 const saveNameBtn = document.getElementById("saveNameButton");
 
+/* ----------------------------------------------------------------------
+   Username prompt setup (robust version)
+   ---------------------------------------------------------------------- */
+   const namePrompt = document.getElementById("namePrompt");
+const nameInput = document.getElementById("nameInput");
+const saveNameBtn = document.getElementById("saveNameButton");
+const input = document.getElementById("messageInput");
+const button = document.getElementById("sendButton");
+let username = localStorage.getItem("chatUsername") || "";
+let currentRole = localStorage.getItem("chatRole") || "User";
+
+async function saveName() {
+  const name = nameInput.value.trim();
+  if (!name) {
+    alert("Please enter a name!");
+    return;
+  }
+
+  // Save locally
+  localStorage.setItem("chatUsername", name);
+  username = name;
+
+  // Fetch role from DB if possible
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("role")
+      .eq("username", name)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Role lookup failed:", error);
+    }
+
+    currentRole = data?.role || "User";
+    localStorage.setItem("chatRole", currentRole);
+    console.log(`✅ Saved username '${name}' with role '${currentRole}'`);
+  } catch (e) {
+    console.warn("Role fetch skipped (offline or error):", e);
+  }
+
+  // Hide the name prompt and enable chat UI
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (saveNameBtn) {
+    saveNameBtn.onclick = saveName;
+  } else {
+    console.error("Save Name button not found!");
+  }
+
+  // If no name saved, show prompt
+  const saved = localStorage.getItem("chatUsername");
+  if (!saved || saved.trim() === "") {
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+  } else {
+    // Prefill input and set username
+    nameInput.value = saved;
+    username = saved;
+    currentRole = localStorage.getItem("chatRole") || "User";
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+  }
+});
+
+
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
 
