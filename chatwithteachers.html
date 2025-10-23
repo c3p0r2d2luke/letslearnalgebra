@@ -638,7 +638,7 @@ async function saveName() {
   input.disabled = false;
   button.disabled = false;
 
-  renderMessages();
+  renderMessages(getLocalMessages());
 }
 
 // Hook up Save button
@@ -664,13 +664,15 @@ document.addEventListener("DOMContentLoaded", () => {
    Logout Shortcut (Ctrl+Shift+L)
 ---------------------------------------------------------------------- */
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "l") {
+  if ((e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "t") {
     e.preventDefault();
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
     location.reload();
   }
 });
+
 
 /* ----------------------------------------------------------------------
    Initial load
