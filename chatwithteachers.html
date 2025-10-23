@@ -59,9 +59,51 @@ const supabaseKey =
 let supabase;
 try {
   supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+  // --- Connection Test ---
+  async function testSupabaseConnection() {
+    try {
+      const { data, error } = await supabase.from("messages").select("id").limit(1);
+      if (error) {
+        log("⚠️ Supabase query failed — not connected to DB");
+      } else {
+        log("✅ Supabase connection OK — messages table accessible");
+      }
+    } catch (e) {
+      log("❌ Supabase connection error (check network or key)");
+      console.error(e);
+    }
+  }
+  testSupabaseConnection();
+
+  // --- Live Subscription Status Test ---
+  const channel = supabase
+    .channel("public:messages")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "messages" },
+      (payload) => {
+        log(`📡 Live update received (${payload.eventType})`);
+        loadMessages(); // reload messages when live update happens
+      }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        log("✅ Subscribed to Supabase live updates");
+      } else if (status === "CLOSED") {
+        log("❌ Supabase subscription closed");
+      } else if (status === "CHANNEL_ERROR") {
+        log("⚠️ Supabase live channel error");
+      } else {
+        log(`ℹ️ Supabase channel status: ${status}`);
+      }
+    });
+
 } catch (err) {
   console.warn("⚠️ Supabase not available, offline mode only.");
+  log("⚠️ Running in offline mode — Supabase connection failed");
 }
+
 
 /* ----------------------------------------------------------------------
    Username prompt & role setup
