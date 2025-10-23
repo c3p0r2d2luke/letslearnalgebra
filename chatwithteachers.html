@@ -123,13 +123,12 @@ document.addEventListener("DOMContentLoaded", () => {
    ---------------------------------------------------------------------- */
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
-let supabase;
 
 
 function logBoxWrite(level, msg) {
   if (!logBox) return;
   const t = new Date().toLocaleTimeString();
-  logBox.value += `[${t}] ${level}: ${msg}\n`;
+  logBox.innerHTML += `[${t}] ${level}: ${msg}<br>`;
   logBox.scrollTop = logBox.scrollHeight;
 }
 
