@@ -333,6 +333,78 @@ function renderMessages(list) {
       adminDiv.appendChild(pinBtn);
     }
 
+    // --- Delete Button ---
+const delBtn = document.createElement("button");
+delBtn.textContent = "Delete";
+delBtn.onclick = async (e) => {
+  e.stopPropagation();
+  if (!confirm("Are you sure you want to delete this message?")) return;
+
+  // Remove from UI
+  li.remove();
+
+  // Remove from localStorage
+  const allMsgs = getLocalMessages().filter(m => m.id !== msg.id);
+  saveLocalMessages(allMsgs);
+
+  // Try Supabase delete
+  if (supabase) {
+    try {
+      const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+      if (error) log("❌ Delete failed on Supabase", error, "error", "network");
+    } catch (err) {
+      log("⚠️ Offline: message deleted locally only", err, "warn", "network");
+    }
+  }
+};
+adminDiv.appendChild(delBtn);
+
+// --- Highlight Button ---
+const highlightBtn = document.createElement("button");
+highlightBtn.textContent = "Highlight";
+highlightBtn.onclick = (e) => {
+  e.stopPropagation();
+  li.classList.toggle("highlighted");
+
+  // Optional: save highlight state locally
+  const highlighted = JSON.parse(localStorage.getItem("highlightedMessages") || "[]");
+  if (li.classList.contains("highlighted")) {
+    if (!highlighted.includes(msg.id)) highlighted.push(msg.id);
+  } else {
+    const idx = highlighted.indexOf(msg.id);
+    if (idx > -1) highlighted.splice(idx, 1);
+  }
+  localStorage.setItem("highlightedMessages", JSON.stringify(highlighted));
+};
+adminDiv.appendChild(highlightBtn);
+
+// --- Optional: Block User Button ---
+if (currentRole === "Admin") {
+  const blockBtn = document.createElement("button");
+  blockBtn.textContent = "Block User";
+  blockBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Block all messages from ${msg.username}?`)) return;
+
+    // Update Supabase
+    if (supabase) {
+      try {
+        const { error } = await supabase.from("users").update({ blocked: true }).eq("username", msg.username);
+        if (error) log("❌ Block user failed", error, "error", "network");
+      } catch (err) {
+        log("⚠️ Offline: cannot block user now", err, "warn", "network");
+      }
+    }
+
+    // Optionally hide messages locally
+    const allMsgs = getLocalMessages().map(m => m.username === msg.username ? { ...m, blocked: true } : m);
+    saveLocalMessages(allMsgs);
+    renderMessages();
+  };
+  adminDiv.appendChild(blockBtn);
+}
+
+
     // Toggle admin controls on click
     li.addEventListener("click", (e) => {
       e.stopPropagation();
