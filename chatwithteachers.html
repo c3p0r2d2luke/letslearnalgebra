@@ -220,14 +220,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Try to load saved name
   const saved = localStorage.getItem("chatUsername");
-  if(saved){
-    nameInput.value = saved;  // prefill input
-    await saveName();          // run the same logic as clicking save
-  } else {
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-  }
+if (saved && saved.trim() !== "") {
+  nameInput.value = saved;
+  await saveName();
+} else {
+  namePrompt.style.display = "block";
+  input.disabled = true;
+  button.disabled = true;
+}
+
 });
 
 
