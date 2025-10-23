@@ -41,7 +41,7 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
-/* ----------------------------------------------------------------------
+  /* ----------------------------------------------------------------------
    Chat App Core Setup
 ---------------------------------------------------------------------- */
 const input = document.getElementById("messageInput");
@@ -54,97 +54,73 @@ const saveNameBtn = document.getElementById("saveNameButton");
 
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M"; // <-- replace with your key
 
 let supabase;
 try {
   supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 } catch (err) {
-  console.warn("⚠️ Supabase not available, running in offline mode.");
+  console.warn("⚠️ Supabase not available, offline mode only.");
 }
 
 /* ----------------------------------------------------------------------
-   Username prompt setup (robust version)
+   Username prompt & role setup
 ---------------------------------------------------------------------- */
 let username = localStorage.getItem("chatUsername") || "";
 let currentRole = localStorage.getItem("chatRole") || "User";
 
 async function saveName() {
   const name = nameInput.value.trim();
-  if (!name) {
-    alert("Please enter a name!");
-    return;
-  }
+  if (!name) return alert("Please enter a name!");
 
-  // Save locally
-  localStorage.setItem("chatUsername", name);
   username = name;
+  localStorage.setItem("chatUsername", name);
 
-  // Try to fetch role from DB
-  try {
-    if (supabase) {
+  if (supabase) {
+    try {
       const { data, error } = await supabase
         .from("users")
         .select("role")
         .eq("username", name)
         .single();
-
-      if (error && error.code !== "PGRST116") {
-        console.error("Role lookup failed:", error);
-      }
-
-      currentRole = data?.role || "User";
-      localStorage.setItem("chatRole", currentRole);
-      console.log(`✅ Saved username '${name}' with role '${currentRole}'`);
-    } else {
-      console.warn("Offline mode: using local role only.");
-    }
-  } catch (e) {
-    console.warn("Role fetch skipped (offline or error):", e);
+      if (!error && data) currentRole = data.role || "User";
+    } catch {}
   }
 
-  // Hide prompt, enable chat
+  localStorage.setItem("chatRole", currentRole);
+
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
+
+  loadMessages();
 }
 
-// On load, check name
-document.addEventListener("DOMContentLoaded", () => {
-  if (saveNameBtn) {
-    saveNameBtn.onclick = saveName;
-  } else {
-    console.error("Save Name button not found!");
-  }
+saveNameBtn.onclick = saveName;
 
-  const saved = localStorage.getItem("chatUsername");
-  if (!saved || saved.trim() === "") {
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-  } else {
-    nameInput.value = saved;
-    username = saved;
-    currentRole = localStorage.getItem("chatRole") || "User";
-    namePrompt.style.display = "none";
-    input.disabled = false;
-    button.disabled = false;
-  }
-});
+// Load saved username
+if (username) {
+  nameInput.value = username;
+  currentRole = localStorage.getItem("chatRole") || "User";
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+  loadMessages();
+}
+
 /* ----------------------------------------------------------------------
    Logging helper
 ---------------------------------------------------------------------- */
-function log(msg, obj = null, type = "info", src = "sys") {
+function log(msg, obj = null, type = "info") {
   const el = document.createElement("div");
-  el.textContent = `[${new Date().toLocaleTimeString()}] [${src}] ${msg}`;
-  el.className = `log-${type}`;
+  el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   logBox?.appendChild(el);
   logBox.scrollTop = logBox.scrollHeight;
   if (obj) console[type === "error" ? "error" : "log"](msg, obj);
 }
 
 /* ----------------------------------------------------------------------
-   Offline + online message handling
+   LocalStorage helpers
 ---------------------------------------------------------------------- */
 function getLocalMessages() {
   return JSON.parse(localStorage.getItem("localMessages") || "[]");
@@ -153,9 +129,8 @@ function getLocalMessages() {
 function saveLocalMessages(messages) {
   localStorage.setItem("localMessages", JSON.stringify(messages));
 }
-
 /* ----------------------------------------------------------------------
-   Send Message (works offline, syncs later)
+   Send Message (offline first, sync later)
 ---------------------------------------------------------------------- */
 async function sendMessage() {
   const content = input.value.trim();
@@ -167,50 +142,42 @@ async function sendMessage() {
     content,
     inserted_at: new Date().toISOString(),
     role: currentRole,
-    ip: userIp || "unknown",
+    ip: "unknown",
     is_pinned: false,
-    pending: true // mark unsynced
+    pending: true
   };
 
-  // Save immediately to localStorage for offline view
+  // Save locally
   const localMsgs = getLocalMessages();
   localMsgs.push(newMsg);
   saveLocalMessages(localMsgs);
 
-  // Render instantly
-  renderMessages();
-
+  // Render immediately
+  renderMessages(localMsgs);
   input.value = "";
 
-  // Try syncing online
+  // Try to send online
   try {
     if (supabase) {
-      const { error } = await supabase.from("messages").insert([
-        {
-          username: newMsg.username,
-          content: newMsg.content,
-          ip: newMsg.ip,
-          role: newMsg.role,
-          is_pinned: false
-        }
-      ]);
+      const { error } = await supabase.from("messages").insert([{
+        username: newMsg.username,
+        content: newMsg.content,
+        role: newMsg.role,
+        is_pinned: false
+      }]);
       if (!error) {
-        log("✅ Message sent to Supabase", null, "info", "network");
         newMsg.pending = false;
         saveLocalMessages(localMsgs);
-      } else {
-        log("⚠️ Message saved offline (Supabase error)", error, "warn", "network");
+        log("✅ Message sent to Supabase");
       }
-    } else {
-      log("💾 Offline mode — message queued for sync", null, "warn", "network");
     }
   } catch (e) {
-    log("⚠️ Could not send to Supabase (network)", e, "warn", "network");
+    log("⚠️ Message saved offline", e, "warn");
   }
 }
 
 /* ----------------------------------------------------------------------
-   Event handler for Send button
+   Send button & Enter key
 ---------------------------------------------------------------------- */
 button.addEventListener("click", sendMessage);
 input.addEventListener("keypress", e => {
@@ -221,76 +188,62 @@ input.addEventListener("keypress", e => {
 });
 
 /* ----------------------------------------------------------------------
-   Automatic sync when online
+   Sync offline messages when back online
 ---------------------------------------------------------------------- */
 async function syncPendingMessages() {
   if (!supabase) return;
   const localMsgs = getLocalMessages();
   const unsent = localMsgs.filter(m => m.pending);
-
   if (unsent.length === 0) return;
 
   for (const msg of unsent) {
     try {
-      const { error } = await supabase.from("messages").insert([
-        {
-          username: msg.username,
-          content: msg.content,
-          ip: msg.ip,
-          role: msg.role,
-          is_pinned: msg.is_pinned
-        }
-      ]);
+      const { error } = await supabase.from("messages").insert([{
+        username: msg.username,
+        content: msg.content,
+        role: msg.role,
+        is_pinned: msg.is_pinned
+      }]);
       if (!error) msg.pending = false;
     } catch (e) {
-      log("❌ Failed syncing a message", e, "error", "sync");
+      log("❌ Failed syncing a message", e, "error");
     }
   }
   saveLocalMessages(localMsgs);
-  log(`🔁 Synced ${unsent.length} pending messages`, null, "info", "sync");
+  log(`🔁 Synced ${unsent.length} pending messages`);
 }
 
 window.addEventListener("online", syncPendingMessages);
+
 /* ----------------------------------------------------------------------
-   Load messages (local first, Supabase second)
+   Load messages (local first, then online)
 ---------------------------------------------------------------------- */
 async function loadMessages() {
   let localMsgs = getLocalMessages();
-
-  // Sort local messages by timestamp
-  localMsgs.sort((a, b) => new Date(a.inserted_at) - new Date(b.inserted_at));
-
-  // Show local first
+  localMsgs.sort((a,b) => new Date(a.inserted_at) - new Date(b.inserted_at));
   renderMessages(localMsgs);
 
-  // Try online fetch
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from("messages")
+      const { data, error } = await supabase.from("messages")
         .select("*")
         .order("inserted_at", { ascending: true });
-
       if (!error && data) {
-        // Merge new online messages with local ones
         const all = [...localMsgs];
         for (const msg of data) {
           if (!all.some(m => m.id === msg.id)) all.push(msg);
         }
         saveLocalMessages(all);
         renderMessages(all);
-        log("✅ Loaded messages from Supabase", null, "info", "network");
-      } else {
-        log("⚠️ Supabase load error", error, "warn", "network");
+        log("✅ Loaded messages from Supabase");
       }
     } catch (e) {
-      log("❌ Failed to load from Supabase", e, "error", "network");
+      log("❌ Failed to load Supabase messages", e, "error");
     }
   }
 }
-
 /* ----------------------------------------------------------------------
-   Render messages
+   Render Messages
 ---------------------------------------------------------------------- */
 function renderMessages(list) {
   if (!list) list = getLocalMessages();
@@ -307,63 +260,84 @@ function renderMessages(list) {
 
   for (const msg of list) {
     const li = document.createElement("li");
-    li.textContent = `${msg.username}: ${msg.content}`;
     li.dataset.id = msg.id;
-    li.dataset.pinned = msg.is_pinned || pinnedMessages.includes(msg.id) ? "true" : "false";
 
-    if (li.dataset.pinned === "true") {
+    // Role-based styling
+    li.className = msg.role.toLowerCase(); // "admin", "manager", "user"
+
+    // Pinned border
+    if (msg.is_pinned || pinnedMessages.includes(msg.id)) {
       li.style.border = "2px solid red";
+      li.dataset.pinned = "true";
+    } else {
+      li.dataset.pinned = "false";
     }
 
-    // --- Create admin/manager controls ---
+    // Username
+    const usernameSpan = document.createElement("span");
+    usernameSpan.className = "username";
+    usernameSpan.textContent = msg.username;
+    li.appendChild(usernameSpan);
+
+    // Content (HTML rendered for admins)
+    const contentSpan = document.createElement("span");
+    contentSpan.className = "content";
+    if (msg.role === "Admin") {
+      contentSpan.innerHTML = msg.content; // render HTML
+    } else {
+      contentSpan.textContent = msg.content;
+    }
+    li.appendChild(contentSpan);
+
+    // Admin controls
     const adminDiv = document.createElement("div");
     adminDiv.className = "adminControls";
     adminDiv.style.display = "none";
 
     // Pin button
-    const pinBtn = document.createElement("button");
-    pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+    if (currentRole === "Admin" || currentRole === "Manager") {
+      const pinBtn = document.createElement("button");
+      pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
 
-    pinBtn.onclick = async () => {
-      const newPinnedState = li.dataset.pinned !== "true";
-      li.dataset.pinned = newPinnedState.toString();
-      li.style.border = newPinnedState ? "2px solid red" : "";
-      pinBtn.textContent = newPinnedState ? "Unpin" : "Pin";
+      pinBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const newPinnedState = li.dataset.pinned !== "true";
+        li.dataset.pinned = newPinnedState.toString();
+        li.style.border = newPinnedState ? "2px solid red" : "";
+        pinBtn.textContent = newPinnedState ? "Unpin" : "Pin";
 
-      // Update local storage
-      let pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-      if (newPinnedState) {
-        if (!pinned.includes(msg.id)) pinned.push(msg.id);
-      } else {
-        pinned = pinned.filter(id => id !== msg.id);
-      }
-      localStorage.setItem("pinnedMessages", JSON.stringify(pinned));
-
-      // Try updating Supabase
-      try {
-        if (supabase) {
-          const { error } = await supabase
-            .from("messages")
-            .update({ is_pinned: newPinnedState })
-            .eq("id", msg.id);
-          if (error) log("⚠️ Supabase pin update failed", error, "warn", "network");
+        // Update local pinned
+        let pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+        if (newPinnedState) {
+          if (!pinned.includes(msg.id)) pinned.push(msg.id);
+        } else {
+          pinned = pinned.filter(id => id !== msg.id);
         }
-      } catch (e) {
-        log("⚠️ Offline, pin saved locally", e, "warn", "network");
-      }
+        localStorage.setItem("pinnedMessages", JSON.stringify(pinned));
 
-      // Re-render
-      renderMessages();
-    };
+        // Try updating Supabase
+        try {
+          if (supabase) {
+            const { error } = await supabase
+              .from("messages")
+              .update({ is_pinned: newPinnedState })
+              .eq("id", msg.id);
+            if (error) console.warn("Supabase pin update failed", error);
+          }
+        } catch (err) {
+          console.warn("Offline pin saved locally", err);
+        }
 
-    adminDiv.appendChild(pinBtn);
+        renderMessages(list);
+      };
+      adminDiv.appendChild(pinBtn);
+    }
 
-    // --- Click to toggle admin controls ---
-    li.addEventListener("click", e => {
+    // Toggle admin controls on click
+    li.addEventListener("click", (e) => {
       e.stopPropagation();
       adminDiv.style.display = adminDiv.style.display === "none" ? "flex" : "none";
     });
-
     document.addEventListener("click", () => {
       adminDiv.style.display = "none";
     });
@@ -372,68 +346,84 @@ function renderMessages(list) {
     messagesList.appendChild(li);
   }
 }
+/* ----------------------------------------------------------------------
+   Save Name & Setup
+---------------------------------------------------------------------- */
+async function saveName() {
+  const name = nameInput.value.trim();
+  if (!name) {
+    alert("Please enter a name!");
+    return;
+  }
+
+  localStorage.setItem("chatUsername", name);
+  username = name;
+
+  // Fetch role from Supabase if available
+  try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("role")
+        .eq("username", name)
+        .single();
+
+      if (!error && data) {
+        currentRole = data.role || "User";
+        localStorage.setItem("chatRole", currentRole);
+      } else {
+        currentRole = "User";
+      }
+    } else {
+      currentRole = "User"; // offline fallback
+    }
+  } catch (err) {
+    console.warn("Role fetch failed:", err);
+    currentRole = "User";
+  }
+
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+
+  renderMessages();
+}
+
+// Hook up Save button
+saveNameBtn.addEventListener("click", saveName);
+
+// Auto-load username on page load
+document.addEventListener("DOMContentLoaded", () => {
+  const saved = localStorage.getItem("chatUsername");
+  if (saved && saved.trim() !== "") {
+    username = saved;
+    currentRole = localStorage.getItem("chatRole") || "User";
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+  } else {
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+  }
+});
 
 /* ----------------------------------------------------------------------
-   Load messages when app starts
+   Logout Shortcut (Ctrl+Shift+L)
 ---------------------------------------------------------------------- */
-document.addEventListener("DOMContentLoaded", loadMessages);
-// --- Local Storage Sync ---
-// Store unsent messages while offline
-function saveOfflineMessage(username, content) {
-  const unsent = JSON.parse(localStorage.getItem("unsentMessages") || "[]");
-  unsent.push({ username, content, time: Date.now() });
-  localStorage.setItem("unsentMessages", JSON.stringify(unsent));
-}
-
-// Try to send unsent messages when back online
-async function sendUnsentMessages() {
-  const unsent = JSON.parse(localStorage.getItem("unsentMessages") || "[]");
-  if (unsent.length === 0) return;
-
-  for (const msg of unsent) {
-    try {
-      const { error } = await supabase.from("messages").insert({
-        username: msg.username,
-        content: msg.content,
-      });
-      if (!error) {
-        console.log("✅ Sent offline message:", msg.content);
-      }
-    } catch (e) {
-      console.error("⚠️ Failed to send:", e);
-      return; // stop trying if still offline
-    }
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "l") {
+    e.preventDefault();
+    localStorage.removeItem("chatUsername");
+    localStorage.removeItem("chatRole");
+    location.reload();
   }
-  localStorage.removeItem("unsentMessages");
-}
-
-// Listen for coming back online
-window.addEventListener("online", () => {
-  console.log("🌐 Back online! Sending queued messages...");
-  sendUnsentMessages();
 });
 
-// --- Modified Send Handler ---
-button.addEventListener("click", async () => {
-  const content = input.value.trim();
-  if (!content) return;
-
-  const msg = { username: currentUser, content };
-
-  // Try to send immediately
-  try {
-    const { error } = await supabase.from("messages").insert(msg);
-    if (error) throw error;
-    addMessageToUI(currentUser, content);
-  } catch {
-    // If offline or failed, save locally
-    console.warn("Offline, saving message locally:", content);
-    saveOfflineMessage(currentUser, content);
-    addMessageToUI(currentUser + " (saved offline)", content);
-  }
-
-  input.value = "";
-});
+/* ----------------------------------------------------------------------
+   Initial load
+---------------------------------------------------------------------- */
+loadMessages();
 
 </script>
 
