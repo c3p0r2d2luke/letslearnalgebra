@@ -41,7 +41,6 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
-
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
@@ -258,38 +257,46 @@ function enableUIAfterHandshake(){
   }
 }
 
+function renderMessages(messages){
+  if(!messagesList) return;
+  messagesList.innerHTML = "";
+
+  const pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+
+  // Render pinned first
+  messages.filter(m => pinnedMessages.includes(m.id)).forEach(m => addMessage(m, { treatAsPinnedLoad: true }));
+
+  // Then non-pinned
+  messages.filter(m => !pinnedMessages.includes(m.id)).forEach(m => addMessage(m));
+}
+
+
 /* ----------------------------------------------------------------------
    loadMessages + Realtime subscription
    - Render pinned messages first (from localStorage), then others in chronological order.
    ---------------------------------------------------------------------- */
-async function loadMessages(){
+   async function loadMessages(){
   if(!username) return;
 
   try {
     const { data, error } = await supabase.from("messages").select("*").order("inserted_at", { ascending: true });
-    if(error){
-      log("❌ Failed to load messages", error, "error", "messages");
+
+    if(error) {
+      log("⚠️ Error loading messages, using offline mock", error, "warn", "messages");
+      const mockData = JSON.parse(localStorage.getItem("mock_messages") || "[]");
+      renderMessages(mockData);
       return;
     }
-    if(!data || !Array.isArray(data)) return;
 
-    // preserve existing DOM while re-rendering: clear then render
-    messagesList.innerHTML = "";
-
-    // read pinned IDs from localStorage (simple persistence)
-    const pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-
-    // Render pinned first (in the same chronological order they appear in 'data')
-    data.filter(m => pinnedMessages.includes(m.id)).forEach(m => addMessage(m, { treatAsPinnedLoad: true }));
-
-    // Then render non-pinned messages
-    data.filter(m => !pinnedMessages.includes(m.id)).forEach(m => addMessage(m));
-
+    renderMessages(data || []);
   } catch(e){
-    log("❌ Exception loading messages", e, "error", "messages");
+    log("⚠️ Exception loading messages, using offline mock", e, "warn", "messages");
+    const mockData = JSON.parse(localStorage.getItem("mock_messages") || "[]");
+    renderMessages(mockData);
   }
 
-  if(!messagesChannel){
+  // Setup realtime channel if online
+  if(!messagesChannel && supabase.channel){
     messagesChannel = supabase.channel("public:messages");
     messagesChannel
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => addMessage(payload.new))
@@ -364,13 +371,11 @@ function addMessage(msg, options = {}){
    Send message
    - Only admins may send raw HTML content; all others are escaped before saving.
    ---------------------------------------------------------------------- */
-async function sendMessage() {
+   async function sendMessage() {
   let text = input.value.replace(/\r/g,"").trim();
   if (!text) return;
 
-  // Only admins can send HTML — non-admins' content will be escaped on save.
   const contentToSave = isAdmin ? text : escapeHtml(text);
-
   const roleToSave = currentRole ? (currentRole.charAt(0).toUpperCase() + currentRole.slice(1)) : "User";
 
   try {
@@ -381,13 +386,30 @@ async function sendMessage() {
       role: roleToSave
     }).select();
 
-    if(res.error) log("❌ Message failed to send", res.error, "error", "messages");
-    else if(Array.isArray(res.data) && res.data[0]){
+    if(res.error) {
+      log("❌ Message failed to send", res.error, "error", "messages");
+      throw res.error; // fallback to offline
+    }
+    if(Array.isArray(res.data) && res.data[0]){
       addMessage(res.data[0]);
       log("✅ Message sent successfully", null, "info", "messages");
     }
   } catch(e){
-    log("❌ Exception inserting message", e, "error", "messages");
+    log("⚠️ Sending message offline mode", e, "warn", "messages");
+    // fallback: insert into localStorage mock
+    const msgs = JSON.parse(localStorage.getItem("mock_messages") || "[]");
+    const msg = {
+      id: Date.now(),
+      username,
+      content: contentToSave,
+      inserted_at: new Date().toISOString(),
+      ip: userIp,
+      role: roleToSave
+    };
+    msgs.push(msg);
+    localStorage.setItem("mock_messages", JSON.stringify(msgs));
+    addMessage(msg);
+    log("💾 Message saved locally (offline)", null, "info", "messages");
   }
 
   input.value = "";
