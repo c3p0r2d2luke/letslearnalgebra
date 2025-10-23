@@ -563,47 +563,49 @@ function renderMessages(list) {
       adminDiv.style.display = "none"; // Users never see the panel
     }
 
-    // --- PIN / UNPIN ---
-    const pinBtn = document.createElement("button");
-    pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+// --- PIN / UNPIN (Admins only) ---
+if (viewerRole === "Admin") {
+  const pinBtn = document.createElement("button");
+  pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
 
-    if (!li.dataset.originalIndex) {
-      li.dataset.originalIndex = Array.from(messagesList.children).indexOf(li);
-      if (li.dataset.originalIndex === -1) li.dataset.originalIndex = messagesList.children.length;
-    }
+  if (!li.dataset.originalIndex) {
+    li.dataset.originalIndex = Array.from(messagesList.children).indexOf(li);
+    if (li.dataset.originalIndex === -1) li.dataset.originalIndex = messagesList.children.length;
+  }
 
-    const pinnedMessagesInitial = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-    if (pinnedMessagesInitial.includes(msg.id)) {
-      li.dataset.pinned = "true";
+  const pinnedMessagesInitial = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+  if (pinnedMessagesInitial.includes(msg.id)) {
+    li.dataset.pinned = "true";
+    li.style.border = "2px solid red";
+    pinBtn.textContent = "Unpin";
+  }
+
+  pinBtn.onclick = () => {
+    const isPinned = li.dataset.pinned === "true";
+    let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+    if (!isPinned) {
+      messagesList.insertBefore(li, messagesList.firstChild);
       li.style.border = "2px solid red";
+      li.dataset.pinned = "true";
       pinBtn.textContent = "Unpin";
+      if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
+      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
+      log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
+    } else {
+      const children = Array.from(messagesList.children).filter(c => c !== li);
+      const origIdx = parseInt(li.dataset.originalIndex || "0", 10);
+      if (origIdx >= children.length) messagesList.appendChild(li);
+      else messagesList.insertBefore(li, children[origIdx]);
+      li.style.border = "";
+      li.dataset.pinned = "false";
+      pinBtn.textContent = "Pin";
+      pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
+      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
+      log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
     }
-
-    pinBtn.onclick = () => {
-      const isPinned = li.dataset.pinned === "true";
-      let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-      if (!isPinned) {
-        messagesList.insertBefore(li, messagesList.firstChild);
-        li.style.border = "2px solid red";
-        li.dataset.pinned = "true";
-        pinBtn.textContent = "Unpin";
-        if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
-        localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-        log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
-      } else {
-        const children = Array.from(messagesList.children).filter(c => c !== li);
-        const origIdx = parseInt(li.dataset.originalIndex || "0", 10);
-        if (origIdx >= children.length) messagesList.appendChild(li);
-        else messagesList.insertBefore(li, children[origIdx]);
-        li.style.border = "";
-        li.dataset.pinned = "false";
-        pinBtn.textContent = "Pin";
-        pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
-        localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-        log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
-      }
-    };
-    adminDiv.appendChild(pinBtn);
+  };
+  adminDiv.appendChild(pinBtn);
+}
 
     // --- Toggle Admin / Manager Panel ---
     if (viewerRole !== "User") {
