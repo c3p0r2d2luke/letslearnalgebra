@@ -252,8 +252,12 @@ function renderMessages(list) {
   for (const msg of list) {
     const li = document.createElement("li");
 
-// Username
-const usernameDiv = document.createElement("div");
+// Add role classes
+if (msg.role === "Admin") li.classList.add("admin");
+    else if (msg.role === "Manager") li.classList.add("manager");
+
+    // Username
+    const usernameDiv = document.createElement("div");
     usernameDiv.className = "username";
     usernameDiv.textContent = msg.username;
     li.appendChild(usernameDiv);
@@ -261,7 +265,8 @@ const usernameDiv = document.createElement("div");
     // Message content
     const contentDiv = document.createElement("div");
     contentDiv.className = "content";
-    contentDiv.textContent = msg.content || "";
+    if (msg.role === "Admin") contentDiv.innerHTML = msg.content || "";
+    else contentDiv.textContent = msg.content || "";
     li.appendChild(contentDiv);
 
     // --- Add Admin Buttons ---
