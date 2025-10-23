@@ -519,8 +519,8 @@ if (msg.role === "Admin") li.classList.add("admin");
       adminDiv.appendChild(demoteBtn);
     }
 
-    // --- PIN / UNPIN ---
-    const pinBtn = document.createElement("button");
+// --- PIN / UNPIN ---
+const pinBtn = document.createElement("button");
     pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
 
     if (!li.dataset.originalIndex) {
