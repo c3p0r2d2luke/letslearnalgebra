@@ -686,7 +686,7 @@ function createAdminControls(li, msg) {
   // --- PIN / UNPIN (available to Admins) ---
   // Pin / Unpin button
   const pinBtn = document.createElement("button");
-  pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+  pinBtn.textContent = msg.is_pinned ? "Unpin" : "Pin";
 
   // Ensure there is an originalIndex dataset value if not already set
   if (!li.dataset.originalIndex) {
@@ -696,46 +696,55 @@ function createAdminControls(li, msg) {
 
   // If pin state persisted in localStorage and this li is pinned, mark accordingly
   const pinnedMessagesInitial = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-  if (pinnedMessagesInitial.includes(msg.id)) {
-    li.dataset.pinned = "true";
-    li.style.border = "2px solid red";
-    pinBtn.textContent = "Unpin";
+  if (msg.is_pinned) {
+  li.dataset.pinned = "true";
+  li.style.border = "2px solid red";
+  pinBtn.textContent = "Unpin";
+}
+
+
+  pinBtn.onclick = async () => {
+  const isPinned = li.dataset.pinned === "true";
+  const newPinnedState = !isPinned;
+
+  try {
+    // Update Supabase so the change is global
+    const { error } = await supabase
+      .from("messages")
+      .update({ is_pinned: newPinnedState })
+      .eq("id", msg.id);
+
+    if (error) throw error;
+
+    // Update UI
+    li.dataset.pinned = newPinnedState.toString();
+li.style.border = newPinnedState ? "2px solid red" : "";
+pinBtn.textContent = newPinnedState ? "Unpin" : "Pin";
+
+// Save pin to Supabase so everyone sees it
+const { error } = await supabase
+  .from("messages")
+  .update({ is_pinned: newPinnedState })
+  .eq("id", msg.id);
+
+if (error) console.error("Failed to update pin:", error);
+else await loadMessages();
+
+
+    log(
+      `${newPinnedState ? "📌 Pinned" : "❌ Unpinned"} message id=${msg.id}`,
+      null,
+      "info",
+      "admin"
+    );
+
+    // Refresh list (so order updates)
+    await loadMessages();
+  } catch (e) {
+    log("❌ Failed to update pin status", e, "error", "admin");
   }
+};
 
-  pinBtn.onclick = () => {
-    const isPinned = li.dataset.pinned === "true";
-    let pinnedMessages = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-
-    if (!isPinned) {
-      // Pin: move to top and style
-      messagesList.insertBefore(li, messagesList.firstChild);
-      li.style.border = "2px solid red";
-      li.dataset.pinned = "true";
-      pinBtn.textContent = "Unpin";
-
-      if (!pinnedMessages.includes(msg.id)) pinnedMessages.push(msg.id);
-      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-
-      log(`📌 Pinned message id=${msg.id}`, null, "info", "admin");
-    } else {
-      // Unpin: restore original position based on li.dataset.originalIndex
-      const children = Array.from(messagesList.children).filter(c => c !== li);
-      const origIdx = parseInt(li.dataset.originalIndex || "0", 10);
-      if (origIdx >= children.length) {
-        messagesList.appendChild(li);
-      } else {
-        messagesList.insertBefore(li, children[origIdx]);
-      }
-      li.style.border = "";
-      li.dataset.pinned = "false";
-      pinBtn.textContent = "Pin";
-
-      pinnedMessages = pinnedMessages.filter(id => id !== msg.id);
-      localStorage.setItem("pinnedMessages", JSON.stringify(pinnedMessages));
-
-      log(`❌ Unpinned message id=${msg.id}`, null, "info", "admin");
-    }
-  };
   adminDiv.appendChild(pinBtn);
 
   // --- MANAGER: limited controls (delete own message, report) ---
