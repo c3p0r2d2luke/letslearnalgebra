@@ -290,83 +290,59 @@ function renderMessages(list) {
     li.appendChild(contentSpan);
 
     // Admin controls
-    const adminDiv = document.createElement("div");
-    adminDiv.className = "adminControls";
-    adminDiv.style.display = "none";
+    // --- Admin Buttons ---
+const adminDiv = document.createElement("div");
+adminDiv.className = "adminControls";
+adminDiv.style.display = "none";
 
-    // Pin button
-    if (currentRole === "Admin" || currentRole === "Manager") {
-      const pinBtn = document.createElement("button");
-      pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+// 1️⃣ Pin / Unpin
+const pinBtn = document.createElement("button");
+pinBtn.textContent = li.dataset.pinned === "true" ? "Unpin" : "Pin";
+pinBtn.onclick = async (e) => {
+  e.stopPropagation();
+  const newPinnedState = li.dataset.pinned !== "true";
+  li.dataset.pinned = newPinnedState.toString();
+  li.style.border = newPinnedState ? "2px solid red" : "";
+  pinBtn.textContent = newPinnedState ? "Unpin" : "Pin";
 
-      pinBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const newPinnedState = li.dataset.pinned !== "true";
-        li.dataset.pinned = newPinnedState.toString();
-        li.style.border = newPinnedState ? "2px solid red" : "";
-        pinBtn.textContent = newPinnedState ? "Unpin" : "Pin";
+  let pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
+  if (newPinnedState) {
+    if (!pinned.includes(msg.id)) pinned.push(msg.id);
+  } else {
+    pinned = pinned.filter(id => id !== msg.id);
+  }
+  localStorage.setItem("pinnedMessages", JSON.stringify(pinned));
 
-        // Update local pinned
-        let pinned = JSON.parse(localStorage.getItem("pinnedMessages") || "[]");
-        if (newPinnedState) {
-          if (!pinned.includes(msg.id)) pinned.push(msg.id);
-        } else {
-          pinned = pinned.filter(id => id !== msg.id);
-        }
-        localStorage.setItem("pinnedMessages", JSON.stringify(pinned));
-
-        // Try updating Supabase
-        try {
-          if (supabase) {
-            const { error } = await supabase
-              .from("messages")
-              .update({ is_pinned: newPinnedState })
-              .eq("id", msg.id);
-            if (error) console.warn("Supabase pin update failed", error);
-          }
-        } catch (err) {
-          console.warn("Offline pin saved locally", err);
-        }
-
-        renderMessages(list);
-      };
-      adminDiv.appendChild(pinBtn);
+  if (supabase) {
+    try {
+      const { error } = await supabase.from("messages").update({ is_pinned: newPinnedState }).eq("id", msg.id);
+      if (error) log("⚠️ Supabase pin update failed", error, "warn", "network");
+    } catch (e) {
+      log("⚠️ Offline, pin saved locally", e, "warn", "network");
     }
+  }
+};
+adminDiv.appendChild(pinBtn);
 
-    // --- Delete Button ---
+// 2️⃣ Delete
 const delBtn = document.createElement("button");
 delBtn.textContent = "Delete";
 delBtn.onclick = async (e) => {
   e.stopPropagation();
   if (!confirm("Are you sure you want to delete this message?")) return;
-
-  // Remove from UI
   li.remove();
-
-  // Remove from localStorage
   const allMsgs = getLocalMessages().filter(m => m.id !== msg.id);
   saveLocalMessages(allMsgs);
-
-  // Try Supabase delete
-  if (supabase) {
-    try {
-      const { error } = await supabase.from("messages").delete().eq("id", msg.id);
-      if (error) log("❌ Delete failed on Supabase", error, "error", "network");
-    } catch (err) {
-      log("⚠️ Offline: message deleted locally only", err, "warn", "network");
-    }
-  }
+  if (supabase) await supabase.from("messages").delete().eq("id", msg.id);
 };
 adminDiv.appendChild(delBtn);
 
-// --- Highlight Button ---
+// 3️⃣ Highlight
 const highlightBtn = document.createElement("button");
 highlightBtn.textContent = "Highlight";
 highlightBtn.onclick = (e) => {
   e.stopPropagation();
   li.classList.toggle("highlighted");
-
-  // Optional: save highlight state locally
   const highlighted = JSON.parse(localStorage.getItem("highlightedMessages") || "[]");
   if (li.classList.contains("highlighted")) {
     if (!highlighted.includes(msg.id)) highlighted.push(msg.id);
@@ -378,31 +354,66 @@ highlightBtn.onclick = (e) => {
 };
 adminDiv.appendChild(highlightBtn);
 
-// --- Optional: Block User Button ---
+// 4️⃣ Force Logout / Kick user
+if (currentRole === "Admin") {
+  const logoutBtn = document.createElement("button");
+  logoutBtn.textContent = "Force Logout";
+  logoutBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Force logout ${msg.username}?`)) return;
+    if (supabase) await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
+    log(`⚠️ ${msg.username} has been forced to logout`, null, "warn", "admin");
+  };
+  adminDiv.appendChild(logoutBtn);
+}
+
+// 5️⃣ Block User
 if (currentRole === "Admin") {
   const blockBtn = document.createElement("button");
   blockBtn.textContent = "Block User";
   blockBtn.onclick = async (e) => {
     e.stopPropagation();
     if (!confirm(`Block all messages from ${msg.username}?`)) return;
-
-    // Update Supabase
-    if (supabase) {
-      try {
-        const { error } = await supabase.from("users").update({ blocked: true }).eq("username", msg.username);
-        if (error) log("❌ Block user failed", error, "error", "network");
-      } catch (err) {
-        log("⚠️ Offline: cannot block user now", err, "warn", "network");
-      }
-    }
-
-    // Optionally hide messages locally
+    if (supabase) await supabase.from("users").update({ blocked: true }).eq("username", msg.username);
     const allMsgs = getLocalMessages().map(m => m.username === msg.username ? { ...m, blocked: true } : m);
     saveLocalMessages(allMsgs);
     renderMessages();
   };
   adminDiv.appendChild(blockBtn);
 }
+
+// 6️⃣ View / Copy IP
+const ipBtn = document.createElement("button");
+ipBtn.textContent = "View IP";
+ipBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (msg.ip) {
+    prompt(`IP for ${msg.username}:`, msg.ip);
+  } else {
+    alert("IP unknown");
+  }
+};
+adminDiv.appendChild(ipBtn);
+
+// 7️⃣ Edit Message
+if (currentRole === "Admin" || currentRole === "Manager") {
+  const editBtn = document.createElement("button");
+  editBtn.textContent = "Edit";
+  editBtn.onclick = () => {
+    e.stopPropagation();
+    const newContent = prompt("Edit message:", msg.content);
+    if (newContent === null) return;
+    msg.content = newContent;
+    const allMsgs = getLocalMessages().map(m => m.id === msg.id ? msg : m);
+    saveLocalMessages(allMsgs);
+    renderMessages();
+    if (supabase) supabase.from("messages").update({ content: newContent }).eq("id", msg.id);
+  };
+  adminDiv.appendChild(editBtn);
+}
+
+
+    
 
 
     // Toggle admin controls on click
