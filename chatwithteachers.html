@@ -76,33 +76,42 @@ try {
   }
   testSupabaseConnection();
 
-  // --- Live Subscription Status Test ---
-  const channel = supabase
-    .channel("public:messages")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "messages" },
-      (payload) => {
-        log(`📡 Live update received (${payload.eventType})`);
-        loadMessages(); // reload messages when live update happens
-      }
-    )
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        log("✅ Subscribed to Supabase live updates");
-      } else if (status === "CLOSED") {
-        log("❌ Supabase subscription closed");
-      } else if (status === "CHANNEL_ERROR") {
-        log("⚠️ Supabase live channel error");
-      } else {
-        log(`ℹ️ Supabase channel status: ${status}`);
-      }
-    });
+ // --- Live Subscription Status Test ---
+const channel = supabase
+  .channel("public:messages")
+  .on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "messages" },
+    (payload) => {
+      log(`📡 Live update received (${payload.eventType})`);
 
-} catch (err) {
-  console.warn("⚠️ Supabase not available, offline mode only.");
-  log("⚠️ Running in offline mode — Supabase connection failed");
-}
+      // Handle each event type without reloading all messages
+      if (payload.eventType === "INSERT") {
+        messages.push(payload.new);
+      } else if (payload.eventType === "UPDATE") {
+        const index = messages.findIndex(m => m.id === payload.new.id);
+        if (index !== -1) messages[index] = payload.new;
+      } else if (payload.eventType === "DELETE") {
+        const index = messages.findIndex(m => m.id === payload.old.id);
+        if (index !== -1) messages.splice(index, 1);
+      }
+
+      // re-render only the updated list
+      renderMessages(messages);
+    }
+  )
+  .subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      log("✅ Subscribed to Supabase live updates");
+    } else if (status === "CLOSED") {
+      log("❌ Supabase subscription closed");
+    } else if (status === "CHANNEL_ERROR") {
+      log("⚠️ Supabase live channel error");
+    } else {
+      log(`ℹ️ Supabase channel status: ${status}`);
+    }
+  });
+
 
 
 /* ----------------------------------------------------------------------
