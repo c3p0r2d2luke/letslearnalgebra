@@ -110,20 +110,12 @@ try {
 ---------------------------------------------------------------------- */
 let username = localStorage.getItem("chatUsername") || "";
 let currentRole = localStorage.getItem("chatRole") || "User";
-// 🔹 Display name overrides
-const displayNameMap = {
-  "Frenchwizz": "Takeo"
-  // Add more if you want later, like:
-  // "Admin123": "Overlord"
-};
-
 
 async function saveName() {
   const name = nameInput.value.trim();
   if (!name) return alert("Please enter a name!");
 
   username = name;
-  await loadUser(name);
   localStorage.setItem("chatUsername", name);
 
   if (supabase) {
@@ -156,13 +148,6 @@ if (username) {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
-}
-
-function forceLogout() {
-  alert("You have been logged out by an admin.");
-  localStorage.removeItem("chatUsername");
-  localStorage.removeItem("chatRole");
-  location.reload();
 }
 
 /* ----------------------------------------------------------------------
@@ -327,7 +312,7 @@ function renderMessages(list) {
     // Username
     const usernameDiv = document.createElement("div");
     usernameDiv.className = "username";
-    usernameDiv.textContent = msg.username;
+    usernameDiv.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
     li.appendChild(usernameDiv);
 
     // Message content
@@ -451,25 +436,23 @@ adminDiv.appendChild(delBtn);
       };
       adminDiv.appendChild(blockBtn);
 
-      // 🚪 FORCE LOGOUT button
-const logoutBtn = document.createElement("button");
-logoutBtn.textContent = "Force Logout";
-logoutBtn.onclick = async () => {
-  try {
-    const targetUser = msg.username;
-    const { error } = await supabase
-      .from("users")
-      .update({ forcelogout: true })
-      .eq("username", targetUser);
-
-    if (error) throw error;
-    logAction(`🚪 Forced logout for ${targetUser}`);
-  } catch (err) {
-    logAction("❌ Failed to force logout: " + err.message);
-  }
-};
-adminDiv.appendChild(logoutBtn);
-
+      // Force Logout
+      const logoutBtn = document.createElement("button");
+      logoutBtn.textContent = "Force Logout";
+      logoutBtn.onclick = async () => {
+        if (msg.username === username) {
+          alert("You cannot force logout yourself.");
+          return;
+        }
+        try {
+          await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
+          alert(`${msg.username} has been forced to log out.`);
+          log(`🔌 Forced logout for ${msg.username}`, null, "warn", "admin");
+        } catch (e) {
+          log("❌ Failed to force logout", e, "error", "admin");
+        }
+      };
+      adminDiv.appendChild(logoutBtn);
 
       // Mute
       const muteBtn = document.createElement("button");
@@ -743,37 +726,6 @@ async function saveName() {
 
   renderMessages(getLocalMessages());
 }
-
-// 🔹 Load user info from Supabase and check for remote logout
-async function loadUser(name) {
-  try {
-    const { data: user, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("username", name)
-      .single();
-
-    if (error) {
-      console.warn("⚠️ Could not fetch user info:", error.message);
-      return;
-    }
-
-    if (user) {
-      currentRole = user.role || "User";
-      console.log(`👤 Loaded user ${name} with role ${currentRole}`);
-
-      // ✅ Check if admin forced logout remotely
-      if (user.forcelogout || user.forceLogout) {
-        console.warn("🚪 Remote logout triggered!");
-        forceLogout();
-        return;
-      }
-    }
-  } catch (err) {
-    console.error("❌ Error checking user info:", err);
-  }
-}
-
 
 // Hook up Save button
 saveNameBtn.addEventListener("click", saveName);
