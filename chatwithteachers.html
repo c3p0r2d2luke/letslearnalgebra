@@ -365,33 +365,31 @@ adminDiv.appendChild(delBtn);
   if (newText === null) return;
 
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("messages")
       .update({ content: newText })
-      .eq("id", msg.id);
+      .eq("id", msg.id)
+      .select();
 
     if (error) {
       log("❌ Failed editing message", error, "error", "admin");
       return;
     }
 
-    // Grab the message element fresh from the DOM
-    const contentEl = document.querySelector(`[data-id="${msg.id}"] .content`);
-    if (contentEl) {
-      const isMsgAdmin =
-        msg.username === "Frenchwizz" || String(msg.role).toLowerCase() === "admin";
-      contentEl.innerHTML = isMsgAdmin ? newText : escapeHtml(newText);
-    } else {
-      log("⚠️ Message element not found in DOM, skipping local update");
-    }
+    // Update local cache for instant feedback
+    const localMsgs = getLocalMessages().map(m =>
+      m.id === msg.id ? { ...m, content: newText } : m
+    );
+    saveLocalMessages(localMsgs);
+    renderMessages(localMsgs); // instant update
 
     log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
+
   } catch (e) {
     log("❌ Exception editing message", e, "error", "admin");
   }
 };
 
- 
 
 
       // Change Name
