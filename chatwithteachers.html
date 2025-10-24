@@ -260,19 +260,24 @@ li.highlighted { background-color: #4f545c !important; }
   }
   
   // ------------------------ Realtime Subscription ------------------------
-  supabase.channel("public:messages")
-    .on("postgres_changes",{ event:"*", schema:"public", table:"messages" }, payload => {
-      const msg = payload.new || payload.old;
-      if(payload.eventType==="INSERT" || payload.eventType==="UPDATE") renderMessage(msg);
-      if(payload.eventType==="DELETE") {
-        const li = messagesMap.get(msg.id);
-        if(li){ li.remove(); messagesMap.delete(msg.id); }
-      }
-      log(`📡 Live update: ${payload.eventType}`);
-    }).subscribe(status=>{
-      if(status==="SUBSCRIBED") log("✅ Subscribed to live updates 📡");
-      else log(`ℹ️ Channel status: ${status}`);
-    });
+  const channel = supabase
+  .channel("") // empty string works for default channel
+  .on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "messages" },
+    (payload) => {
+      log(`📡 Live update received (${payload.eventType})`);
+      // Update messagesMap or append new message directly
+      handleRealtimeMessage(payload.new, payload.eventType);
+    }
+  )
+  .subscribe((status) => {
+    if (status === "SUBSCRIBED") log("✅ Subscribed to Supabase live updates");
+    else if (status === "CLOSED") log("❌ Supabase subscription closed");
+    else if (status === "CHANNEL_ERROR") log("⚠️ Supabase live channel error");
+    else log(`ℹ️ Channel status: ${status}`);
+  });
+
   
   // ------------------------ Initial Load ------------------------
   if(username){
