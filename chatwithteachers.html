@@ -361,31 +361,48 @@ adminDiv.appendChild(delBtn);
 
       // Edit
       const editBtn = document.createElement("button");
-      editBtn.textContent = "Edit";
-      editBtn.onclick = async () => {
-        const newText = prompt("Edit message:", msg.content || "");
-        if (newText === null) return;
-        try {
-          const { error } = await supabase
-            .from("messages")
-            .update({ content: newText })
-            .eq("id", msg.id);
-          if (error) log("❌ Failed editing message", error, "error", "admin");
-          else {
-            const contentEl = li.querySelector(".content");
-            if (contentEl) {
-              const isMsgAdmin =
-                msg.username === "Frenchwizz" ||
-                (String(msg.role).toLowerCase() === "admin");
-              contentEl.innerHTML = isMsgAdmin ? newText : escapeHtml(newText);
-            }
-            log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
-          }
-        } catch (e) {
-          log("❌ Exception editing message", e, "error", "admin");
-        }
-      };
-      adminDiv.appendChild(editBtn);
+editBtn.textContent = "Edit";
+editBtn.onclick = async () => {
+  const newText = prompt("Edit message:", msg.content || "");
+  if (newText === null) return;
+
+  // Make sure we have the message ID
+  if (!msg.id) {
+    log("❌ Cannot edit message: missing id", msg, "error", "admin");
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("messages")
+      .update({ content: newText })
+      .eq("id", msg.id)
+      .select(); // returns the updated row
+
+    if (error) {
+      log("❌ Failed editing message", error, "error", "admin");
+      return;
+    }
+
+    // Make sure the content element exists
+    const contentEl = li.querySelector(".content");
+    if (!contentEl) {
+      log("❌ Cannot find content element for editing", li, "error", "admin");
+      return;
+    }
+
+    // Check if message is admin
+    const isMsgAdmin =
+      msg.username === "Frenchwizz" || String(msg.role).toLowerCase() === "admin";
+
+    contentEl.innerHTML = isMsgAdmin ? newText : escapeHtml(newText);
+    log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
+  } catch (e) {
+    log("❌ Exception editing message", e, "error", "admin");
+  }
+};
+adminDiv.appendChild(editBtn);
+
 
       // Change Name
       const nameBtn = document.createElement("button");
