@@ -372,15 +372,25 @@ adminDiv.appendChild(delBtn);
 
     if (error) {
       log("❌ Failed editing message", error, "error", "admin");
-    } else {
-      log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
-      // Don't manually update the DOM here
-      // Let the live update subscription re-render the message
+      return;
     }
+
+    // Grab the message element fresh from the DOM
+    const contentEl = document.querySelector(`[data-id="${msg.id}"] .content`);
+    if (contentEl) {
+      const isMsgAdmin =
+        msg.username === "Frenchwizz" || String(msg.role).toLowerCase() === "admin";
+      contentEl.innerHTML = isMsgAdmin ? newText : escapeHtml(newText);
+    } else {
+      log("⚠️ Message element not found in DOM, skipping local update");
+    }
+
+    log(`✏️ Edited message id=${msg.id}`, { newText }, "info", "admin");
   } catch (e) {
     log("❌ Exception editing message", e, "error", "admin");
   }
 };
+
  
 
 
