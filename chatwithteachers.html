@@ -76,42 +76,33 @@ try {
   }
   testSupabaseConnection();
 
- // --- Live Subscription Status Test ---
-const channel = supabase
-  .channel("public:messages")
-  .on(
-    "postgres_changes",
-    { event: "*", schema: "public", table: "messages" },
-    (payload) => {
-      log(`📡 Live update received (${payload.eventType})`);
-
-      // Handle each event type without reloading all messages
-      if (payload.eventType === "INSERT") {
-        messages.push(payload.new);
-      } else if (payload.eventType === "UPDATE") {
-        const index = messages.findIndex(m => m.id === payload.new.id);
-        if (index !== -1) messages[index] = payload.new;
-      } else if (payload.eventType === "DELETE") {
-        const index = messages.findIndex(m => m.id === payload.old.id);
-        if (index !== -1) messages.splice(index, 1);
+  // --- Live Subscription Status Test ---
+  const channel = supabase
+    .channel("public:messages")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "messages" },
+      (payload) => {
+        log(`📡 Live update received (${payload.eventType})`);
+        loadMessages(); // reload messages when live update happens
       }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        log("✅ Subscribed to Supabase live updates");
+      } else if (status === "CLOSED") {
+        log("❌ Supabase subscription closed");
+      } else if (status === "CHANNEL_ERROR") {
+        log("⚠️ Supabase live channel error");
+      } else {
+        log(`ℹ️ Supabase channel status: ${status}`);
+      }
+    });
 
-      // re-render only the updated list
-      renderMessages(messages);
-    }
-  )
-  .subscribe((status) => {
-    if (status === "SUBSCRIBED") {
-      log("✅ Subscribed to Supabase live updates");
-    } else if (status === "CLOSED") {
-      log("❌ Supabase subscription closed");
-    } else if (status === "CHANNEL_ERROR") {
-      log("⚠️ Supabase live channel error");
-    } else {
-      log(`ℹ️ Supabase channel status: ${status}`);
-    }
-  });
-
+} catch (err) {
+  console.warn("⚠️ Supabase not available, offline mode only.");
+  log("⚠️ Running in offline mode — Supabase connection failed");
+}
 
 
 /* ----------------------------------------------------------------------
@@ -119,12 +110,20 @@ const channel = supabase
 ---------------------------------------------------------------------- */
 let username = localStorage.getItem("chatUsername") || "";
 let currentRole = localStorage.getItem("chatRole") || "User";
+// 🔹 Display name overrides
+const displayNameMap = {
+  "Frenchwizz": "Takeo"
+  // Add more if you want later, like:
+  // "Admin123": "Overlord"
+};
+
 
 async function saveName() {
   const name = nameInput.value.trim();
   if (!name) return alert("Please enter a name!");
 
   username = name;
+  await loadUser(name);
   localStorage.setItem("chatUsername", name);
 
   if (supabase) {
@@ -157,6 +156,13 @@ if (username) {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
+}
+
+function forceLogout() {
+  alert("You have been logged out by an admin.");
+  localStorage.removeItem("chatUsername");
+  localStorage.removeItem("chatRole");
+  location.reload();
 }
 
 /* ----------------------------------------------------------------------
@@ -321,7 +327,7 @@ function renderMessages(list) {
     // Username
     const usernameDiv = document.createElement("div");
     usernameDiv.className = "username";
-    usernameDiv.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
+    usernameDiv.textContent = msg.username;
     li.appendChild(usernameDiv);
 
     // Message content
@@ -445,23 +451,25 @@ adminDiv.appendChild(delBtn);
       };
       adminDiv.appendChild(blockBtn);
 
-      // Force Logout
-      const logoutBtn = document.createElement("button");
-      logoutBtn.textContent = "Force Logout";
-      logoutBtn.onclick = async () => {
-        if (msg.username === username) {
-          alert("You cannot force logout yourself.");
-          return;
-        }
-        try {
-          await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
-          alert(`${msg.username} has been forced to log out.`);
-          log(`🔌 Forced logout for ${msg.username}`, null, "warn", "admin");
-        } catch (e) {
-          log("❌ Failed to force logout", e, "error", "admin");
-        }
-      };
-      adminDiv.appendChild(logoutBtn);
+      // 🚪 FORCE LOGOUT button
+const logoutBtn = document.createElement("button");
+logoutBtn.textContent = "Force Logout";
+logoutBtn.onclick = async () => {
+  try {
+    const targetUser = msg.username;
+    const { error } = await supabase
+      .from("users")
+      .update({ forcelogout: true })
+      .eq("username", targetUser);
+
+    if (error) throw error;
+    logAction(`🚪 Forced logout for ${targetUser}`);
+  } catch (err) {
+    logAction("❌ Failed to force logout: " + err.message);
+  }
+};
+adminDiv.appendChild(logoutBtn);
+
 
       // Mute
       const muteBtn = document.createElement("button");
@@ -690,8 +698,9 @@ if (viewerRole === "Admin" || viewerRole === "Manager") {
 
     li.appendChild(adminDiv);
     messagesList.appendChild(li);
-    }
   }
+}
+
 /* ----------------------------------------------------------------------
    Save Name & Setup
 ---------------------------------------------------------------------- */
@@ -735,6 +744,37 @@ async function saveName() {
   renderMessages(getLocalMessages());
 }
 
+// 🔹 Load user info from Supabase and check for remote logout
+async function loadUser(name) {
+  try {
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("username", name)
+      .single();
+
+    if (error) {
+      console.warn("⚠️ Could not fetch user info:", error.message);
+      return;
+    }
+
+    if (user) {
+      currentRole = user.role || "User";
+      console.log(`👤 Loaded user ${name} with role ${currentRole}`);
+
+      // ✅ Check if admin forced logout remotely
+      if (user.forcelogout || user.forceLogout) {
+        console.warn("🚪 Remote logout triggered!");
+        forceLogout();
+        return;
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error checking user info:", err);
+  }
+}
+
+
 // Hook up Save button
 saveNameBtn.addEventListener("click", saveName);
 
@@ -773,7 +813,6 @@ document.addEventListener("keydown", (e) => {
 ---------------------------------------------------------------------- */
 loadMessages();
 
-}
 </script>
 
 </body>
