@@ -322,7 +322,22 @@ function updateMessageLock() {
 
 nameInput.addEventListener("input", updateMessageLock);
 updateMessageLock(); // run once on page load
-  </script>
+  
+
+// ------------------------ Secret Sign-Out Shortcut ------------------------
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+    e.preventDefault();
+    localStorage.removeItem("chatUsername");
+    localStorage.removeItem("chatRole");
+    alert("👋 You have been signed out!");
+    location.reload();
+  }
+});
+
+
+
+</script>
   
   
 
