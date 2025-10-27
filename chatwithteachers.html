@@ -285,6 +285,26 @@ li.highlighted { background-color: #4f545c !important; }
     button.disabled = false;
     loadMessages();
   }
+
+    // ------------------------ Realtime Message Handler ------------------------
+    function handleRealtimeMessage(newMsg, eventType) {
+    if (!newMsg) return;
+
+    if (eventType === "INSERT") {
+      renderMessage(newMsg);
+    } 
+    else if (eventType === "UPDATE") {
+      renderMessage(newMsg);
+    } 
+    else if (eventType === "DELETE") {
+      const existing = messagesMap.get(newMsg.id);
+      if (existing) {
+        existing.remove();
+        messagesMap.delete(newMsg.id);
+      }
+    }
+  }
+
   </script>
   
   
