@@ -351,10 +351,23 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
+
+    // ✅ Reset UI instantly
     alert("👋 You have been signed out!");
-    location.reload();
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+    nameInput.value = "";
+    currentRole = null;
+
+    // Hide admin log if visible
+    if (logBox) logBox.style.display = "none";
+
+    updateMessageLock();
+    saveNameBtn.onclick = saveName;
   }
 });
+
 
 
 
