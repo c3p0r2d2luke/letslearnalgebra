@@ -100,7 +100,13 @@ if (username) {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
+} else {
+  // no name yet — keep name box visible and disable inputs
+  input.disabled = true;
+  button.disabled = true;
+  updateMessageLock();
 }
+
 
   
   // ------------------------ Send Message ------------------------
