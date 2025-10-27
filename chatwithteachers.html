@@ -50,6 +50,23 @@ logBox.style.display = "none";
   const nameInput = document.getElementById("nameInput");
   const saveNameBtn = document.getElementById("saveNameButton");
   
+// ------------------------ Disable chat until name saved ------------------------
+const savedName = localStorage.getItem("chatUsername");
+
+if (!savedName) {
+  // No name saved, lock chat until user saves name
+  input.disabled = true;
+  button.disabled = true;
+  namePrompt.style.display = "block";
+} else {
+  // Name already saved, unlock chat
+  username = savedName;
+  input.disabled = false;
+  button.disabled = false;
+  namePrompt.style.display = "none";
+}
+
+
   const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
   const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M"; // replace with your key
   const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
@@ -71,7 +88,12 @@ logBox.style.display = "none";
 // ------------------------ Save Name ------------------------
 async function saveName() {
   const name = nameInput.value.trim();
-  if (!name) return alert("Please enter a name!");
+
+  if (!name) {
+    alert("Please enter your name before continuing!");
+    return;
+  }
+
   username = name;
   localStorage.setItem("chatUsername", name);
 
@@ -84,23 +106,36 @@ async function saveName() {
 
     currentRole = (!error && data?.role) ? data.role : "User";
     localStorage.setItem("chatRole", currentRole);
-  } catch {}
+  } catch (err) {
+    console.error("Error fetching role:", err);
+    currentRole = "User";
+    localStorage.setItem("chatRole", "User");
+  }
 
+  // ✅ Hide name prompt and unlock chat
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
+
+  // ✅ Reload messages for this user
   loadMessages();
 
-  // ✅ Show log box only for Admins
+  // ✅ Show admin log only if Admin
   if (currentRole === "Admin") {
     logBox.style.display = "block";
   } else {
     logBox.style.display = "none";
   }
 
+  // ✅ Recheck input lock state (optional helper)
+  if (typeof updateMessageLock === "function") updateMessageLock();
+
+  alert(`Welcome, ${name}! You can now chat as ${currentRole}.`);
 }
 
+// Attach handler
 saveNameBtn.onclick = saveName;
+
 
 // ------------------------ Auto-load saved name ------------------------
 if (username) {
@@ -352,7 +387,6 @@ document.addEventListener("keydown", (e) => {
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
 
-    // ✅ Reset UI instantly
     alert("👋 You have been signed out!");
     namePrompt.style.display = "block";
     input.disabled = true;
@@ -360,13 +394,13 @@ document.addEventListener("keydown", (e) => {
     nameInput.value = "";
     currentRole = null;
 
-    // Hide admin log if visible
     if (logBox) logBox.style.display = "none";
 
-    updateMessageLock();
-    saveNameBtn.onclick = saveName;
+    updateMessageLock(); // ✅ locks chat again
+    saveNameBtn.onclick = saveName; // ✅ reconnects the save button
   }
 });
+
 
 
 
