@@ -103,21 +103,42 @@ li.highlighted { background-color: #4f545c !important; }
   }
   
   // ------------------------ Auto-load saved name ------------------------
-  if (username) {
-    nameInput.value = username;
-    namePrompt.style.display = "none";
-    input.disabled = false;
-    button.disabled = false;
-  
-    loadMessages();
-    initRealtime();
-  
-    if (currentRole === "Admin") logBox.style.display = "block";
-  } else {
+  async function loadUser() {
+  const storedName = localStorage.getItem("chatUsername");
+  if (!storedName) {
     namePrompt.style.display = "block";
     input.disabled = true;
     button.disabled = true;
+    return;
   }
+
+  nameInput.value = storedName;
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+
+  try {
+    const { data } = await supabase
+      .from("users")
+      .select("role")
+      .ilike("username", storedName)
+      .maybeSingle();
+
+    currentRole = data?.role || "User";
+    localStorage.setItem("chatRole", currentRole);
+  } catch {
+    currentRole = "User";
+    localStorage.setItem("chatRole", "User");
+  }
+
+  logBox.style.display = currentRole === "Admin" ? "block" : "none";
+
+  loadMessages();
+  initRealtime();
+}
+
+loadUser();
+
   
   // ------------------------ Save Name ------------------------
   async function saveName() {
