@@ -76,6 +76,24 @@ if (!savedName) {
   
   const messagesMap = new Map(); // track DOM elements by msg.id
   
+  let channel = null; // keep track of subscription
+
+function initRealtime() {
+  if (channel) return; // already running
+
+  channel = supabase.channel("messages-channel")
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+      log(`📡 Live update received (${payload.eventType})`);
+      handleRealtimeMessage(payload.new || payload.record, payload.eventType);
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") log("✅ Subscribed to Supabase live updates");
+      else if (status === "CLOSED") log("🔴 Supabase connection closed");
+      else if (status === "CHANNEL_ERROR") log("⚠️ Supabase live channel error");
+    });
+}
+
+
   // ------------------------ Logging ------------------------
   function log(msg, obj = null, type = "info") {
     const el = document.createElement("div");
@@ -120,6 +138,9 @@ async function saveName() {
   // ✅ Reload messages for this user
   loadMessages();
 
+  initRealtime(); // ✅ start live updates now that a username exists
+
+
   // ✅ Show admin log only if Admin
   if (currentRole === "Admin") {
     logBox.style.display = "block";
@@ -144,6 +165,8 @@ if (username) {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
+  initRealtime(); // ✅ start live updates immediately
+
 
   // ✅ Show log box only for Admins
   if (currentRole === "Admin") {
@@ -336,17 +359,6 @@ if (username) {
     log("✅ Messages loaded");
   }
   
-// ------------------------ Supabase Live Subscription ------------------------
-const channel = supabase.channel("messages-channel")
-  .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-    log(`📡 Live update received (${payload.eventType})`);
-    handleRealtimeMessage(payload.new || payload.record, payload.eventType);
-  })
-  .subscribe((status) => {
-    if (status === "SUBSCRIBED") log("✅ Subscribed to Supabase live updates");
-    else if (status === "CLOSED") log("🔴 Supabase connection closed");
-    else if (status === "CHANNEL_ERROR") log("⚠️ Supabase live channel error");
-  });
 
 // ------------------------ Realtime Message Handler ------------------------
 function handleRealtimeMessage(newMsg, eventType) {
