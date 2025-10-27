@@ -121,35 +121,39 @@ li.highlighted { background-color: #4f545c !important; }
   
   // ------------------------ Save Name ------------------------
   async function saveName() {
-    const name = nameInput.value.trim();
-    if (!name) return alert("Enter a name!");
-  
-    username = name;
-    localStorage.setItem("chatUsername", name);
-  
-    try {
-      const { data, error } = await supabase.from("users").select("role").eq("username", name).single();
-      currentRole = (!error && data?.role) ? data.role : "User";
-      localStorage.setItem("chatRole", currentRole);
-    } catch {
-      currentRole = "User";
-      localStorage.setItem("chatRole", "User");
-    }
-  
-    namePrompt.style.display = "none";
-    input.disabled = false;
-    button.disabled = false;
-  
-    loadMessages();
-    initRealtime();
-  
-    if (currentRole === "Admin") logBox.style.display = "block";
-    else logBox.style.display = "none";
-  
-    updateMessageLock();
-    alert(`Welcome, ${name}! You are now ${currentRole}.`);
+  const name = nameInput.value.trim();
+  if (!name) return alert("Enter a name!");
+
+  username = name;
+  localStorage.setItem("chatUsername", name);
+
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("role")
+      .ilike("username", name)   // case-insensitive match
+      .maybeSingle();            // returns null if no row, instead of error
+
+    currentRole = data?.role || "User";
+    localStorage.setItem("chatRole", currentRole);
+  } catch {
+    currentRole = "User";
+    localStorage.setItem("chatRole", "User");
   }
-  saveNameBtn.onclick = saveName;
+
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+
+  loadMessages();
+  initRealtime();
+
+  logBox.style.display = currentRole === "Admin" ? "block" : "none";
+
+  updateMessageLock();
+  alert(`Welcome, ${name}! You are now ${currentRole}.`);
+}
+
   
   // ------------------------ Send Message ------------------------
   async function sendMessage() {
