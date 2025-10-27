@@ -259,24 +259,50 @@ li.highlighted { background-color: #4f545c !important; }
     log("✅ Messages loaded");
   }
   
-  // ------------------------ Realtime Subscription ------------------------
-  const channel = supabase
-  .channel("") // empty string works for default channel
-  .on(
-    "postgres_changes",
-    { event: "*", schema: "public", table: "messages" },
-    (payload) => {
-      log(`📡 Live update received (${payload.eventType})`);
-      // Update messagesMap or append new message directly
-      handleRealtimeMessage(payload.new, payload.eventType);
-    }
-  )
+// ------------------------ Supabase Live Subscription ------------------------
+const channel = supabase.channel("messages-channel")
+  .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+    log(`📡 Live update received (${payload.eventType})`);
+    handleRealtimeMessage(payload.new || payload.record, payload.eventType);
+  })
   .subscribe((status) => {
     if (status === "SUBSCRIBED") log("✅ Subscribed to Supabase live updates");
-    else if (status === "CLOSED") log("❌ Supabase subscription closed");
+    else if (status === "CLOSED") log("🔴 Supabase connection closed");
     else if (status === "CHANNEL_ERROR") log("⚠️ Supabase live channel error");
-    else log(`ℹ️ Channel status: ${status}`);
   });
+
+// ------------------------ Realtime Message Handler ------------------------
+function handleRealtimeMessage(newMsg, eventType) {
+  if (!newMsg) return;
+
+  if (eventType === "INSERT") {
+    renderMessage(newMsg);
+  } else if (eventType === "UPDATE") {
+    renderMessage(newMsg);
+  } else if (eventType === "DELETE") {
+    const existing = messagesMap.get(newMsg.id);
+    if (existing) {
+      existing.remove();
+      messagesMap.delete(newMsg.id);
+    }
+  }
+}
+
+// ------------------------ Name Lock Feature ------------------------
+const messageInput = document.getElementById("messageInput");
+const sendButton = document.getElementById("sendButton");
+
+// disable message box + send until name is typed
+function updateMessageLock() {
+  const hasName = nameInput.value.trim().length > 0;
+  messageInput.disabled = !hasName;
+  sendButton.disabled = !hasName;
+}
+
+nameInput.addEventListener("input", updateMessageLock);
+updateMessageLock(); // run once on page load
+
+
 
   
   // ------------------------ Initial Load ------------------------
@@ -285,26 +311,6 @@ li.highlighted { background-color: #4f545c !important; }
     button.disabled = false;
     loadMessages();
   }
-
-    // ------------------------ Realtime Message Handler ------------------------
-    function handleRealtimeMessage(newMsg, eventType) {
-    if (!newMsg) return;
-
-    if (eventType === "INSERT") {
-      renderMessage(newMsg);
-    } 
-    else if (eventType === "UPDATE") {
-      renderMessage(newMsg);
-    } 
-    else if (eventType === "DELETE") {
-      const existing = messagesMap.get(newMsg.id);
-      if (existing) {
-        existing.remove();
-        messagesMap.delete(newMsg.id);
-      }
-    }
-  }
-
   </script>
   
   
