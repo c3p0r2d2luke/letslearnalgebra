@@ -9,8 +9,8 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-wid
 #logBox { background:#111; color:#0f0; font-family:monospace; font-size:13px; padding:10px; height:180px; overflow-y:auto; margin-top:12px; border-radius:6px; display:block; }
 #messages { margin-top:12px; padding:0; list-style:none; font-family:sans-serif; }
 #messages li { background:#36393f; margin:6px 0; padding:8px 10px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-direction:column; position:relative; transition: background 0.2s ease; }
-#messages li.admin { background:#7289da; font-weight:700; color:#fff; }
-#messages li.manager { background:#43b581; font-weight:700; color:#fff; }
+#messages li.admin { background:#5865f2; font-weight:700; color:#fff; } /* Discord blue */
+#messages li.manager { background:#2d7d46; font-weight:700; color:#fff; } /* Discord dark green */
 #messages li .username { font-weight:700; cursor:pointer; display:flex; gap:4px; align-items:center; }
 #messages li .content { white-space:pre-wrap; word-break:break-word; }
 #messages li button { margin:2px 2px 0 0; font-size:12px; padding:4px 6px; border-radius:4px; border:1px solid #ccc; background:#7289da; color:#fff; cursor:pointer; }
@@ -45,6 +45,7 @@ li.highlighted { background-color: #4f545c !important; }
   const button = document.getElementById("sendButton");
   const messagesList = document.getElementById("messages");
   const logBox = document.getElementById("logBox");
+logBox.style.display = "none";
   const namePrompt = document.getElementById("namePrompt");
   const nameInput = document.getElementById("nameInput");
   const saveNameBtn = document.getElementById("saveNameButton");
@@ -89,6 +90,14 @@ async function saveName() {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
+
+  // ✅ Show log box only for Admins
+  if (currentRole === "Admin") {
+    logBox.style.display = "block";
+  } else {
+    logBox.style.display = "none";
+  }
+
 }
 
 saveNameBtn.onclick = saveName;
@@ -100,12 +109,20 @@ if (username) {
   input.disabled = false;
   button.disabled = false;
   loadMessages();
+
+  // ✅ Show log box only for Admins
+  if (currentRole === "Admin") {
+    logBox.style.display = "block";
+  } else {
+    logBox.style.display = "none";
+  }
 } else {
   // no name yet — keep name box visible and disable inputs
   input.disabled = true;
   button.disabled = true;
   updateMessageLock();
 }
+
 
 
   
@@ -149,6 +166,10 @@ if (username) {
     }
   
     li.innerHTML = "";
+        // ✅ Apply role-specific colors
+        li.className = ""; // clear any old role classes
+    if (msg.role === "Admin") li.classList.add("admin");
+    else if (msg.role === "Manager") li.classList.add("manager");
     li.dataset.pinned = msg.is_pinned ? "true" : "false";
     if (msg.is_pinned) li.style.border = "2px solid red"; else li.style.border = "";
   
