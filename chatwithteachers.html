@@ -42,141 +42,114 @@ li.highlighted { background-color: #4f545c !important; }
 
 <script>
   const input = document.getElementById("messageInput");
-const button = document.getElementById("sendButton");
-const messagesList = document.getElementById("messages");
-const logBox = document.getElementById("logBox");
-logBox.style.display = "none";
-
-const namePrompt = document.getElementById("namePrompt");
-const nameInput = document.getElementById("nameInput");
-const saveNameBtn = document.getElementById("saveNameButton");
-
-// ------------------------ Supabase Setup ------------------------
-const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "YOUR_KEY_HERE"; // replace with your key
-const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-
-// ------------------------ User data ------------------------
-let username = localStorage.getItem("chatUsername") || "";
-let currentRole = localStorage.getItem("chatRole") || "User";
-const messagesMap = new Map(); // store message DOM elements
-
-// ------------------------ Name Lock ------------------------
-function updateMessageLock() {
-  const hasName = nameInput.value.trim().length > 0;
-  input.disabled = !hasName;
-  button.disabled = !hasName;
-}
-nameInput.addEventListener("input", updateMessageLock);
-updateMessageLock();
-
-// ------------------------ Logging ------------------------
-function log(msg, obj = null, type = "info") {
-  const el = document.createElement("div");
-  el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  logBox.appendChild(el);
-  logBox.scrollTop = logBox.scrollHeight;
-  if (obj) console[type === "error" ? "error" : "log"](msg, obj);
-}
-
-// ------------------------ Realtime ------------------------
-let channel = null;
-function initRealtime() {
-  if (channel) return;
-  channel = supabase.channel("messages-channel")
-    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-      handleRealtimeMessage(payload.new || payload.record, payload.eventType);
-      log(`📡 Live update: ${payload.eventType}`);
-    })
-    .subscribe(status => {
-      if (status === "SUBSCRIBED") log("✅ Subscribed to live updates");
-      else if (status === "CLOSED") log("🔴 Connection closed");
-    });
-}
-
-// ------------------------ Load Messages ------------------------
-async function loadMessages() {
-  const { data, error } = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
-  if (error) return log("❌ Failed to load messages", error, "error");
-  data.forEach(msg => renderMessage(msg));
-  log("✅ Messages loaded");
-}
-
-// ------------------------ Auto-load saved name ------------------------
-if (username) {
-  nameInput.value = username;
-  namePrompt.style.display = "none";
-  input.disabled = false;
-  button.disabled = false;
-
-  loadMessages();
-  initRealtime();
-
-  if (currentRole === "Admin") logBox.style.display = "block";
-} else {
-  namePrompt.style.display = "block";
-  input.disabled = true;
-  button.disabled = true;
-}
-
-// ------------------------ Save Name ------------------------
-async function saveName() {
-  const name = nameInput.value.trim();
-  if (!name) return alert("Enter a name!");
-
-  username = name;
-  localStorage.setItem("chatUsername", name);
-
-  try {
-    const { data, error } = await supabase.from("users").select("role").eq("username", name).single();
-    currentRole = (!error && data?.role) ? data.role : "User";
-    localStorage.setItem("chatRole", currentRole);
-  } catch {
-    currentRole = "User";
-    localStorage.setItem("chatRole", "User");
+  const button = document.getElementById("sendButton");
+  const messagesList = document.getElementById("messages");
+  const logBox = document.getElementById("logBox");
+  logBox.style.display = "none";
+  
+  const namePrompt = document.getElementById("namePrompt");
+  const nameInput = document.getElementById("nameInput");
+  const saveNameBtn = document.getElementById("saveNameButton");
+  
+  // ------------------------ Supabase Setup ------------------------
+  const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
+  const supabaseKey = "YOUR_KEY_HERE"; // replace with your key
+  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+  
+  // ------------------------ User data ------------------------
+  let username = localStorage.getItem("chatUsername") || "";
+  let currentRole = localStorage.getItem("chatRole") || "User";
+  const messagesMap = new Map(); // store message DOM elements
+  
+  // ------------------------ Name Lock ------------------------
+  function updateMessageLock() {
+    const hasName = nameInput.value.trim().length > 0;
+    input.disabled = !hasName;
+    button.disabled = !hasName;
   }
-
-  namePrompt.style.display = "none";
-  input.disabled = false;
-  button.disabled = false;
-
-  loadMessages();
-  initRealtime();
-
-  if (currentRole === "Admin") logBox.style.display = "block";
-  else logBox.style.display = "none";
-
+  nameInput.addEventListener("input", updateMessageLock);
   updateMessageLock();
-  alert(`Welcome, ${name}! You are now ${currentRole}.`);
-}
-saveNameBtn.onclick = saveName;
-
-
-// ------------------------ Auto-load saved name ------------------------
-if (username) {
-  nameInput.value = username;          // prefill saved name
-  namePrompt.style.display = "none";   // hide name prompt
-  input.disabled = false;
-  button.disabled = false;
-  loadMessages();
-  initRealtime(); // ✅ start live updates immediately
-
-
-  // ✅ Show log box only for Admins
-  if (currentRole === "Admin") {
-    logBox.style.display = "block";
+  
+  // ------------------------ Logging ------------------------
+  function log(msg, obj = null, type = "info") {
+    const el = document.createElement("div");
+    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logBox.appendChild(el);
+    logBox.scrollTop = logBox.scrollHeight;
+    if (obj) console[type === "error" ? "error" : "log"](msg, obj);
+  }
+  
+  // ------------------------ Realtime ------------------------
+  let channel = null;
+  function initRealtime() {
+    if (channel) return;
+    channel = supabase.channel("messages-channel")
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+        handleRealtimeMessage(payload.new || payload.record, payload.eventType);
+        log(`📡 Live update: ${payload.eventType}`);
+      })
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") log("✅ Subscribed to live updates");
+        else if (status === "CLOSED") log("🔴 Connection closed");
+      });
+  }
+  
+  // ------------------------ Load Messages ------------------------
+  async function loadMessages() {
+    const { data, error } = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
+    if (error) return log("❌ Failed to load messages", error, "error");
+    data.forEach(msg => renderMessage(msg));
+    log("✅ Messages loaded");
+  }
+  
+  // ------------------------ Auto-load saved name ------------------------
+  if (username) {
+    nameInput.value = username;
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+  
+    loadMessages();
+    initRealtime();
+  
+    if (currentRole === "Admin") logBox.style.display = "block";
   } else {
-    logBox.style.display = "none";
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
   }
-} else {
-  // no name yet — keep name box visible and disable inputs
-  input.disabled = true;
-  button.disabled = true;
-  updateMessageLock();
-}
-
-
-
+  
+  // ------------------------ Save Name ------------------------
+  async function saveName() {
+    const name = nameInput.value.trim();
+    if (!name) return alert("Enter a name!");
+  
+    username = name;
+    localStorage.setItem("chatUsername", name);
+  
+    try {
+      const { data, error } = await supabase.from("users").select("role").eq("username", name).single();
+      currentRole = (!error && data?.role) ? data.role : "User";
+      localStorage.setItem("chatRole", currentRole);
+    } catch {
+      currentRole = "User";
+      localStorage.setItem("chatRole", "User");
+    }
+  
+    namePrompt.style.display = "none";
+    input.disabled = false;
+    button.disabled = false;
+  
+    loadMessages();
+    initRealtime();
+  
+    if (currentRole === "Admin") logBox.style.display = "block";
+    else logBox.style.display = "none";
+  
+    updateMessageLock();
+    alert(`Welcome, ${name}! You are now ${currentRole}.`);
+  }
+  saveNameBtn.onclick = saveName;
   
   // ------------------------ Send Message ------------------------
   async function sendMessage() {
@@ -218,8 +191,7 @@ if (username) {
     }
   
     li.innerHTML = "";
-        // ✅ Apply role-specific colors
-        li.className = ""; // clear any old role classes
+    li.className = "";
     if (msg.role === "Admin") li.classList.add("admin");
     else if (msg.role === "Manager") li.classList.add("manager");
     li.dataset.pinned = msg.is_pinned ? "true" : "false";
@@ -243,9 +215,7 @@ if (username) {
     adminDiv.className = "adminControls";
     adminDiv.style.display = "none";
   
-    // ----- ADMIN BUTTONS -----
     if (viewerRole === "Admin") {
-      // Delete
       const delBtn = document.createElement("button");
       delBtn.textContent = "Delete";
       delBtn.onclick = async () => {
@@ -256,7 +226,6 @@ if (username) {
       };
       adminDiv.appendChild(delBtn);
   
-      // Edit
       const editBtn = document.createElement("button");
       editBtn.textContent = "Edit";
       editBtn.onclick = async () => {
@@ -269,7 +238,6 @@ if (username) {
       };
       adminDiv.appendChild(editBtn);
   
-      // Pin / Unpin
       const pinBtn = document.createElement("button");
       pinBtn.textContent = msg.is_pinned ? "Unpin" : "Pin";
       pinBtn.onclick = async () => {
@@ -280,13 +248,11 @@ if (username) {
       };
       adminDiv.appendChild(pinBtn);
   
-      // User Info
       const infoBtn = document.createElement("button");
       infoBtn.textContent = "User Info";
       infoBtn.onclick = () => alert(`Username: ${msg.username}\nIP: ${msg.ip}\nRole: ${msg.role}`);
       adminDiv.appendChild(infoBtn);
   
-      // Mute 5min
       const muteBtn = document.createElement("button");
       muteBtn.textContent = "Mute 5min";
       muteBtn.onclick = () => {
@@ -296,7 +262,6 @@ if (username) {
       };
       adminDiv.appendChild(muteBtn);
   
-      // Export chat
       const exportBtn = document.createElement("button");
       exportBtn.textContent = "Export Chat";
       exportBtn.onclick = () => {
@@ -309,21 +274,21 @@ if (username) {
       };
       adminDiv.appendChild(exportBtn);
   
-      // Promote / Demote
       const promoteBtn = document.createElement("button");
       promoteBtn.textContent = "Promote → Manager";
       promoteBtn.onclick = async () => { await supabase.from("users").upsert({ username: msg.username, role:"Manager" }); log(`Promoted ${msg.username}`); };
       adminDiv.appendChild(promoteBtn);
+  
       const promoteAdminBtn = document.createElement("button");
       promoteAdminBtn.textContent = "Promote → Admin";
       promoteAdminBtn.onclick = async () => { await supabase.from("users").upsert({ username: msg.username, role:"Admin" }); log(`Promoted ${msg.username} to Admin`); };
       adminDiv.appendChild(promoteAdminBtn);
+  
       const demoteBtn = document.createElement("button");
       demoteBtn.textContent = "Demote → User";
       demoteBtn.onclick = async () => { await supabase.from("users").upsert({ username: msg.username, role:"User" }); log(`Demoted ${msg.username}`); };
       adminDiv.appendChild(demoteBtn);
   
-      // Delete User & Messages (NUKE)
       const nukeBtn = document.createElement("button");
       nukeBtn.textContent = "Delete User & Messages";
       nukeBtn.onclick = async () => {
@@ -338,80 +303,45 @@ if (username) {
   
     li.appendChild(adminDiv);
   
-    // Toggle admin panel
     if(viewerRole !== "User"){
       li.addEventListener("click", e => { e.stopPropagation(); adminDiv.style.display = adminDiv.style.display==="none"?"flex":"none"; });
       document.addEventListener("click", ()=>{ adminDiv.style.display="none"; });
     }
   }
   
-  // ------------------------ Load Messages Realtime ------------------------
-  async function loadMessages() {
-    const { data, error } = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
-    if(error){ log("❌ Failed to load messages", error,"error"); return; }
-    data.forEach(msg => renderMessage(msg));
-    log("✅ Messages loaded");
-  }
+  // ------------------------ Realtime Message Handler ------------------------
+  function handleRealtimeMessage(newMsg, eventType) {
+    if (!newMsg) return;
   
-
-// ------------------------ Realtime Message Handler ------------------------
-function handleRealtimeMessage(newMsg, eventType) {
-  if (!newMsg) return;
-
-  if (eventType === "INSERT") {
-    renderMessage(newMsg);
-  } else if (eventType === "UPDATE") {
-    renderMessage(newMsg);
-  } else if (eventType === "DELETE") {
-    const existing = messagesMap.get(newMsg.id);
-    if (existing) {
-      existing.remove();
-      messagesMap.delete(newMsg.id);
+    if (eventType === "INSERT") renderMessage(newMsg);
+    else if (eventType === "UPDATE") renderMessage(newMsg);
+    else if (eventType === "DELETE") {
+      const existing = messagesMap.get(newMsg.id);
+      if (existing) { existing.remove(); messagesMap.delete(newMsg.id); }
     }
   }
-}
-
-// ------------------------ Name Lock Feature ------------------------
-const messageInput = document.getElementById("messageInput");
-const sendButton = document.getElementById("sendButton");
-
-// disable message box + send until name is typed
-function updateMessageLock() {
-  const hasName = nameInput.value.trim().length > 0;
-  messageInput.disabled = !hasName;
-  sendButton.disabled = !hasName;
-}
-
-nameInput.addEventListener("input", updateMessageLock);
-updateMessageLock(); // run once on page load
   
-
-// ------------------------ Secret Sign-Out Shortcut ------------------------
-document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
-    e.preventDefault();
-    localStorage.removeItem("chatUsername");
-    localStorage.removeItem("chatRole");
-
-    alert("👋 You have been signed out!");
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-    nameInput.value = "";
-    currentRole = null;
-
-    if (logBox) logBox.style.display = "none";
-
-    updateMessageLock(); // ✅ locks chat again
-    saveNameBtn.onclick = saveName; // ✅ reconnects the save button
-  }
-});
-
-
-
-
-
-</script>
+  // ------------------------ Secret Sign-Out Shortcut ------------------------
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
+      e.preventDefault();
+      localStorage.removeItem("chatUsername");
+      localStorage.removeItem("chatRole");
+  
+      alert("👋 You have been signed out!");
+      namePrompt.style.display = "block";
+      input.disabled = true;
+      button.disabled = true;
+      nameInput.value = "";
+      currentRole = null;
+  
+      if (logBox) logBox.style.display = "none";
+  
+      updateMessageLock();
+      saveNameBtn.onclick = saveName;
+    }
+  });
+  </script>
   
   
 
