@@ -149,15 +149,25 @@ loadUser();
   localStorage.setItem("chatUsername", name);
 
   try {
+    // Upsert ensures the user exists and role is preserved if already there
     const { data, error } = await supabase
       .from("users")
-      .select("role")
-      .ilike("username", name)   // case-insensitive match
-      .maybeSingle();            // returns null if no row, instead of error
+      .upsert({ username: name }, { onConflict: ['username'] })
+      .select();
 
-    currentRole = data?.role || "User";
+    if (error) throw error;
+
+    // Fetch role
+    const { data: userData } = await supabase
+      .from("users")
+      .select("role")
+      .eq("username", name)
+      .maybeSingle();
+
+    currentRole = userData?.role || "User";
     localStorage.setItem("chatRole", currentRole);
-  } catch {
+  } catch (err) {
+    console.error(err);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
   }
