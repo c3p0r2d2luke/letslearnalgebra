@@ -67,26 +67,41 @@ li.highlighted { background-color: #4f545c !important; }
     if (obj) console[type === "error" ? "error" : "log"](msg, obj);
   }
   
-  // ------------------------ Save Name ------------------------
-  async function saveName() {
-    const name = nameInput.value.trim();
-    if (!name) return alert("Please enter a name!");
-    username = name;
-    localStorage.setItem("chatUsername", name);
-  
-    try {
-      const { data, error } = await supabase.from("users").select("role").eq("username", name).single();
-      currentRole = (!error && data?.role) ? data.role : "User";
-      localStorage.setItem("chatRole", currentRole);
-    } catch {}
-    
-    namePrompt.style.display = "none";
-    input.disabled = false;
-    button.disabled = false;
-    loadMessages();
-  }
-  
-  saveNameBtn.onclick = saveName;
+// ------------------------ Save Name ------------------------
+async function saveName() {
+  const name = nameInput.value.trim();
+  if (!name) return alert("Please enter a name!");
+  username = name;
+  localStorage.setItem("chatUsername", name);
+
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("role")
+      .eq("username", name)
+      .single();
+
+    currentRole = (!error && data?.role) ? data.role : "User";
+    localStorage.setItem("chatRole", currentRole);
+  } catch {}
+
+  namePrompt.style.display = "none";
+  input.disabled = false;
+  button.disabled = false;
+  loadMessages();
+}
+
+saveNameBtn.onclick = saveName;
+
+// ------------------------ Auto-load saved name ------------------------
+if (username) {
+  nameInput.value = username;          // prefill saved name
+  namePrompt.style.display = "none";   // hide name prompt
+  input.disabled = false;
+  button.disabled = false;
+  loadMessages();
+}
+
   
   // ------------------------ Send Message ------------------------
   async function sendMessage() {
