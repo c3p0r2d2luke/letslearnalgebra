@@ -41,76 +41,49 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
-  const input = document.getElementById("messageInput");
-  const button = document.getElementById("sendButton");
-  const messagesList = document.getElementById("messages");
-  const logBox = document.getElementById("logBox");
+const input = document.getElementById("messageInput");
+const button = document.getElementById("sendButton");
+const messagesList = document.getElementById("messages");
+const logBox = document.getElementById("logBox");
 logBox.style.display = "none";
-  const namePrompt = document.getElementById("namePrompt");
-  const nameInput = document.getElementById("nameInput");
-  const saveNameBtn = document.getElementById("saveNameButton");
-  
-// ------------------------ Disable chat until name saved ------------------------
-const savedName = localStorage.getItem("chatUsername");
 
-if (!savedName) {
-  // No name saved, lock chat until user saves name
+const namePrompt = document.getElementById("namePrompt");
+const nameInput = document.getElementById("nameInput");
+const saveNameBtn = document.getElementById("saveNameButton");
+
+// ------------------------ User data ------------------------
+let username = localStorage.getItem("chatUsername") || "";
+let currentRole = localStorage.getItem("chatRole") || "User";
+
+// ------------------------ Disable chat until name saved ------------------------
+if (!username) {
   input.disabled = true;
   button.disabled = true;
   namePrompt.style.display = "block";
 } else {
-  // Name already saved, unlock chat
-  username = savedName;
+  nameInput.value = username;
+  namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
-  namePrompt.style.display = "none";
+  loadMessages();
+  initRealtime();
+
+  if (currentRole === "Admin") logBox.style.display = "block";
 }
 
-
-  const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M"; // replace with your key
-  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-  
-  let username = localStorage.getItem("chatUsername") || "";
-  let currentRole = localStorage.getItem("chatRole") || "User";
-  
-  const messagesMap = new Map(); // track DOM elements by msg.id
-  
-  let channel = null; // keep track of subscription
-
-function initRealtime() {
-  if (channel) return; // already running
-
-  channel = supabase.channel("messages-channel")
-    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-      log(`📡 Live update received (${payload.eventType})`);
-      handleRealtimeMessage(payload.new || payload.record, payload.eventType);
-    })
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") log("✅ Subscribed to Supabase live updates");
-      else if (status === "CLOSED") log("🔴 Supabase connection closed");
-      else if (status === "CHANNEL_ERROR") log("⚠️ Supabase live channel error");
-    });
+// ------------------------ Name Lock ------------------------
+function updateMessageLock() {
+  const hasName = nameInput.value.trim().length > 0;
+  input.disabled = !hasName;
+  button.disabled = !hasName;
 }
+nameInput.addEventListener("input", updateMessageLock);
+updateMessageLock();
 
-
-  // ------------------------ Logging ------------------------
-  function log(msg, obj = null, type = "info") {
-    const el = document.createElement("div");
-    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    logBox.appendChild(el);
-    logBox.scrollTop = logBox.scrollHeight;
-    if (obj) console[type === "error" ? "error" : "log"](msg, obj);
-  }
-  
 // ------------------------ Save Name ------------------------
 async function saveName() {
   const name = nameInput.value.trim();
-
-  if (!name) {
-    alert("Please enter your name before continuing!");
-    return;
-  }
+  if (!name) return alert("Enter a name!");
 
   username = name;
   localStorage.setItem("chatUsername", name);
@@ -121,41 +94,29 @@ async function saveName() {
       .select("role")
       .eq("username", name)
       .single();
-
     currentRole = (!error && data?.role) ? data.role : "User";
     localStorage.setItem("chatRole", currentRole);
-  } catch (err) {
-    console.error("Error fetching role:", err);
+  } catch {
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
   }
 
-  // ✅ Hide name prompt and unlock chat
   namePrompt.style.display = "none";
   input.disabled = false;
   button.disabled = false;
 
-  // ✅ Reload messages for this user
   loadMessages();
+  initRealtime();
 
-  initRealtime(); // ✅ start live updates now that a username exists
+  if (currentRole === "Admin") logBox.style.display = "block";
+  else logBox.style.display = "none";
 
-
-  // ✅ Show admin log only if Admin
-  if (currentRole === "Admin") {
-    logBox.style.display = "block";
-  } else {
-    logBox.style.display = "none";
-  }
-
-  // ✅ Recheck input lock state (optional helper)
-  if (typeof updateMessageLock === "function") updateMessageLock();
-
-  alert(`Welcome, ${name}! You can now chat as ${currentRole}.`);
+  updateMessageLock();
+  alert(`Welcome, ${name}! You are now ${currentRole}.`);
 }
 
-// Attach handler
 saveNameBtn.onclick = saveName;
+
 
 
 // ------------------------ Auto-load saved name ------------------------
