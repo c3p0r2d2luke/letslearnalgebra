@@ -203,6 +203,18 @@ controls.classList.add("visible");
   async function sendMessage() {
     const content = input.value.trim();
     if (!content || !username) return;
+
+    // Check if the user is blocked
+const { data: user } = await supabase.from("users")
+  .select("blocked")
+  .eq("username", username)
+  .maybeSingle();
+
+if (user?.blocked) {
+  alert("❌ You are blocked from sending messages.");
+  return;
+}
+
   
     let ip = "unknown";
     try {
@@ -313,25 +325,24 @@ controls.classList.add("visible");
     };
     adminDiv.appendChild(nameBtn);
 
-    // 🔒 Block / Unblock IP
-    const blockBtn = document.createElement("button");
-    blockBtn.textContent = "Toggle Block";
-    blockBtn.onclick = async () => {
-      if (!msg.ip || msg.ip === "unknown") return alert("User IP unknown.");
-      try {
-        const { data } = await supabase.from("blocked_ips").select("*").eq("ip", msg.ip).maybeSingle();
-        if (data) {
-          await supabase.from("blocked_ips").delete().eq("ip", msg.ip);
-          log(`🔓 Unblocked ${msg.username}`);
-        } else {
-          await supabase.from("blocked_ips").insert({ ip: msg.ip, username: msg.username });
-          log(`🔒 Blocked ${msg.username}`);
-        }
-      } catch (e) {
-        log("❌ Block toggle failed", e, "error");
-      }
-    };
-    adminDiv.appendChild(blockBtn);
+// 🔒 Block / Unblock User
+const blockBtn = document.createElement("button");
+blockBtn.className = "blockBtn";
+blockBtn.textContent = msg.blocked ? "Unblock" : "Block";
+blockBtn.onclick = async () => {
+  try {
+    const newBlocked = !msg.blocked;
+    await supabase.from("users").update({ blocked: newBlocked }).eq("username", msg.username);
+    msg.blocked = newBlocked;
+    blockBtn.textContent = newBlocked ? "Unblock" : "Block";
+    log(`${newBlocked ? "🔒 Blocked" : "🔓 Unblocked"} ${msg.username}`);
+  } catch (e) {
+    log("❌ Block toggle failed", e, "error");
+  }
+};
+adminDiv.appendChild(blockBtn);
+
+
 
     // 🔌 Force Logout
     const logoutBtn = document.createElement("button");
@@ -514,7 +525,25 @@ controls.classList.add("visible");
     if (!newMsg) return;
   
     if (eventType === "INSERT") renderMessage(newMsg);
-    else if (eventType === "UPDATE") renderMessage(newMsg);
+    else if (eventType === "UPDATE") {
+  renderMessage(newMsg);
+
+  // If blocked status changed, update the button text in real-time
+  const li = messagesMap.get(newMsg.id);
+  if (li) {
+    const blockBtn = li.querySelector(".blockBtn");
+if (blockBtn) blockBtn.textContent = newMsg.blocked ? "Unblock" : "Block";
+    if (blockBtn && "textContent" in blockBtn) {
+      blockBtn.textContent = newMsg.blocked ? "Unblock" : "Block";
+    }
+  }
+}
+if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
+  input.disabled = newMsg.blocked;
+  button.disabled = newMsg.blocked;
+  if(newMsg.blocked) alert("❌ You have been blocked by an admin!");
+}
+
     else if (eventType === "DELETE") {
       const existing = messagesMap.get(newMsg.id);
       if (existing) { existing.remove(); messagesMap.delete(newMsg.id); }
