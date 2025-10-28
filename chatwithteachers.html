@@ -547,7 +547,16 @@ if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
     else if (eventType === "DELETE") {
       const existing = messagesMap.get(newMsg.id);
       if (existing) { existing.remove(); messagesMap.delete(newMsg.id); }
-    }
+      
+      if (newMsg.username === username && newMsg.forceLogout) {
+    alert("⚠️ You have been forcefully logged out by an admin!");
+    localStorage.removeItem("chatUsername");
+    localStorage.removeItem("chatRole");
+    supabase.from("users").update({ forceLogout: false }).eq("username", username)
+      .then(() => location.reload());
+}
+
+  }
   }
   
   // ------------------------ Secret Sign-Out Shortcut ------------------------
