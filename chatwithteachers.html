@@ -5,6 +5,15 @@
 <title>Chat With Teachers</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
+#controls {
+  display: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+#controls.visible {
+  display: flex;
+  opacity: 1;
+}
 body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:800px; margin:24px auto; padding:0 16px; background:#2f3136; color:#ddd; }
 #logBox { background:#111; color:#0f0; font-family:monospace; font-size:13px; padding:10px; height:180px; overflow-y:auto; margin-top:12px; border-radius:6px; display:block; }
 #messages { margin-top:12px; padding:0; list-style:none; font-family:sans-serif; }
@@ -114,6 +123,8 @@ li.highlighted { background-color: #4f545c !important; }
 
   nameInput.value = storedName;
   namePrompt.style.display = "none";
+  const controls = document.getElementById("controls");
+controls.classList.add("visible");
   input.disabled = false;
   button.disabled = false;
 
@@ -173,6 +184,8 @@ loadUser();
   }
 
   namePrompt.style.display = "none";
+  const controls = document.getElementById("controls");
+controls.classList.add("visible");
   input.disabled = false;
   button.disabled = false;
 
