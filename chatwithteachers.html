@@ -195,7 +195,7 @@ controls.classList.add("visible");
   logBox.style.display = currentRole === "Admin" ? "block" : "none";
 
   updateMessageLock();
-  alert(`Welcome, ${name}! You are now ${currentRole}.`);
+  alert(`Welcome, ${name}! You are a ${currentRole}.`);
 }
 
   
@@ -457,7 +457,52 @@ controls.classList.add("visible");
     }
   
     li.appendChild(adminDiv);
-  
+
+    if (viewerRole === "Manager") {
+  const managerDiv = document.createElement("div");
+  managerDiv.className = "managerControls";
+  managerDiv.style.display = "none";
+
+  // 🗑 Delete own messages only
+  const delBtn = document.createElement("button");
+  delBtn.textContent = "Delete";
+  delBtn.onclick = async () => {
+  // Managers can only delete their own messages
+  if (msg.username !== username) return alert("You can only delete your own messages.");
+  try {
+    await supabase.from("messages").delete().eq("id", msg.id);
+    li.remove();
+    log(`🗑 Deleted your message id=${msg.id}`);
+  } catch (e) {
+    log("❌ Delete failed", e, "error");
+  }
+};
+  managerDiv.appendChild(delBtn);
+
+  // 🚨 Report message
+  const reportBtn = document.createElement("button");
+  reportBtn.textContent = "Report";
+  reportBtn.onclick = async () => {
+  alert(`🚨 Reported message from ${msg.username}: "${msg.content}"`);
+  // optional: insert into a reports table if you want:
+  // await supabase.from("reports").insert({ reporter: username, reportedUser: msg.username, content: msg.content });
+  log(`🚨 Reported message id=${msg.id} by ${username}`);
+};
+  managerDiv.appendChild(reportBtn);
+
+  li.appendChild(managerDiv);
+
+  // <-- Add this here:
+  li.addEventListener("click", e => {
+    e.stopPropagation();
+    managerDiv.style.display = managerDiv.style.display === "none" ? "flex" : "none";
+  });
+  document.addEventListener("click", () => {
+    managerDiv.style.display = "none";
+  });
+}
+
+
     if(viewerRole !== "User"){
       li.addEventListener("click", e => { e.stopPropagation(); adminDiv.style.display = adminDiv.style.display==="none"?"flex":"none"; });
       document.addEventListener("click", ()=>{ adminDiv.style.display="none"; });
