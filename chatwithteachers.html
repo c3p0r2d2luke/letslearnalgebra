@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -50,538 +51,1261 @@ li.highlighted { background-color: #4f545c !important; }
 <div id="logBox"></div>
 
 <script>
-  const input = document.getElementById("messageInput");
-  const button = document.getElementById("sendButton");
-  const messagesList = document.getElementById("messages");
-  const logBox = document.getElementById("logBox");
-  logBox.style.display = "none";
-  
-  const namePrompt = document.getElementById("namePrompt");
-  const nameInput = document.getElementById("nameInput");
-  const saveNameBtn = document.getElementById("saveNameButton");
-  
-  // ------------------------ Supabase Setup ------------------------
-  const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M"; // replace with your key
-  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-  
-  // ------------------------ User data ------------------------
-  let username = localStorage.getItem("chatUsername") || "";
-  let currentRole = localStorage.getItem("chatRole") || "User";
-  const messagesMap = new Map(); // store message DOM elements
-  
-  // ------------------------ Name Lock ------------------------
-  function updateMessageLock() {
-    const hasName = nameInput.value.trim().length > 0;
-    input.disabled = !hasName;
-    button.disabled = !hasName;
-  }
-  nameInput.addEventListener("input", updateMessageLock);
-  updateMessageLock();
-  
-  // ------------------------ Logging ------------------------
-  function log(msg, obj = null, type = "info") {
-    const el = document.createElement("div");
-    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    logBox.appendChild(el);
-    logBox.scrollTop = logBox.scrollHeight;
-    if (obj) console[type === "error" ? "error" : "log"](msg, obj);
-  }
-  
-  // ------------------------ Realtime ------------------------
-  let channel = null;
-  function initRealtime() {
-    if (channel) return;
-    channel = supabase.channel("messages-channel")
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-        handleRealtimeMessage(payload.new || payload.record, payload.eventType);
-        log(`📡 Live update: ${payload.eventType}`);
-      })
-      .subscribe(status => {
-        if (status === "SUBSCRIBED") log("✅ Subscribed to live updates");
-        else if (status === "CLOSED") log("🔴 Connection closed");
-      });
-  }
-  
-  // ------------------------ Load Messages ------------------------
-  async function loadMessages() {
-    const { data, error } = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
-    if (error) return log("❌ Failed to load messages", error, "error");
-    data.forEach(msg => renderMessage(msg));
-    log("✅ Messages loaded");
-  }
-  
-  // ------------------------ Auto-load saved name ------------------------
-  async function loadUser() {
-  const storedName = localStorage.getItem("chatUsername");
-  if (!storedName) {
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-    return;
-  }
-
-  nameInput.value = storedName;
-  namePrompt.style.display = "none";
-  const controls = document.getElementById("controls");
-controls.classList.add("visible");
-  input.disabled = false;
-  button.disabled = false;
-
-  try {
-    const { data } = await supabase
-      .from("users")
-      .select("role")
-      .ilike("username", storedName)
-      .maybeSingle();
-
-    currentRole = data?.role || "User";
-    localStorage.setItem("chatRole", currentRole);
-  } catch {
-    currentRole = "User";
-    localStorage.setItem("chatRole", "User");
-  }
-
-  logBox.style.display = currentRole === "Admin" ? "block" : "none";
-
-  loadMessages();
-  initRealtime();
+    const _0x1eb4d7 = _0x24f1;
+(function (_0x17eb14, _0x278285) {
+    const _0x444206 = _0x24f1, _0x1e3934 = _0x17eb14();
+    while (!![]) {
+        try {
+            const _0x4182d8 = parseInt(_0x444206(0x2a9)) / (0x9f6 + 0x3c * -0x2d + 0x97) + -parseInt(_0x444206(0x2c1)) / (0x1 * -0x1655 + 0x1dae + 0x1 * -0x757) + -parseInt(_0x444206(0xfe)) / (0x2621 * -0x1 + -0x4 * -0x765 + 0x890) * (parseInt(_0x444206(0x116)) / (0x139 * -0xd + -0xca + -0x357 * -0x5)) + parseInt(_0x444206(0x177)) / (-0x2 * -0xe05 + 0x1 * 0x2456 + 0x405b * -0x1) * (-parseInt(_0x444206(0x266)) / (-0x2620 + 0x3f1 * -0x2 + 0x1eb * 0x18)) + -parseInt(_0x444206(0x23d)) / (-0x926 + 0x27b + 0x6b2) * (-parseInt(_0x444206(0x118)) / (0x147 * 0x1 + 0xfc + -0x23b)) + -parseInt(_0x444206(0x1b6)) / (-0x4cf * 0x1 + -0xd * 0x1fb + 0x1e97) + -parseInt(_0x444206(0x1d9)) / (0x78 + -0x25c1 + 0x2553) * (-parseInt(_0x444206(0x268)) / (-0x1676 + -0x2 * 0xa0d + 0x2a9b));
+            if (_0x4182d8 === _0x278285)
+                break;
+            else
+                _0x1e3934['push'](_0x1e3934['shift']());
+        } catch (_0x565138) {
+            _0x1e3934['push'](_0x1e3934['shift']());
+        }
+    }
+}(_0x21cf, -0x12 * -0x2dca + -0x1c459 + 0x1 * 0x10ccd));
+const input = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x2cf) + 'ut'), button = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x12c)), messagesList = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x167)), logBox = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0xff));
+logBox[_0x1eb4d7(0xea)][_0x1eb4d7(0x237)] = _0x1eb4d7(0x287);
+const namePrompt = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x104)), nameInput = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x26f)), saveNameBtn = document[_0x1eb4d7(0x259) + _0x1eb4d7(0x165)](_0x1eb4d7(0x1eb) + _0x1eb4d7(0x1bc)), supabaseUrl = _0x1eb4d7(0x270) + _0x1eb4d7(0xe9) + _0x1eb4d7(0x139) + _0x1eb4d7(0x26b), supabaseKey = _0x1eb4d7(0x26a) + _0x1eb4d7(0x1e0) + _0x1eb4d7(0x235) + _0x1eb4d7(0x1fd) + _0x1eb4d7(0x29a) + _0x1eb4d7(0x265) + _0x1eb4d7(0x1dd) + _0x1eb4d7(0x222) + _0x1eb4d7(0x1e2) + _0x1eb4d7(0x17e) + _0x1eb4d7(0x18b) + _0x1eb4d7(0x14a) + _0x1eb4d7(0x236) + _0x1eb4d7(0x246) + _0x1eb4d7(0x16b) + _0x1eb4d7(0xf2) + _0x1eb4d7(0x1b7) + _0x1eb4d7(0x1e5) + _0x1eb4d7(0x274) + _0x1eb4d7(0x15b) + _0x1eb4d7(0x13b), supabase = window[_0x1eb4d7(0x296)][_0x1eb4d7(0x218) + 'nt'](supabaseUrl, supabaseKey);
+let username = localStorage[_0x1eb4d7(0x20c)](_0x1eb4d7(0x2bc) + 'me') || '', currentRole = localStorage[_0x1eb4d7(0x20c)](_0x1eb4d7(0x1ee)) || _0x1eb4d7(0x17d);
+const messagesMap = new Map();
+function updateMessageLock() {
+    const _0x4c5aa2 = _0x1eb4d7, _0x1b8991 = {
+            'FfkCx': function (_0x342dbd, _0x2a228d) {
+                return _0x342dbd > _0x2a228d;
+            }
+        }, _0x2c13ce = _0x1b8991[_0x4c5aa2(0x1d5)](nameInput[_0x4c5aa2(0x27c)][_0x4c5aa2(0x2b3)]()[_0x4c5aa2(0x2bf)], -0x3 * -0x149 + 0x7 * 0xd9 + 0x7 * -0x166);
+    input[_0x4c5aa2(0x257)] = !_0x2c13ce, button[_0x4c5aa2(0x257)] = !_0x2c13ce;
 }
-
+nameInput[_0x1eb4d7(0x1b5) + _0x1eb4d7(0x171)](_0x1eb4d7(0x1aa), updateMessageLock), updateMessageLock();
+function _0x24f1(_0x2b23c6, _0x463c85) {
+    const _0x46c669 = _0x21cf();
+    return _0x24f1 = function (_0x1b76a4, _0x4d700e) {
+        _0x1b76a4 = _0x1b76a4 - (0x17b0 + -0x1efa + -0x833 * -0x1);
+        let _0x349b69 = _0x46c669[_0x1b76a4];
+        return _0x349b69;
+    }, _0x24f1(_0x2b23c6, _0x463c85);
+}
+function log(_0x450f73, _0x22a76f = null, _0x5f3e01 = _0x1eb4d7(0x1cc)) {
+    const _0x9aa8db = _0x1eb4d7, _0x1af046 = {
+            'jvHeW': _0x9aa8db(0x1fe),
+            'KbDtk': function (_0x57bd87, _0xa544a8) {
+                return _0x57bd87 === _0xa544a8;
+            },
+            'jKtHE': _0x9aa8db(0x1c1),
+            'zJEri': _0x9aa8db(0x248)
+        }, _0x2df722 = document[_0x9aa8db(0x152) + _0x9aa8db(0x227)](_0x1af046[_0x9aa8db(0x12a)]);
+    _0x2df722[_0x9aa8db(0x15a) + 't'] = '[' + new Date()[_0x9aa8db(0x138) + _0x9aa8db(0x247)]() + ']\x20' + _0x450f73, logBox[_0x9aa8db(0x2c8) + 'd'](_0x2df722), logBox[_0x9aa8db(0x1ad)] = logBox[_0x9aa8db(0x180) + 'ht'];
+    if (_0x22a76f)
+        console[_0x1af046[_0x9aa8db(0x216)](_0x5f3e01, _0x1af046[_0x9aa8db(0x16a)]) ? _0x1af046[_0x9aa8db(0x16a)] : _0x1af046[_0x9aa8db(0x1ed)]](_0x450f73, _0x22a76f);
+}
+let channel = null;
+function _0x21cf() {
+    const _0x5e23a9 = [
+        'Manager',
+        'QYWFd',
+        'ation',
+        'edNzd',
+        'border',
+        'Keyword',
+        'getItem',
+        '\x0aIP:\x20',
+        'applicatio',
+        'rom\x20',
+        'YkqfR',
+        'yuWAB',
+        'Force\x20Logo',
+        'r\x20&\x20Messag',
+        'IdsHE',
+        '__mutedUse',
+        'KbDtk',
+        'DIWpj',
+        'createClie',
+        '👋\x20You\x20have',
+        'RZrTb',
+        'pinned',
+        'insert',
+        'ljocZ',
+        'true',
+        'filter',
+        'username',
+        '\x20→\x20',
+        'nFqYWp0a2R',
+        '\x20message.',
+        'TLoRF',
+        'vDFQn',
+        '📌\x20Pinned',
+        'ent',
+        'now',
+        'Takeo',
+        'LuFkY',
+        '⚠️\x20You\x20have',
+        'shiftKey',
+        'mwocq',
+        '🔒\x20Blocked',
+        'CzRFh',
+        'Jyran',
+        'click',
+        'json',
+        'PGEqE',
+        '.content',
+        'InR5cCI6Ik',
+        'pYXQiOjE3N',
+        'display',
+        'set',
+        '🔴\x20Connecti',
+        'lmiae',
+        'ord\x20to\x20del',
+        'QrOmS',
+        '49WHkyCS',
+        'KzJCI',
+        'false',
+        '\x20by\x20',
+        'koHXM',
+        'cyZwE',
+        'ges?',
+        'ailed',
+        'mMzTs',
+        'TgyMTI4MDg',
+        'meString',
+        'log',
+        'blocked',
+        '🔁\x20Changed\x20',
+        'ZFRBs',
+        'AzyxO',
+        'dFuGu',
+        '1|7|4|2|8|',
+        'BWjFF',
+        'aaaba',
+        'update',
+        '👑\x20Promoted',
+        'Zbynz',
+        'https://ap',
+        'Change\x20Nam',
+        'add',
+        'disabled',
+        '\x0aRole:\x20',
+        'getElement',
+        'LvHWd',
+        'Admin',
+        'bNQdj',
+        'iaxmP',
+        'admin',
+        'n/json',
+        'cmvHE',
+        'vudTr',
+        'WJGnW',
+        'DDYrA',
+        'XFZxA',
+        'XBhYmFzZSI',
+        '6QDYKmF',
+        'ge\x20id=',
+        '1474gFJKRy',
+        'QbuMX',
+        'eyJhbGciOi',
+        'upabase.co',
+        'ge:',
+        'hanges',
+        'WPwRE',
+        'nameInput',
+        'https://qj',
+        'VXezC',
+        'Delete\x20',
+        'oRHwJ',
+        '8u3flAH9PH',
+        'username\x20',
+        '\x20message\x20f',
+        'inserted_a',
+        'subscribe',
+        'QbcGd',
+        'SWVht',
+        'CLOSED',
+        'value',
+        'download',
+        'jwvMt',
+        '❌\x20You\x20are\x20',
+        'gzlfl',
+        'OJGJU',
+        'ggle\x20faile',
+        'wHzof',
+        'adminContr',
+        '\x20updates',
+        '3|10|6|11|',
+        'none',
+        '\x20to\x20Manage',
+        'Promote\x20→\x20',
+        'channel',
+        'Cannot\x20log',
+        'XoAzE',
+        'JzhsN',
+        'trols',
+        'YLFvx',
+        '📦\x20Exported',
+        '🔌\x20Forced\x20l',
+        'key',
+        'xytyn',
+        'blockBtn',
+        'CoVzS',
+        'supabase',
+        'ctrlKey',
+        'User\x20Info',
+        'from',
+        'pc3MiOiJzd',
+        'managerCon',
+        'xrLFP',
+        '💣\x20Nuked\x20',
+        'TFEsP',
+        'Enter',
+        'GBSRz',
+        'Export\x20Cha',
+        'GZwfW',
+        'ser',
+        'sent\x20to\x20Su',
+        'New\x20userna',
+        'DLAYI',
+        '\x20been\x20bloc',
+        'oUGcs',
+        '69684PxHmXu',
+        'Pin',
+        'ing\x20\x22',
+        'You\x20can\x20on',
+        '❌\x20You\x20have',
+        'qtvqi',
+        'toLowerCas',
+        '\x20been\x20forc',
+        'order',
+        '\x20to\x20User',
+        'trim',
+        'out\x20yourse',
+        'Dsxrt',
+        'tAndU',
+        'FTVYV',
+        'dSdyz',
+        'yYwBO',
+        'then',
+        'ZNDYb',
+        'chatUserna',
+        'lhujJ',
+        'altKey',
+        'length',
+        'querySelec',
+        '87270mxmzvF',
+        'nDoch',
+        'content',
+        'maybeSingl',
+        'EeqPT',
+        'manager',
+        'MVwda',
+        'appendChil',
+        'ifWBX',
+        'ate:\x20',
+        '5|0|9',
+        'JawBW',
+        'Report',
+        'firstChild',
+        'messageInp',
+        'cjQtj',
+        'AXKFM',
+        'mUiZM',
+        'innerHTML',
+        '\x20chat.json',
+        'record',
+        'Gvlew',
+        'FplPH',
+        'yHCVY',
+        'Mute\x205min',
+        'DGpKS',
+        'chat.json',
+        'VPIcG',
+        'Delete',
+        'TfqkL',
+        '\x20loaded',
+        'mzOxD',
+        'ajtkdchvap',
+        'style',
+        'your\x20messa',
+        'utes',
+        '❌\x20Delete\x20f',
+        'all\x20messag',
+        'Demote\x20→\x20U',
+        '✏️\x20Edited\x20m',
+        'Delete\x20Use',
+        'jA3Mzc4ODg',
+        'dataset',
+        '✅\x20Message\x20',
+        'yxAQT',
+        'heir\x20messa',
+        '❌\x20Block\x20to',
+        'XvFzl',
+        'UUkxM',
+        'HpWUh',
+        'crvQu',
+        '\x20for\x205\x20min',
+        '!\x20You\x20are\x20',
+        '3NqINSj',
+        'logBox',
+        'bOjav',
+        'mgeCM',
+        'kxDyp',
+        'unknown',
+        'namePrompt',
+        'map',
+        'Frenchwizz',
+        'hroJQ',
+        'XXjDA',
+        'on\x20closed',
+        '❌\x20Change\x20n',
+        'ITOnP',
+        'ed\x20out!',
+        'reload',
+        'son',
+        'Enter\x20keyw',
+        'insertBefo',
+        'SMfwS',
+        'admin!',
+        'ly\x20delete\x20',
+        'WACFr',
+        'ZEErG',
+        '272944bbTzdv',
+        'CgVdM',
+        '360808YQuNAw',
+        'ault',
+        'pabase',
+        'split',
+        'jqqwt',
+        'yMIIF',
+        'href',
+        'lczUz',
+        'essage\x20id=',
+        'vzbue',
+        'new',
+        'ruoSx',
+        'MKZaj',
+        'SUBSCRIBED',
+        'Hdcuc',
+        'wTJrY',
+        'CSrzD',
+        'aJpFF',
+        'jvHeW',
+        'button',
+        'sendButton',
+        'Unpin',
+        'uTwNn',
+        'JQoct',
+        'DPBlf',
+        '🗑\x20Deleted\x20',
+        'blocked\x20fr',
+        'gbVKw',
+        'JHKBt',
+        'mWbzK',
+        'ete:',
+        'kxVdk',
+        'toLocaleTi',
+        'thnidtwj.s',
+        '📡\x20Live\x20upd',
+        'JeaYjf7M',
+        'createObje',
+        'FcWCe',
+        'stringify',
+        'Username:\x20',
+        'led',
+        'ilike',
+        '\x20an\x20admin!',
+        'users',
+        'eoImv',
+        '🚨\x20Reported',
+        'block',
+        'INSERT',
+        'eventType',
+        'NXZDW',
+        'mFub24iLCJ',
+        'HIpcV',
+        'UPDATE',
+        'zLZRo',
+        'postgres_c',
+        'kTUES',
+        'DJUlR',
+        'GErxL',
+        'createElem',
+        'QnHwP',
+        'remove',
+        '🔻\x20Demoted\x20',
+        '❌\x20Failed\x20t',
+        'LuIak',
+        '\x0aID:\x20',
+        'includes',
+        'textConten',
+        'KaAV8bedV8',
+        'delete',
+        'XzaMV',
+        'TxCjR',
+        'FRBOQ',
+        'upsert',
+        'rGJMg',
+        'message\x20id',
+        'DpHbP',
+        'ibLIJ',
+        'ById',
+        'sages',
+        'messages',
+        'messages-c',
+        'BNWwq',
+        'jKtHE',
+        'sImV4cCI6M',
+        '\x20been\x20sign',
+        'PxczY',
+        'DHPwC',
+        'PNzzh',
+        '\x20messages.',
+        'stener',
+        '\x20to\x20Admin',
+        'o\x20load\x20mes',
+        '\x20and\x20all\x20t',
+        '❌\x20Unpinned',
+        'WRPWp',
+        '972095apGdrs',
+        'CNjXN',
+        'className',
+        'ame\x20failed',
+        'mvFlH',
+        'ioYaC',
+        'User',
+        'mlkdHdqIiw',
+        'essages.',
+        'scrollHeig',
+        'keydown',
+        'QhlZn',
+        'onclick',
+        'sNxtp',
+        'sIxPr',
+        'keypress',
+        'Edit',
+        'forEach',
+        'your\x20own\x20m',
+        '❌\x20Edit\x20fai',
+        'icm9sZSI6I',
+        '🧹\x20Deleted\x20',
+        'uscgp',
+        'JrmkB',
+        'zEgTN',
+        'Enter\x20a\x20na',
+        'oGFjf',
+        'xEVhS',
+        'removeItem',
+        'ked\x20by\x20an\x20',
+        'es\x20contain',
+        'bbObt',
+        'zdLpO',
+        'select',
+        'tsdxn',
+        'visible',
+        'tWpxJ',
+        'undefined',
+        'cGjNA',
+        'rszCL',
+        'is_pinned',
+        'sage',
+        'g?format=j',
+        'RYNGn',
+        'hwlpk',
+        'Cannot\x20del',
+        'role',
+        'sdjnx',
+        'VzSrK',
+        'me!',
+        'red',
+        'input',
+        'tor',
+        'ogout\x20for\x20',
+        'scrollTop',
+        '🔓\x20Unblocke',
+        'lRHaT',
+        '.blockBtn',
+        'mOZEW',
+        'bPEkH',
+        'DXyRy',
+        'DELETE',
+        'addEventLi',
+        '2173653LFNxdF',
+        'wOH0.BYyhu',
+        'jXmEE',
+        'Delete\x20by\x20',
+        'controls',
+        'setItem',
+        'tton',
+        'VateW',
+        'suLbf',
+        'ete\x20pinned',
+        'ooIlB',
+        'error',
+        'preventDef',
+        '✅\x20Subscrib',
+        'KnqOf',
+        'i.ipify.or',
+        'torAll',
+        'zPCyU',
+        'ctURL',
+        '.username',
+        'Unblock',
+        'JjEsE',
+        'info',
+        'qaWBx',
+        'WCrhM',
+        'QwnYW',
+        'ged\x20out\x20by',
+        'jpCOu',
+        'Edit\x20messa',
+        '🔇\x20Muted\x20',
+        'hannel',
+        'FfkCx',
+        'oRAuM',
+        'Block',
+        'BgibJ',
+        '24360ZGvIdq',
+        'get',
+        'o\x20send\x20mes',
+        'ed\x20to\x20live',
+        'sInJlZiI6I',
+        'lf.',
+        'stopPropag',
+        'JIUzI1NiIs',
+        'JxPob',
+        'jaHZhcHRob',
+        'classList',
+        'ekeBS',
+        'alVRAOqctt',
+        'Cogtt',
+        '#messages\x20',
+        'ols',
+        '1|4|2|3|0',
+        'om\x20sending',
+        'saveNameBu',
+        'EBLML',
+        'zJEri',
+        'chatRole',
+        'yTiAH',
+        'ofUkK',
+        'flex',
+        'phHec',
+        'efully\x20log',
+        'sqVMT',
+        '\x20message\x20i',
+        '2px\x20solid\x20',
+        'me\x20for\x20',
+        'ddWdJ',
+        'Welcome,\x20',
+        'zSLvT',
+        'public',
+        'forceLogou',
+        'pXVCJ9.eyJ',
+        'div',
+        'wDZtn',
+        'GIJDS',
+        'evGOx',
+        'BCfiP',
+        'QLiZL',
+        '✅\x20Messages',
+        ':\x20\x22'
+    ];
+    _0x21cf = function () {
+        return _0x5e23a9;
+    };
+    return _0x21cf();
+}
+function initRealtime() {
+    const _0x14f4cf = _0x1eb4d7, _0x126765 = {
+            'GErxL': function (_0xcf42bc, _0x39afa4, _0x47920d) {
+                return _0xcf42bc(_0x39afa4, _0x47920d);
+            },
+            'EeqPT': function (_0x44b604, _0x287c43) {
+                return _0x44b604(_0x287c43);
+            },
+            'WCrhM': function (_0x203909, _0x8405c0) {
+                return _0x203909 === _0x8405c0;
+            },
+            'uscgp': _0x14f4cf(0x125),
+            'LuIak': function (_0x46d8bc, _0x5ad6ff) {
+                return _0x46d8bc(_0x5ad6ff);
+            },
+            'sNxtp': _0x14f4cf(0x1c3) + _0x14f4cf(0x1dc) + _0x14f4cf(0x285),
+            'gbVKw': function (_0xffbee9, _0x3d8c26) {
+                return _0xffbee9 === _0x3d8c26;
+            },
+            'mMzTs': _0x14f4cf(0x27b),
+            'KnqOf': _0x14f4cf(0x239) + _0x14f4cf(0x109),
+            'lhujJ': _0x14f4cf(0x168) + _0x14f4cf(0x1d4),
+            'OJGJU': _0x14f4cf(0x14e) + _0x14f4cf(0x26d),
+            'gzlfl': _0x14f4cf(0x1fb),
+            'evGOx': _0x14f4cf(0x167)
+        };
+    if (channel)
+        return;
+    channel = supabase[_0x14f4cf(0x28a)](_0x126765[_0x14f4cf(0x2bd)])['on'](_0x126765[_0x14f4cf(0x281)], {
+        'event': '*',
+        'schema': _0x126765[_0x14f4cf(0x280)],
+        'table': _0x126765[_0x14f4cf(0x201)]
+    }, _0x2bdab8 => {
+        const _0x45f053 = _0x14f4cf;
+        _0x126765[_0x45f053(0x151)](handleRealtimeMessage, _0x2bdab8[_0x45f053(0x122)] || _0x2bdab8[_0x45f053(0x2d5)], _0x2bdab8[_0x45f053(0x148)]), _0x126765[_0x45f053(0x2c5)](log, _0x45f053(0x13a) + _0x45f053(0x2ca) + _0x2bdab8[_0x45f053(0x148)]);
+    })[_0x14f4cf(0x278)](_0x1aefa4 => {
+        const _0x40b61c = _0x14f4cf;
+        if (_0x126765[_0x40b61c(0x1ce)](_0x1aefa4, _0x126765[_0x40b61c(0x18d)]))
+            _0x126765[_0x40b61c(0x157)](log, _0x126765[_0x40b61c(0x184)]);
+        else {
+            if (_0x126765[_0x40b61c(0x133)](_0x1aefa4, _0x126765[_0x40b61c(0x245)]))
+                _0x126765[_0x40b61c(0x157)](log, _0x126765[_0x40b61c(0x1c4)]);
+        }
+    });
+}
+async function loadMessages() {
+    const _0x2aab2a = _0x1eb4d7, _0x43f6fc = {
+            'ioYaC': _0x2aab2a(0x167),
+            'VXezC': _0x2aab2a(0x277) + 't',
+            'bOjav': function (_0x409754, _0x24498d, _0x78d2ba, _0x2faf2d) {
+                return _0x409754(_0x24498d, _0x78d2ba, _0x2faf2d);
+            },
+            'GIJDS': _0x2aab2a(0x156) + _0x2aab2a(0x173) + _0x2aab2a(0x166),
+            'DIWpj': _0x2aab2a(0x1c1),
+            'Zbynz': function (_0x21dcff, _0x58d124) {
+                return _0x21dcff(_0x58d124);
+            },
+            'XXjDA': _0x2aab2a(0x204) + _0x2aab2a(0x2df)
+        }, {
+            data: _0x3f0654,
+            error: _0x32de71
+        } = await supabase[_0x2aab2a(0x299)](_0x43f6fc[_0x2aab2a(0x17c)])[_0x2aab2a(0x198)]('*')[_0x2aab2a(0x2b1)](_0x43f6fc[_0x2aab2a(0x271)], { 'ascending': !![] });
+    if (_0x32de71)
+        return _0x43f6fc[_0x2aab2a(0x100)](log, _0x43f6fc[_0x2aab2a(0x200)], _0x32de71, _0x43f6fc[_0x2aab2a(0x217)]);
+    _0x3f0654[_0x2aab2a(0x188)](_0x42359d => renderMessage(_0x42359d)), _0x43f6fc[_0x2aab2a(0x253)](log, _0x43f6fc[_0x2aab2a(0x108)]);
+}
+async function loadUser() {
+    const _0x5538c9 = _0x1eb4d7, _0x45e3c8 = {
+            'cmvHE': _0x5538c9(0x2bc) + 'me',
+            'QhlZn': _0x5538c9(0x146),
+            'XzaMV': _0x5538c9(0x287),
+            'Dsxrt': _0x5538c9(0x1ba),
+            'CoVzS': _0x5538c9(0x19a),
+            'EBLML': _0x5538c9(0x143),
+            'oGFjf': _0x5538c9(0x1a5),
+            'HIpcV': _0x5538c9(0x220),
+            'FRBOQ': _0x5538c9(0x17d),
+            'zdLpO': _0x5538c9(0x1ee),
+            'QLiZL': function (_0x2d66bf, _0x2c5d6f) {
+                return _0x2d66bf === _0x2c5d6f;
+            },
+            'BgibJ': _0x5538c9(0x25b),
+            'WJGnW': function (_0x17edfe) {
+                return _0x17edfe();
+            },
+            'PNzzh': function (_0x7b5fa8) {
+                return _0x7b5fa8();
+            }
+        }, _0xcb6991 = localStorage[_0x5538c9(0x20c)](_0x45e3c8[_0x5538c9(0x260)]);
+    if (!_0xcb6991) {
+        namePrompt[_0x5538c9(0xea)][_0x5538c9(0x237)] = _0x45e3c8[_0x5538c9(0x182)], input[_0x5538c9(0x257)] = !![], button[_0x5538c9(0x257)] = !![];
+        return;
+    }
+    nameInput[_0x5538c9(0x27c)] = _0xcb6991, namePrompt[_0x5538c9(0xea)][_0x5538c9(0x237)] = _0x45e3c8[_0x5538c9(0x15d)];
+    const _0x5ac635 = document[_0x5538c9(0x259) + _0x5538c9(0x165)](_0x45e3c8[_0x5538c9(0x2b5)]);
+    _0x5ac635[_0x5538c9(0x1e3)][_0x5538c9(0x256)](_0x45e3c8[_0x5538c9(0x295)]), input[_0x5538c9(0x257)] = ![], button[_0x5538c9(0x257)] = ![];
+    try {
+        const {data: _0x3b7b26} = await supabase[_0x5538c9(0x299)](_0x45e3c8[_0x5538c9(0x1ec)])[_0x5538c9(0x198)](_0x45e3c8[_0x5538c9(0x191)])[_0x5538c9(0x141)](_0x45e3c8[_0x5538c9(0x14b)], _0xcb6991)[_0x5538c9(0x2c4) + 'e']();
+        currentRole = _0x3b7b26?.[_0x5538c9(0x1a5)] || _0x45e3c8[_0x5538c9(0x15f)], localStorage[_0x5538c9(0x1bb)](_0x45e3c8[_0x5538c9(0x197)], currentRole);
+    } catch {
+        currentRole = _0x45e3c8[_0x5538c9(0x15f)], localStorage[_0x5538c9(0x1bb)](_0x45e3c8[_0x5538c9(0x197)], _0x45e3c8[_0x5538c9(0x15f)]);
+    }
+    logBox[_0x5538c9(0xea)][_0x5538c9(0x237)] = _0x45e3c8[_0x5538c9(0x203)](currentRole, _0x45e3c8[_0x5538c9(0x1d8)]) ? _0x45e3c8[_0x5538c9(0x182)] : _0x45e3c8[_0x5538c9(0x15d)], _0x45e3c8[_0x5538c9(0x262)](loadMessages), _0x45e3c8[_0x5538c9(0x16f)](initRealtime);
+}
 loadUser();
-
-  
-  // ------------------------ Save Name ------------------------
-  async function saveName() {
-  const name = nameInput.value.trim();
-  if (!name) return alert("Enter a name!");
-
-  username = name;
-  localStorage.setItem("chatUsername", name);
-
-  try {
-    // Upsert ensures the user exists and role is preserved if already there
-    const { data, error } = await supabase
-      .from("users")
-      .upsert({ username: name }, { onConflict: ['username'] })
-      .select();
-
-    if (error) throw error;
-
-    // Fetch role
-    const { data: userData } = await supabase
-      .from("users")
-      .select("role")
-      .eq("username", name)
-      .maybeSingle();
-
-    currentRole = userData?.role || "User";
-    localStorage.setItem("chatRole", currentRole);
-  } catch (err) {
-    console.error(err);
-    currentRole = "User";
-    localStorage.setItem("chatRole", "User");
-  }
-
-  namePrompt.style.display = "none";
-  const controls = document.getElementById("controls");
-controls.classList.add("visible");
-  input.disabled = false;
-  button.disabled = false;
-
-  loadMessages();
-  initRealtime();
-
-  logBox.style.display = currentRole === "Admin" ? "block" : "none";
-
-  updateMessageLock();
-  alert(`Welcome, ${name}! You are a ${currentRole}.`);
-}
-
-  
-  // ------------------------ Send Message ------------------------
-  async function sendMessage() {
-    const content = input.value.trim();
-    if (!content || !username) return;
-
-    // Check if the user is blocked
-const { data: user } = await supabase.from("users")
-  .select("blocked")
-  .eq("username", username)
-  .maybeSingle();
-
-if (user?.blocked) {
-  alert("❌ You are blocked from sending messages.");
-  return;
-}
-
-  
-    let ip = "unknown";
+async function saveName() {
+    const _0x5895a0 = _0x1eb4d7, _0xf06973 = {
+            'BCfiP': function (_0xe33e66, _0x37efbe) {
+                return _0xe33e66(_0x37efbe);
+            },
+            'xEVhS': _0x5895a0(0x190) + _0x5895a0(0x1a8),
+            'CzRFh': _0x5895a0(0x2bc) + 'me',
+            'SWVht': _0x5895a0(0x143),
+            'JzhsN': _0x5895a0(0x220),
+            'aJpFF': _0x5895a0(0x1a5),
+            'VPIcG': _0x5895a0(0x17d),
+            'oRAuM': _0x5895a0(0x1ee),
+            'wTJrY': _0x5895a0(0x287),
+            'tAndU': _0x5895a0(0x1ba),
+            'jpCOu': _0x5895a0(0x19a),
+            'yuWAB': function (_0x3b33b6) {
+                return _0x3b33b6();
+            },
+            'CNjXN': function (_0x1f6faf, _0x38b0f3) {
+                return _0x1f6faf === _0x38b0f3;
+            },
+            'RYNGn': _0x5895a0(0x25b),
+            'xytyn': _0x5895a0(0x146),
+            'bbObt': function (_0xd8f29) {
+                return _0xd8f29();
+            },
+            'mUiZM': function (_0x290bd0, _0x5d1a45) {
+                return _0x290bd0(_0x5d1a45);
+            }
+        }, _0x3d32ab = nameInput[_0x5895a0(0x27c)][_0x5895a0(0x2b3)]();
+    if (!_0x3d32ab)
+        return _0xf06973[_0x5895a0(0x202)](alert, _0xf06973[_0x5895a0(0x192)]);
+    username = _0x3d32ab, localStorage[_0x5895a0(0x1bb)](_0xf06973[_0x5895a0(0x22f)], _0x3d32ab);
     try {
-      const res = await fetch("https://api.ipify.org?format=json");
-      const data = await res.json();
-      ip = data.ip || "unknown";
-    } catch {}
-  
+        const {
+            data: _0x544bea,
+            error: _0x49d025
+        } = await supabase[_0x5895a0(0x299)](_0xf06973[_0x5895a0(0x27a)])[_0x5895a0(0x160)]({ 'username': _0x3d32ab }, { 'onConflict': [_0xf06973[_0x5895a0(0x28d)]] })[_0x5895a0(0x198)]();
+        if (_0x49d025)
+            throw _0x49d025;
+        const {data: _0x3bb830} = await supabase[_0x5895a0(0x299)](_0xf06973[_0x5895a0(0x27a)])[_0x5895a0(0x198)](_0xf06973[_0x5895a0(0x129)])['eq'](_0xf06973[_0x5895a0(0x28d)], _0x3d32ab)[_0x5895a0(0x2c4) + 'e']();
+        currentRole = _0x3bb830?.[_0x5895a0(0x1a5)] || _0xf06973[_0x5895a0(0x2dc)], localStorage[_0x5895a0(0x1bb)](_0xf06973[_0x5895a0(0x1d6)], currentRole);
+    } catch (_0x6e376) {
+        console[_0x5895a0(0x1c1)](_0x6e376), currentRole = _0xf06973[_0x5895a0(0x2dc)], localStorage[_0x5895a0(0x1bb)](_0xf06973[_0x5895a0(0x1d6)], _0xf06973[_0x5895a0(0x2dc)]);
+    }
+    namePrompt[_0x5895a0(0xea)][_0x5895a0(0x237)] = _0xf06973[_0x5895a0(0x127)];
+    const _0x481653 = document[_0x5895a0(0x259) + _0x5895a0(0x165)](_0xf06973[_0x5895a0(0x2b6)]);
+    _0x481653[_0x5895a0(0x1e3)][_0x5895a0(0x256)](_0xf06973[_0x5895a0(0x1d1)]), input[_0x5895a0(0x257)] = ![], button[_0x5895a0(0x257)] = ![], _0xf06973[_0x5895a0(0x211)](loadMessages), _0xf06973[_0x5895a0(0x211)](initRealtime), logBox[_0x5895a0(0xea)][_0x5895a0(0x237)] = _0xf06973[_0x5895a0(0x178)](currentRole, _0xf06973[_0x5895a0(0x1a2)]) ? _0xf06973[_0x5895a0(0x293)] : _0xf06973[_0x5895a0(0x127)], _0xf06973[_0x5895a0(0x196)](updateMessageLock), _0xf06973[_0x5895a0(0x2d2)](alert, _0x5895a0(0x1f9) + _0x3d32ab + (_0x5895a0(0xfd) + 'a\x20') + currentRole + '.');
+}
+async function sendMessage() {
+    const _0x230a47 = _0x1eb4d7, _0x1040ca = {
+            'ifWBX': function (_0x12b96d, _0x560218) {
+                return _0x12b96d || _0x560218;
+            },
+            'ddWdJ': _0x230a47(0x143),
+            'kxVdk': _0x230a47(0x249),
+            'yMIIF': _0x230a47(0x220),
+            'KzJCI': function (_0x5daa08, _0x28a28a) {
+                return _0x5daa08(_0x28a28a);
+            },
+            'FcWCe': _0x230a47(0x27f) + _0x230a47(0x132) + _0x230a47(0x1ea) + _0x230a47(0x170),
+            'sIxPr': _0x230a47(0x103),
+            'NXZDW': _0x230a47(0x254) + _0x230a47(0x1c5) + _0x230a47(0x1a1) + _0x230a47(0x10e),
+            'kTUES': _0x230a47(0x167),
+            'DLAYI': _0x230a47(0xf4) + _0x230a47(0x2a4) + _0x230a47(0x11a),
+            'qaWBx': function (_0x2e95ee, _0xda068d, _0x4027a3, _0x73f99b) {
+                return _0x2e95ee(_0xda068d, _0x4027a3, _0x73f99b);
+            },
+            'JjEsE': _0x230a47(0x156) + _0x230a47(0x1db) + _0x230a47(0x1a0),
+            'CSrzD': _0x230a47(0x1c1)
+        }, _0x1426c2 = input[_0x230a47(0x27c)][_0x230a47(0x2b3)]();
+    if (_0x1040ca[_0x230a47(0x2c9)](!_0x1426c2, !username))
+        return;
+    const {data: _0x288178} = await supabase[_0x230a47(0x299)](_0x1040ca[_0x230a47(0x1f8)])[_0x230a47(0x198)](_0x1040ca[_0x230a47(0x137)])['eq'](_0x1040ca[_0x230a47(0x11d)], username)[_0x230a47(0x2c4) + 'e']();
+    if (_0x288178?.[_0x230a47(0x249)]) {
+        _0x1040ca[_0x230a47(0x23e)](alert, _0x1040ca[_0x230a47(0x13d)]);
+        return;
+    }
+    let _0x2dba55 = _0x1040ca[_0x230a47(0x185)];
     try {
-      const { data, error } = await supabase.from("messages")
-        .insert([{ username, content, role: currentRole, is_pinned: false, ip }])
-        .select();
-      if (!error) {
-        input.value = "";
-        log("✅ Message sent to Supabase");
-      }
-    } catch (e) {
-      log("❌ Failed to send message", e, "error");
+        const _0x339a0a = await _0x1040ca[_0x230a47(0x23e)](fetch, _0x1040ca[_0x230a47(0x149)]), _0x5c8409 = await _0x339a0a[_0x230a47(0x232)]();
+        _0x2dba55 = _0x5c8409['ip'] || _0x1040ca[_0x230a47(0x185)];
+    } catch {
     }
-  }
-  
-  button.addEventListener("click", sendMessage);
-  input.addEventListener("keypress", e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
-  
-  // ------------------------ Render Message ------------------------
-  function renderMessage(msg) {
-    let li = messagesMap.get(msg.id);
-    const viewerRole = currentRole;
-  
-    if (!li) {
-      li = document.createElement("li");
-      messagesMap.set(msg.id, li);
-      messagesList.appendChild(li);
+    try {
+        const {
+            data: _0x1bebe9,
+            error: _0x120841
+        } = await supabase[_0x230a47(0x299)](_0x1040ca[_0x230a47(0x14f)])[_0x230a47(0x21c)]([{
+                'username': username,
+                'content': _0x1426c2,
+                'role': currentRole,
+                'is_pinned': ![],
+                'ip': _0x2dba55
+            }])[_0x230a47(0x198)]();
+        !_0x120841 && (input[_0x230a47(0x27c)] = '', _0x1040ca[_0x230a47(0x23e)](log, _0x1040ca[_0x230a47(0x2a6)]));
+    } catch (_0xe3a767) {
+        _0x1040ca[_0x230a47(0x1cd)](log, _0x1040ca[_0x230a47(0x1cb)], _0xe3a767, _0x1040ca[_0x230a47(0x128)]);
     }
-  
-    li.innerHTML = "";
-    li.className = "";
-    if (msg.role === "Admin") li.classList.add("admin");
-    else if (msg.role === "Manager") li.classList.add("manager");
-    li.dataset.pinned = msg.is_pinned ? "true" : "false";
-    if (msg.is_pinned) li.style.border = "2px solid red"; else li.style.border = "";
-  
-    // Username
-    const uname = document.createElement("div");
-    uname.className = "username";
-    uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
-    li.appendChild(uname);
-  
-    // Message content
-    const contentDiv = document.createElement("div");
-    contentDiv.className = "content";
-    if (msg.role === "Admin") contentDiv.innerHTML = msg.content;
-    else contentDiv.textContent = msg.content;
-    li.appendChild(contentDiv);
-  
-    // Admin panel
-    const adminDiv = document.createElement("div");
-    adminDiv.className = "adminControls";
-    adminDiv.style.display = "none";
-  
-    if (viewerRole === "Admin") {
-          // 🗑 Delete
-    const delBtn = document.createElement("button");
-    delBtn.textContent = "Delete";
-    delBtn.onclick = async () => {
-      if (li.dataset.pinned === "true") return alert("Cannot delete pinned message.");
-      try {
-        await supabase.from("messages").delete().eq("id", msg.id);
-        li.remove();
-        log(`🗑 Deleted message id=${msg.id}`);
-      } catch (e) {
-        log("❌ Delete failed", e, "error");
-      }
-    };
-    adminDiv.appendChild(delBtn);
-
-    // ✏️ Edit
-    const editBtn = document.createElement("button");
-    editBtn.textContent = "Edit";
-    editBtn.onclick = async () => {
-      const newText = prompt("Edit message:", msg.content);
-      if (!newText) return;
-      try {
-        await supabase.from("messages").update({ content: newText }).eq("id", msg.id);
-        msg.content = newText;
-        li.querySelector(".content").textContent = newText;
-        log(`✏️ Edited message id=${msg.id}`);
-      } catch (e) {
-        log("❌ Edit failed", e, "error");
-      }
-    };
-    adminDiv.appendChild(editBtn);
-
-    // 👤 Change Name
-    const nameBtn = document.createElement("button");
-    nameBtn.textContent = "Change Name";
-    nameBtn.onclick = async () => {
-      const newName = prompt("New username for " + msg.username + ":", msg.username);
-      if (!newName) return;
-      try {
-        await supabase.from("users").upsert({ username: newName });
-        await supabase.from("messages").update({ username: newName }).eq("username", msg.username);
-        li.querySelector(".username").textContent = newName;
-        log(`🔁 Changed username ${msg.username} → ${newName}`);
-      } catch (e) {
-        log("❌ Change name failed", e, "error");
-      }
-    };
-    adminDiv.appendChild(nameBtn);
-
-// 🔒 Block / Unblock User
-const blockBtn = document.createElement("button");
-blockBtn.className = "blockBtn";
-blockBtn.textContent = msg.blocked ? "Unblock" : "Block";
-blockBtn.onclick = async () => {
-  try {
-    const newBlocked = !msg.blocked;
-    await supabase.from("users").update({ blocked: newBlocked }).eq("username", msg.username);
-    msg.blocked = newBlocked;
-    blockBtn.textContent = newBlocked ? "Unblock" : "Block";
-    log(`${newBlocked ? "🔒 Blocked" : "🔓 Unblocked"} ${msg.username}`);
-  } catch (e) {
-    log("❌ Block toggle failed", e, "error");
-  }
-};
-adminDiv.appendChild(blockBtn);
-
-
-
-    // 🔌 Force Logout
-    const logoutBtn = document.createElement("button");
-    logoutBtn.textContent = "Force Logout";
-    logoutBtn.onclick = async () => {
-      if (msg.username === username) return alert("Cannot logout yourself.");
-      await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
-      log(`🔌 Forced logout for ${msg.username}`);
-    };
-    adminDiv.appendChild(logoutBtn);
-
-    // 🔇 Mute
-    const muteBtn = document.createElement("button");
-    muteBtn.textContent = "Mute 5min";
-    muteBtn.onclick = () => {
-      const mutedUsers = (window.__mutedUsers = window.__mutedUsers || {});
-      mutedUsers[msg.username] = Date.now() + 5 * 60 * 1000;
-      log(`🔇 Muted ${msg.username} for 5 minutes`);
-    };
-    adminDiv.appendChild(muteBtn);
-
-    // 📦 Export Chat
-    const exportBtn = document.createElement("button");
-    exportBtn.textContent = "Export Chat";
-    exportBtn.onclick = () => {
-      const data = Array.from(messagesList.querySelectorAll("li")).map(liItem => ({
-        username: liItem.querySelector(".username")?.textContent,
-        content: liItem.querySelector(".content")?.textContent
-      }));
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "chat.json";
-      a.click();
-      log("📦 Exported chat.json");
-    };
-    adminDiv.appendChild(exportBtn);
-
-    // 🧹 Delete by Keyword
-    const massDelBtn = document.createElement("button");
-    massDelBtn.textContent = "Delete by Keyword";
-    massDelBtn.onclick = async () => {
-      const keyword = prompt("Enter keyword to delete:");
-      if (!keyword) return;
-      const { data } = await supabase.from("messages").select("*");
-      const ids = data.filter(m => m.content?.includes(keyword)).map(m => m.id);
-      await supabase.from("messages").delete().in("id", ids);
-      document.querySelectorAll("#messages li").forEach(liItem => {
-        if (liItem.querySelector(".content")?.textContent.includes(keyword)) liItem.remove();
-      });
-      log(`🧹 Deleted all messages containing "${keyword}"`);
-    };
-    adminDiv.appendChild(massDelBtn);
-
-    // 💣 Delete User & Messages
-    const nukeBtn = document.createElement("button");
-    nukeBtn.textContent = "Delete User & Messages";
-    nukeBtn.onclick = async () => {
-      if (!confirm(`Delete ${msg.username} and all their messages?`)) return;
-      await supabase.from("messages").delete().eq("username", msg.username);
-      await supabase.from("users").delete().eq("username", msg.username);
-      document.querySelectorAll("#messages li").forEach(liItem => {
-        if (liItem.querySelector(".username")?.textContent === msg.username) liItem.remove();
-      });
-      log(`💣 Nuked ${msg.username}`);
-    };
-    adminDiv.appendChild(nukeBtn);
-
-    // ℹ️ Info
-    const infoBtn = document.createElement("button");
-    infoBtn.textContent = "User Info";
-    infoBtn.onclick = () => alert(
-      `Username: ${msg.username}\nRole: ${msg.role}\nIP: ${msg.ip}\nID: ${msg.id}`
-    );
-    adminDiv.appendChild(infoBtn);
-
-    // 👑 Promote / Demote
-    const promoteManagerBtn = document.createElement("button");
-    promoteManagerBtn.textContent = "Promote → Manager";
-    promoteManagerBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "Manager" });
-      log(`👑 Promoted ${msg.username} to Manager`);
-      loadMessages();
-    };
-    adminDiv.appendChild(promoteManagerBtn);
-
-    const promoteAdminBtn = document.createElement("button");
-    promoteAdminBtn.textContent = "Promote → Admin";
-    promoteAdminBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "Admin" });
-      log(`👑 Promoted ${msg.username} to Admin`);
-      loadMessages();
-    };
-    adminDiv.appendChild(promoteAdminBtn);
-
-    const demoteBtn = document.createElement("button");
-    demoteBtn.textContent = "Demote → User";
-    demoteBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "User" });
-      log(`🔻 Demoted ${msg.username} to User`);
-      loadMessages();
-    };
-    adminDiv.appendChild(demoteBtn);
-
-    // 📌 Pin / Unpin
-    const pinBtn = document.createElement("button");
-    pinBtn.textContent = msg.is_pinned ? "Unpin" : "Pin";
-    if (msg.is_pinned) {
-      li.dataset.pinned = "true";
-      li.style.border = "2px solid red";
-    }
-    pinBtn.onclick = async () => {
-      const isPinned = li.dataset.pinned === "true";
-      await supabase.from("messages").update({ is_pinned: !isPinned }).eq("id", msg.id);
-      li.dataset.pinned = !isPinned ? "true" : "false";
-      li.style.border = !isPinned ? "2px solid red" : "";
-      pinBtn.textContent = !isPinned ? "Unpin" : "Pin";
-      log(`${!isPinned ? "📌 Pinned" : "❌ Unpinned"} message id=${msg.id}`);
-      if (!isPinned) messagesList.insertBefore(li, messagesList.firstChild);
-      else loadMessages();
-    };
-    adminDiv.appendChild(pinBtn);
-    }
-  
-    li.appendChild(adminDiv);
-
-    if (viewerRole === "Manager") {
-  const managerDiv = document.createElement("div");
-  managerDiv.className = "managerControls";
-  managerDiv.style.display = "none";
-
-  // 🗑 Delete own messages only
-  const delBtn = document.createElement("button");
-  delBtn.textContent = "Delete";
-  delBtn.onclick = async () => {
-  // Managers can only delete their own messages
-  if (msg.username !== username) return alert("You can only delete your own messages.");
-  try {
-    await supabase.from("messages").delete().eq("id", msg.id);
-    li.remove();
-    log(`🗑 Deleted your message id=${msg.id}`);
-  } catch (e) {
-    log("❌ Delete failed", e, "error");
-  }
-};
-  managerDiv.appendChild(delBtn);
-
-  // 🚨 Report message
-  const reportBtn = document.createElement("button");
-  reportBtn.textContent = "Report";
-  reportBtn.onclick = async () => {
-  alert(`🚨 Reported message from ${msg.username}: "${msg.content}"`);
-  // optional: insert into a reports table if you want:
-  // await supabase.from("reports").insert({ reporter: username, reportedUser: msg.username, content: msg.content });
-  log(`🚨 Reported message id=${msg.id} by ${username}`);
-};
-  managerDiv.appendChild(reportBtn);
-
-  li.appendChild(managerDiv);
-
-  // <-- Add this here:
-  li.addEventListener("click", e => {
-    e.stopPropagation();
-    managerDiv.style.display = managerDiv.style.display === "none" ? "flex" : "none";
-  });
-  document.addEventListener("click", () => {
-    managerDiv.style.display = "none";
-  });
 }
-
-
-    if(viewerRole !== "User"){
-      li.addEventListener("click", e => { e.stopPropagation(); adminDiv.style.display = adminDiv.style.display==="none"?"flex":"none"; });
-      document.addEventListener("click", ()=>{ adminDiv.style.display="none"; });
+button[_0x1eb4d7(0x1b5) + _0x1eb4d7(0x171)](_0x1eb4d7(0x231), sendMessage), input[_0x1eb4d7(0x1b5) + _0x1eb4d7(0x171)](_0x1eb4d7(0x186), _0x43773d => {
+    const _0x50b68e = _0x1eb4d7, _0x193682 = {
+            'TxCjR': function (_0x1f5650, _0x43024d) {
+                return _0x1f5650 === _0x43024d;
+            },
+            'aaaba': _0x50b68e(0x29f),
+            'HpWUh': function (_0x35bacf) {
+                return _0x35bacf();
+            }
+        };
+    _0x193682[_0x50b68e(0x15e)](_0x43773d[_0x50b68e(0x292)], _0x193682[_0x50b68e(0x250)]) && !_0x43773d[_0x50b68e(0x22c)] && (_0x43773d[_0x50b68e(0x1c2) + _0x50b68e(0x119)](), _0x193682[_0x50b68e(0xfa)](sendMessage));
+});
+function renderMessage(_0x5d3775) {
+    const _0x296c64 = _0x1eb4d7, _0x509a31 = {
+            'tsdxn': function (_0x45b292, _0x247fee) {
+                return _0x45b292 === _0x247fee;
+            },
+            'suLbf': _0x296c64(0x21e),
+            'QwnYW': function (_0xd097af, _0x1460f7) {
+                return _0xd097af(_0x1460f7);
+            },
+            'oUGcs': _0x296c64(0x1a4) + _0x296c64(0x1bf) + _0x296c64(0x223),
+            'mzOxD': _0x296c64(0x167),
+            'dFuGu': function (_0x425e8d, _0x24d965, _0x1d8c86, _0x17b615) {
+                return _0x425e8d(_0x24d965, _0x1d8c86, _0x17b615);
+            },
+            'CgVdM': _0x296c64(0xed) + _0x296c64(0x244),
+            'PxczY': _0x296c64(0x1c1),
+            'Gvlew': function (_0x4c7ce3, _0x43ce01, _0x54da91) {
+                return _0x4c7ce3(_0x43ce01, _0x54da91);
+            },
+            'FTVYV': _0x296c64(0x1d2) + _0x296c64(0x26c),
+            'ekeBS': _0x296c64(0x234),
+            'zLZRo': function (_0x42d9ae, _0xd616d8, _0x52a356, _0x375425) {
+                return _0x42d9ae(_0xd616d8, _0x52a356, _0x375425);
+            },
+            'DHPwC': _0x296c64(0x18a) + _0x296c64(0x140),
+            'jqqwt': function (_0x2d5091, _0x586d7f, _0x14dd2a) {
+                return _0x2d5091(_0x586d7f, _0x14dd2a);
+            },
+            'ibLIJ': function (_0x3a9c5d, _0x460454) {
+                return _0x3a9c5d + _0x460454;
+            },
+            'hwlpk': function (_0x35976a, _0x49e212) {
+                return _0x35976a + _0x49e212;
+            },
+            'TfqkL': _0x296c64(0x2a5) + _0x296c64(0x1f7),
+            'ooIlB': _0x296c64(0x143),
+            'DXyRy': _0x296c64(0x220),
+            'DGpKS': _0x296c64(0x1c9),
+            'AzyxO': function (_0x4d7497, _0x1177b4) {
+                return _0x4d7497(_0x1177b4);
+            },
+            'qtvqi': _0x296c64(0x10a) + _0x296c64(0x17a),
+            'cGjNA': _0x296c64(0x1ca),
+            'yxAQT': _0x296c64(0x1d7),
+            'JQoct': function (_0x37fa9a, _0x301f38) {
+                return _0x37fa9a(_0x301f38);
+            },
+            'ITOnP': _0x296c64(0x22e),
+            'QYWFd': _0x296c64(0x1ae) + 'd',
+            'PGEqE': _0x296c64(0xf7) + _0x296c64(0x282) + 'd',
+            'Jyran': _0x296c64(0x28b) + _0x296c64(0x2b4) + _0x296c64(0x1de),
+            'ZEErG': function (_0xb44294, _0x18a0d0) {
+                return _0xb44294 * _0x18a0d0;
+            },
+            'nDoch': function (_0x6e737a, _0x4ed2e9) {
+                return _0x6e737a * _0x4ed2e9;
+            },
+            'yTiAH': function (_0x5caa19, _0x225425) {
+                return _0x5caa19(_0x225425);
+            },
+            'kxDyp': _0x296c64(0x20e) + _0x296c64(0x25f),
+            'hroJQ': _0x296c64(0x2db),
+            'yHCVY': _0x296c64(0x290) + _0x296c64(0x2d4),
+            'BNWwq': _0x296c64(0x10f) + _0x296c64(0x23b) + _0x296c64(0x136),
+            'wHzof': _0x296c64(0x1e7) + 'li',
+            'cyZwE': function (_0x48acf5, _0x3539fc) {
+                return _0x48acf5 === _0x3539fc;
+            },
+            'VzSrK': _0x296c64(0x1e9),
+            'wDZtn': function (_0x50b86f, _0x1b83b5) {
+                return _0x50b86f(_0x1b83b5);
+            },
+            'lRHaT': _0x296c64(0x206),
+            'FplPH': function (_0x3351c6) {
+                return _0x3351c6();
+            },
+            'JxPob': _0x296c64(0x25b),
+            'GZwfW': function (_0x24e86b, _0xab3520) {
+                return _0x24e86b(_0xab3520);
+            },
+            'vudTr': function (_0x2b9f13) {
+                return _0x2b9f13();
+            },
+            'JrmkB': _0x296c64(0x17d),
+            'XFZxA': function (_0x56f2a0, _0x196aeb) {
+                return _0x56f2a0(_0x196aeb);
+            },
+            'yYwBO': function (_0x18d9db) {
+                return _0x18d9db();
+            },
+            'xrLFP': _0x296c64(0x23f),
+            'DJUlR': _0x296c64(0x1f6) + _0x296c64(0x1a9),
+            'dSdyz': _0x296c64(0x12d),
+            'JawBW': _0x296c64(0x2aa),
+            'mwocq': _0x296c64(0x226),
+            'WACFr': _0x296c64(0x175),
+            'phHec': function (_0x526cbf, _0x3b7db2) {
+                return _0x526cbf !== _0x3b7db2;
+            },
+            'QnHwP': function (_0x164890, _0x13c9db) {
+                return _0x164890(_0x13c9db);
+            },
+            'QbcGd': _0x296c64(0x2ac) + _0x296c64(0x113) + _0x296c64(0x189) + _0x296c64(0x17f),
+            'XoAzE': function (_0x5157f6, _0x4bf489) {
+                return _0x5157f6(_0x4bf489);
+            },
+            'mvFlH': _0x296c64(0x287),
+            'sqVMT': _0x296c64(0x1f1),
+            'vDFQn': function (_0x46685e, _0x5ec8ce) {
+                return _0x46685e === _0x5ec8ce;
+            },
+            'WPwRE': _0x296c64(0x25e),
+            'bPEkH': _0x296c64(0x2c6),
+            'UUkxM': _0x296c64(0x1fe),
+            'BWjFF': function (_0x3da2ad, _0x5a87d5) {
+                return _0x3da2ad === _0x5a87d5;
+            },
+            'zPCyU': _0x296c64(0x106),
+            'DpHbP': _0x296c64(0x229),
+            'oRHwJ': _0x296c64(0x2c3),
+            'XvFzl': _0x296c64(0x284) + _0x296c64(0x1e8),
+            'edNzd': function (_0x592842, _0x57bfc2) {
+                return _0x592842 === _0x57bfc2;
+            },
+            'JHKBt': _0x296c64(0x12b),
+            'uTwNn': _0x296c64(0x2dd),
+            'cjQtj': _0x296c64(0x187),
+            'Cogtt': _0x296c64(0x255) + 'e',
+            'GBSRz': _0x296c64(0x294),
+            'tWpxJ': _0x296c64(0x212) + 'ut',
+            'rszCL': _0x296c64(0x2d9),
+            'YLFvx': _0x296c64(0x2a1) + 't',
+            'IdsHE': _0x296c64(0x1b9) + _0x296c64(0x20b),
+            'lmiae': _0x296c64(0xf1) + _0x296c64(0x213) + 'es',
+            'VateW': _0x296c64(0x298),
+            'DPBlf': _0x296c64(0x289) + _0x296c64(0x206),
+            'LvHWd': _0x296c64(0x289) + _0x296c64(0x25b),
+            'mOZEW': _0x296c64(0xef) + _0x296c64(0x2a3),
+            'QbuMX': _0x296c64(0x29b) + _0x296c64(0x28e),
+            'crvQu': _0x296c64(0x2cd),
+            'MKZaj': _0x296c64(0x231)
+        };
+    let _0xb4e6e5 = messagesMap[_0x296c64(0x1da)](_0x5d3775['id']);
+    const _0x105251 = currentRole;
+    !_0xb4e6e5 && (_0xb4e6e5 = document[_0x296c64(0x152) + _0x296c64(0x227)]('li'), messagesMap[_0x296c64(0x238)](_0x5d3775['id'], _0xb4e6e5), messagesList[_0x296c64(0x2c8) + 'd'](_0xb4e6e5));
+    _0xb4e6e5[_0x296c64(0x2d3)] = '', _0xb4e6e5[_0x296c64(0x179)] = '';
+    if (_0x509a31[_0x296c64(0x225)](_0x5d3775[_0x296c64(0x1a5)], _0x509a31[_0x296c64(0x1e1)]))
+        _0xb4e6e5[_0x296c64(0x1e3)][_0x296c64(0x256)](_0x509a31[_0x296c64(0x26e)]);
+    else {
+        if (_0x509a31[_0x296c64(0x225)](_0x5d3775[_0x296c64(0x1a5)], _0x509a31[_0x296c64(0x1af)]))
+            _0xb4e6e5[_0x296c64(0x1e3)][_0x296c64(0x256)](_0x509a31[_0x296c64(0x1b2)]);
     }
-  }
-  
-  // ------------------------ Realtime Message Handler ------------------------
-  function handleRealtimeMessage(newMsg, eventType) {
-    if (!newMsg) return;
-  
-    if (eventType === "INSERT") renderMessage(newMsg);
-    else if (eventType === "UPDATE") {
-  renderMessage(newMsg);
-
-  // If blocked status changed, update the button text in real-time
-  const li = messagesMap.get(newMsg.id);
-  if (li) {
-    const blockBtn = li.querySelector(".blockBtn");
-if (blockBtn) blockBtn.textContent = newMsg.blocked ? "Unblock" : "Block";
-    if (blockBtn && "textContent" in blockBtn) {
-      blockBtn.textContent = newMsg.blocked ? "Unblock" : "Block";
+    _0xb4e6e5[_0x296c64(0xf3)][_0x296c64(0x21b)] = _0x5d3775[_0x296c64(0x19f)] ? _0x509a31[_0x296c64(0x1be)] : _0x509a31[_0x296c64(0x29c)];
+    if (_0x5d3775[_0x296c64(0x19f)])
+        _0xb4e6e5[_0x296c64(0xea)][_0x296c64(0x20a)] = _0x509a31[_0x296c64(0x150)];
+    else
+        _0xb4e6e5[_0x296c64(0xea)][_0x296c64(0x20a)] = '';
+    const _0x380205 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0xf9)]);
+    _0x380205[_0x296c64(0x179)] = _0x509a31[_0x296c64(0x1b3)], _0x380205[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x24f)](_0x5d3775[_0x296c64(0x220)], _0x509a31[_0x296c64(0x1c7)]) ? _0x509a31[_0x296c64(0x163)] : _0x5d3775[_0x296c64(0x220)], _0xb4e6e5[_0x296c64(0x2c8) + 'd'](_0x380205);
+    const _0x44e9e7 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0xf9)]);
+    _0x44e9e7[_0x296c64(0x179)] = _0x509a31[_0x296c64(0x273)];
+    if (_0x509a31[_0x296c64(0x24f)](_0x5d3775[_0x296c64(0x1a5)], _0x509a31[_0x296c64(0x1e1)]))
+        _0x44e9e7[_0x296c64(0x2d3)] = _0x5d3775[_0x296c64(0x2c3)];
+    else
+        _0x44e9e7[_0x296c64(0x15a) + 't'] = _0x5d3775[_0x296c64(0x2c3)];
+    _0xb4e6e5[_0x296c64(0x2c8) + 'd'](_0x44e9e7);
+    const _0x133421 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0xf9)]);
+    _0x133421[_0x296c64(0x179)] = _0x509a31[_0x296c64(0xf8)], _0x133421[_0x296c64(0xea)][_0x296c64(0x237)] = _0x509a31[_0x296c64(0x17b)];
+    if (_0x509a31[_0x296c64(0x209)](_0x105251, _0x509a31[_0x296c64(0x1e1)])) {
+        const _0x5960eb = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x5960eb[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x12e)], _0x5960eb[_0x296c64(0x183)] = async () => {
+            const _0x1ca907 = _0x296c64;
+            if (_0x509a31[_0x1ca907(0x199)](_0xb4e6e5[_0x1ca907(0xf3)][_0x1ca907(0x21b)], _0x509a31[_0x1ca907(0x1be)]))
+                return _0x509a31[_0x1ca907(0x1cf)](alert, _0x509a31[_0x1ca907(0x2a8)]);
+            try {
+                await supabase[_0x1ca907(0x299)](_0x509a31[_0x1ca907(0x2e0)])[_0x1ca907(0x15c)]()['eq']('id', _0x5d3775['id']), _0xb4e6e5[_0x1ca907(0x154)](), _0x509a31[_0x1ca907(0x1cf)](log, _0x1ca907(0x131) + _0x1ca907(0x162) + '=' + _0x5d3775['id']);
+            } catch (_0x11eb61) {
+                _0x509a31[_0x1ca907(0x24d)](log, _0x509a31[_0x1ca907(0x117)], _0x11eb61, _0x509a31[_0x1ca907(0x16d)]);
+            }
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x5960eb);
+        const _0x1d4e49 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x1d4e49[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x2d0)], _0x1d4e49[_0x296c64(0x183)] = async () => {
+            const _0x10e201 = _0x296c64, _0x1be030 = _0x509a31[_0x10e201(0x2d6)](prompt, _0x509a31[_0x10e201(0x2b7)], _0x5d3775[_0x10e201(0x2c3)]);
+            if (!_0x1be030)
+                return;
+            try {
+                await supabase[_0x10e201(0x299)](_0x509a31[_0x10e201(0x2e0)])[_0x10e201(0x251)]({ 'content': _0x1be030 })['eq']('id', _0x5d3775['id']), _0x5d3775[_0x10e201(0x2c3)] = _0x1be030, _0xb4e6e5[_0x10e201(0x2c0) + _0x10e201(0x1ab)](_0x509a31[_0x10e201(0x1e4)])[_0x10e201(0x15a) + 't'] = _0x1be030, _0x509a31[_0x10e201(0x1cf)](log, _0x10e201(0xf0) + _0x10e201(0x120) + _0x5d3775['id']);
+            } catch (_0x4deb7c) {
+                _0x509a31[_0x10e201(0x14d)](log, _0x509a31[_0x10e201(0x16e)], _0x4deb7c, _0x509a31[_0x10e201(0x16d)]);
+            }
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x1d4e49);
+        const _0x1dc98b = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x1dc98b[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x1e6)], _0x1dc98b[_0x296c64(0x183)] = async () => {
+            const _0x497fdc = _0x296c64, _0xff3dc7 = _0x509a31[_0x497fdc(0x11c)](prompt, _0x509a31[_0x497fdc(0x164)](_0x509a31[_0x497fdc(0x1a3)](_0x509a31[_0x497fdc(0x2de)], _0x5d3775[_0x497fdc(0x220)]), ':'), _0x5d3775[_0x497fdc(0x220)]);
+            if (!_0xff3dc7)
+                return;
+            try {
+                await supabase[_0x497fdc(0x299)](_0x509a31[_0x497fdc(0x1c0)])[_0x497fdc(0x160)]({ 'username': _0xff3dc7 }), await supabase[_0x497fdc(0x299)](_0x509a31[_0x497fdc(0x2e0)])[_0x497fdc(0x251)]({ 'username': _0xff3dc7 })['eq'](_0x509a31[_0x497fdc(0x1b3)], _0x5d3775[_0x497fdc(0x220)]), _0xb4e6e5[_0x497fdc(0x2c0) + _0x497fdc(0x1ab)](_0x509a31[_0x497fdc(0x2da)])[_0x497fdc(0x15a) + 't'] = _0xff3dc7, _0x509a31[_0x497fdc(0x24c)](log, _0x497fdc(0x24a) + _0x497fdc(0x275) + _0x5d3775[_0x497fdc(0x220)] + _0x497fdc(0x221) + _0xff3dc7);
+            } catch (_0x348cd7) {
+                _0x509a31[_0x497fdc(0x24d)](log, _0x509a31[_0x497fdc(0x2ae)], _0x348cd7, _0x509a31[_0x497fdc(0x16d)]);
+            }
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x1dc98b);
+        const _0x4ba6a4 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x4ba6a4[_0x296c64(0x179)] = _0x509a31[_0x296c64(0x2a0)], _0x4ba6a4[_0x296c64(0x15a) + 't'] = _0x5d3775[_0x296c64(0x249)] ? _0x509a31[_0x296c64(0x19d)] : _0x509a31[_0x296c64(0xf5)], _0x4ba6a4[_0x296c64(0x183)] = async () => {
+            const _0x2afbd9 = _0x296c64;
+            try {
+                const _0x3b9b24 = !_0x5d3775[_0x2afbd9(0x249)];
+                await supabase[_0x2afbd9(0x299)](_0x509a31[_0x2afbd9(0x1c0)])[_0x2afbd9(0x251)]({ 'blocked': _0x3b9b24 })['eq'](_0x509a31[_0x2afbd9(0x1b3)], _0x5d3775[_0x2afbd9(0x220)]), _0x5d3775[_0x2afbd9(0x249)] = _0x3b9b24, _0x4ba6a4[_0x2afbd9(0x15a) + 't'] = _0x3b9b24 ? _0x509a31[_0x2afbd9(0x19d)] : _0x509a31[_0x2afbd9(0xf5)], _0x509a31[_0x2afbd9(0x12f)](log, (_0x3b9b24 ? _0x509a31[_0x2afbd9(0x10b)] : _0x509a31[_0x2afbd9(0x207)]) + '\x20' + _0x5d3775[_0x2afbd9(0x220)]);
+            } catch (_0x338735) {
+                _0x509a31[_0x2afbd9(0x14d)](log, _0x509a31[_0x2afbd9(0x233)], _0x338735, _0x509a31[_0x2afbd9(0x16d)]);
+            }
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x4ba6a4);
+        const _0xd3e70b = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0xd3e70b[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x19b)], _0xd3e70b[_0x296c64(0x183)] = async () => {
+            const _0xb55fc1 = _0x296c64;
+            if (_0x509a31[_0xb55fc1(0x199)](_0x5d3775[_0xb55fc1(0x220)], username))
+                return _0x509a31[_0xb55fc1(0x24c)](alert, _0x509a31[_0xb55fc1(0x230)]);
+            await supabase[_0xb55fc1(0x299)](_0x509a31[_0xb55fc1(0x1c0)])[_0xb55fc1(0x251)]({ 'forceLogout': !![] })['eq'](_0x509a31[_0xb55fc1(0x1b3)], _0x5d3775[_0xb55fc1(0x220)]), _0x509a31[_0xb55fc1(0x1cf)](log, _0xb55fc1(0x291) + _0xb55fc1(0x1ac) + _0x5d3775[_0xb55fc1(0x220)]);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0xd3e70b);
+        const _0x31a69a = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x31a69a[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x19e)], _0x31a69a[_0x296c64(0x183)] = () => {
+            const _0x3e1095 = _0x296c64, _0x4f20d5 = window[_0x3e1095(0x215) + 'rs'] = window[_0x3e1095(0x215) + 'rs'] || {};
+            _0x4f20d5[_0x5d3775[_0x3e1095(0x220)]] = _0x509a31[_0x3e1095(0x1a3)](Date[_0x3e1095(0x228)](), _0x509a31[_0x3e1095(0x115)](_0x509a31[_0x3e1095(0x2c2)](-0x1 * 0x26d1 + 0x31b * 0x5 + 0x174f, -0x25dd + 0x21 * 0x9f + -0x5de * -0x3), -0x1407 + -0x1 * 0x72b + -0x3 * -0xa5e)), _0x509a31[_0x3e1095(0x1ef)](log, _0x3e1095(0x1d3) + _0x5d3775[_0x3e1095(0x220)] + (_0x3e1095(0xfc) + _0x3e1095(0xec)));
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x31a69a);
+        const _0x4a179b = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x4a179b[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x28f)], _0x4a179b[_0x296c64(0x183)] = () => {
+            const _0x483be9 = _0x296c64, _0x3e45cb = Array[_0x483be9(0x299)](messagesList[_0x483be9(0x2c0) + _0x483be9(0x1c6)]('li'))[_0x483be9(0x105)](_0x9f8f16 => ({
+                    'username': _0x9f8f16[_0x483be9(0x2c0) + _0x483be9(0x1ab)](_0x483be9(0x1c9))?.[_0x483be9(0x15a) + 't'],
+                    'content': _0x9f8f16[_0x483be9(0x2c0) + _0x483be9(0x1ab)](_0x483be9(0x234))?.[_0x483be9(0x15a) + 't']
+                })), _0x17ed45 = new Blob([JSON[_0x483be9(0x13e)](_0x3e45cb, null, -0xda1 + -0x1eb6 + 0x2c59)], { 'type': _0x509a31[_0x483be9(0x102)] }), _0x5897f0 = document[_0x483be9(0x152) + _0x483be9(0x227)]('a');
+            _0x5897f0[_0x483be9(0x11e)] = URL[_0x483be9(0x13c) + _0x483be9(0x1c8)](_0x17ed45), _0x5897f0[_0x483be9(0x27d)] = _0x509a31[_0x483be9(0x107)], _0x5897f0[_0x483be9(0x231)](), _0x509a31[_0x483be9(0x24c)](log, _0x509a31[_0x483be9(0x2d8)]);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x4a179b);
+        const _0x45da32 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x45da32[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x214)], _0x45da32[_0x296c64(0x183)] = async () => {
+            const _0x29db42 = _0x296c64, _0x103fb0 = { 'TLoRF': _0x509a31[_0x29db42(0x1e4)] }, _0xb03120 = _0x509a31[_0x29db42(0x1cf)](prompt, _0x509a31[_0x29db42(0x169)]);
+            if (!_0xb03120)
+                return;
+            const {data: _0x49ac9c} = await supabase[_0x29db42(0x299)](_0x509a31[_0x29db42(0x2e0)])[_0x29db42(0x198)]('*'), _0x1be8ef = _0x49ac9c[_0x29db42(0x21f)](_0x138eae => _0x138eae[_0x29db42(0x2c3)]?.[_0x29db42(0x159)](_0xb03120))[_0x29db42(0x105)](_0x10a082 => _0x10a082['id']);
+            await supabase[_0x29db42(0x299)](_0x509a31[_0x29db42(0x2e0)])[_0x29db42(0x15c)]()['in']('id', _0x1be8ef), document[_0x29db42(0x2c0) + _0x29db42(0x1c6)](_0x509a31[_0x29db42(0x283)])[_0x29db42(0x188)](_0x367f38 => {
+                const _0x4c7705 = _0x29db42;
+                if (_0x367f38[_0x4c7705(0x2c0) + _0x4c7705(0x1ab)](_0x103fb0[_0x4c7705(0x224)])?.[_0x4c7705(0x15a) + 't'][_0x4c7705(0x159)](_0xb03120))
+                    _0x367f38[_0x4c7705(0x154)]();
+            }), _0x509a31[_0x29db42(0x12f)](log, _0x29db42(0x18c) + _0x29db42(0xee) + _0x29db42(0x195) + _0x29db42(0x2ab) + _0xb03120 + '\x22');
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x45da32);
+        const _0x250b3a = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x250b3a[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x23a)], _0x250b3a[_0x296c64(0x183)] = async () => {
+            const _0x195502 = _0x296c64, _0x211609 = _0x509a31[_0x195502(0x1a7)][_0x195502(0x11b)]('|');
+            let _0x1f17df = -0x509 + -0x441 + 0x29 * 0x3a;
+            while (!![]) {
+                switch (_0x211609[_0x1f17df++]) {
+                case '0':
+                    _0x509a31[_0x195502(0x1ff)](log, _0x195502(0x29d) + _0x5d3775[_0x195502(0x220)]);
+                    continue;
+                case '1':
+                    if (!_0x509a31[_0x195502(0x24c)](confirm, _0x195502(0x272) + _0x5d3775[_0x195502(0x220)] + (_0x195502(0x174) + _0x195502(0xf6) + _0x195502(0x243))))
+                        return;
+                    continue;
+                case '2':
+                    await supabase[_0x195502(0x299)](_0x509a31[_0x195502(0x1c0)])[_0x195502(0x15c)]()['eq'](_0x509a31[_0x195502(0x1b3)], _0x5d3775[_0x195502(0x220)]);
+                    continue;
+                case '3':
+                    document[_0x195502(0x2c0) + _0x195502(0x1c6)](_0x509a31[_0x195502(0x283)])[_0x195502(0x188)](_0x455791 => {
+                        const _0x153146 = _0x195502;
+                        if (_0x509a31[_0x153146(0x242)](_0x455791[_0x153146(0x2c0) + _0x153146(0x1ab)](_0x509a31[_0x153146(0x2da)])?.[_0x153146(0x15a) + 't'], _0x5d3775[_0x153146(0x220)]))
+                            _0x455791[_0x153146(0x154)]();
+                    });
+                    continue;
+                case '4':
+                    await supabase[_0x195502(0x299)](_0x509a31[_0x195502(0x2e0)])[_0x195502(0x15c)]()['eq'](_0x509a31[_0x195502(0x1b3)], _0x5d3775[_0x195502(0x220)]);
+                    continue;
+                }
+                break;
+            }
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x250b3a);
+        const _0x1771e8 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x1771e8[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x1bd)], _0x1771e8[_0x296c64(0x183)] = () => alert(_0x296c64(0x13f) + _0x5d3775[_0x296c64(0x220)] + _0x296c64(0x258) + _0x5d3775[_0x296c64(0x1a5)] + _0x296c64(0x20d) + _0x5d3775['ip'] + _0x296c64(0x158) + _0x5d3775['id']), _0x133421[_0x296c64(0x2c8) + 'd'](_0x1771e8);
+        const _0x3393ee = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x3393ee[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x130)], _0x3393ee[_0x296c64(0x183)] = async () => {
+            const _0x49f4a4 = _0x296c64;
+            await supabase[_0x49f4a4(0x299)](_0x509a31[_0x49f4a4(0x1c0)])[_0x49f4a4(0x160)]({
+                'username': _0x5d3775[_0x49f4a4(0x220)],
+                'role': _0x509a31[_0x49f4a4(0x1af)]
+            }), _0x509a31[_0x49f4a4(0x1ef)](log, _0x49f4a4(0x252) + '\x20' + _0x5d3775[_0x49f4a4(0x220)] + (_0x49f4a4(0x288) + 'r')), _0x509a31[_0x49f4a4(0x2d7)](loadMessages);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x3393ee);
+        const _0x12c889 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x12c889[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x25a)], _0x12c889[_0x296c64(0x183)] = async () => {
+            const _0x832117 = _0x296c64;
+            await supabase[_0x832117(0x299)](_0x509a31[_0x832117(0x1c0)])[_0x832117(0x160)]({
+                'username': _0x5d3775[_0x832117(0x220)],
+                'role': _0x509a31[_0x832117(0x1e1)]
+            }), _0x509a31[_0x832117(0x2a2)](log, _0x832117(0x252) + '\x20' + _0x5d3775[_0x832117(0x220)] + _0x832117(0x172)), _0x509a31[_0x832117(0x261)](loadMessages);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x12c889);
+        const _0x47f7e4 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x47f7e4[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x1b1)], _0x47f7e4[_0x296c64(0x183)] = async () => {
+            const _0x1cc45e = _0x296c64;
+            await supabase[_0x1cc45e(0x299)](_0x509a31[_0x1cc45e(0x1c0)])[_0x1cc45e(0x160)]({
+                'username': _0x5d3775[_0x1cc45e(0x220)],
+                'role': _0x509a31[_0x1cc45e(0x18e)]
+            }), _0x509a31[_0x1cc45e(0x264)](log, _0x1cc45e(0x155) + _0x5d3775[_0x1cc45e(0x220)] + _0x1cc45e(0x2b2)), _0x509a31[_0x1cc45e(0x2b9)](loadMessages);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x47f7e4);
+        const _0x2d7daf = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x2d7daf[_0x296c64(0x15a) + 't'] = _0x5d3775[_0x296c64(0x19f)] ? _0x509a31[_0x296c64(0x2b8)] : _0x509a31[_0x296c64(0x2cc)], _0x5d3775[_0x296c64(0x19f)] && (_0xb4e6e5[_0x296c64(0xf3)][_0x296c64(0x21b)] = _0x509a31[_0x296c64(0x1be)], _0xb4e6e5[_0x296c64(0xea)][_0x296c64(0x20a)] = _0x509a31[_0x296c64(0x150)]), _0x2d7daf[_0x296c64(0x183)] = async () => {
+            const _0x222a62 = _0x296c64, _0x243ee1 = _0x509a31[_0x222a62(0x199)](_0xb4e6e5[_0x222a62(0xf3)][_0x222a62(0x21b)], _0x509a31[_0x222a62(0x1be)]);
+            await supabase[_0x222a62(0x299)](_0x509a31[_0x222a62(0x2e0)])[_0x222a62(0x251)]({ 'is_pinned': !_0x243ee1 })['eq']('id', _0x5d3775['id']), _0xb4e6e5[_0x222a62(0xf3)][_0x222a62(0x21b)] = !_0x243ee1 ? _0x509a31[_0x222a62(0x1be)] : _0x509a31[_0x222a62(0x29c)], _0xb4e6e5[_0x222a62(0xea)][_0x222a62(0x20a)] = !_0x243ee1 ? _0x509a31[_0x222a62(0x150)] : '', _0x2d7daf[_0x222a62(0x15a) + 't'] = !_0x243ee1 ? _0x509a31[_0x222a62(0x2b8)] : _0x509a31[_0x222a62(0x2cc)], _0x509a31[_0x222a62(0x2a2)](log, (!_0x243ee1 ? _0x509a31[_0x222a62(0x22d)] : _0x509a31[_0x222a62(0x114)]) + (_0x222a62(0x1f5) + 'd=') + _0x5d3775['id']);
+            if (!_0x243ee1)
+                messagesList[_0x222a62(0x110) + 're'](_0xb4e6e5, messagesList[_0x222a62(0x2ce)]);
+            else
+                _0x509a31[_0x222a62(0x2b9)](loadMessages);
+        }, _0x133421[_0x296c64(0x2c8) + 'd'](_0x2d7daf);
     }
-  }
-}
-if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
-  input.disabled = newMsg.blocked;
-  button.disabled = newMsg.blocked;
-  if(newMsg.blocked) alert("❌ You have been blocked by an admin!");
-}
-
-    else if (eventType === "DELETE") {
-      const existing = messagesMap.get(newMsg.id);
-      if (existing) { existing.remove(); messagesMap.delete(newMsg.id); }
-      
-      if (newMsg.username === username && newMsg.forceLogout) {
-    alert("⚠️ You have been forcefully logged out by an admin!");
-    localStorage.removeItem("chatUsername");
-    localStorage.removeItem("chatRole");
-    supabase.from("users").update({ forceLogout: false }).eq("username", username)
-      .then(() => location.reload());
-}
-
-  }
-  }
-  
-  // ------------------------ Secret Sign-Out Shortcut ------------------------
-  document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
-      e.preventDefault();
-      localStorage.removeItem("chatUsername");
-      localStorage.removeItem("chatRole");
-  
-      alert("👋 You have been signed out!");
-      namePrompt.style.display = "block";
-      input.disabled = true;
-      button.disabled = true;
-      nameInput.value = "";
-      currentRole = null;
-  
-      if (logBox) logBox.style.display = "none";
-  
-      updateMessageLock();
-      saveNameBtn.onclick = saveName;
+    _0xb4e6e5[_0x296c64(0x2c8) + 'd'](_0x133421);
+    if (_0x509a31[_0x296c64(0x199)](_0x105251, _0x509a31[_0x296c64(0x1af)])) {
+        const _0x52c784 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0xf9)]);
+        _0x52c784[_0x296c64(0x179)] = _0x509a31[_0x296c64(0x269)], _0x52c784[_0x296c64(0xea)][_0x296c64(0x237)] = _0x509a31[_0x296c64(0x17b)];
+        const _0x5eab85 = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x5eab85[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0x12e)], _0x5eab85[_0x296c64(0x183)] = async () => {
+            const _0x29384b = _0x296c64;
+            if (_0x509a31[_0x29384b(0x1f2)](_0x5d3775[_0x29384b(0x220)], username))
+                return _0x509a31[_0x29384b(0x153)](alert, _0x509a31[_0x29384b(0x279)]);
+            try {
+                await supabase[_0x29384b(0x299)](_0x509a31[_0x29384b(0x2e0)])[_0x29384b(0x15c)]()['eq']('id', _0x5d3775['id']), _0xb4e6e5[_0x29384b(0x154)](), _0x509a31[_0x29384b(0x1ff)](log, _0x29384b(0x131) + _0x29384b(0xeb) + _0x29384b(0x267) + _0x5d3775['id']);
+            } catch (_0x3db447) {
+                _0x509a31[_0x29384b(0x14d)](log, _0x509a31[_0x29384b(0x117)], _0x3db447, _0x509a31[_0x29384b(0x16d)]);
+            }
+        }, _0x52c784[_0x296c64(0x2c8) + 'd'](_0x5eab85);
+        const _0x36e21e = document[_0x296c64(0x152) + _0x296c64(0x227)](_0x509a31[_0x296c64(0x134)]);
+        _0x36e21e[_0x296c64(0x15a) + 't'] = _0x509a31[_0x296c64(0xfb)], _0x36e21e[_0x296c64(0x183)] = async () => {
+            const _0x58aec7 = _0x296c64;
+            _0x509a31[_0x58aec7(0x264)](alert, _0x58aec7(0x145) + _0x58aec7(0x276) + _0x58aec7(0x20f) + _0x5d3775[_0x58aec7(0x220)] + _0x58aec7(0x205) + _0x5d3775[_0x58aec7(0x2c3)] + '\x22'), _0x509a31[_0x58aec7(0x28c)](log, _0x58aec7(0x145) + _0x58aec7(0x1f5) + 'd=' + _0x5d3775['id'] + _0x58aec7(0x240) + username);
+        }, _0x52c784[_0x296c64(0x2c8) + 'd'](_0x36e21e), _0xb4e6e5[_0x296c64(0x2c8) + 'd'](_0x52c784), _0xb4e6e5[_0x296c64(0x1b5) + _0x296c64(0x171)](_0x509a31[_0x296c64(0x124)], _0x3da874 => {
+            const _0x20df4e = _0x296c64;
+            _0x3da874[_0x20df4e(0x1df) + _0x20df4e(0x208)](), _0x52c784[_0x20df4e(0xea)][_0x20df4e(0x237)] = _0x509a31[_0x20df4e(0x199)](_0x52c784[_0x20df4e(0xea)][_0x20df4e(0x237)], _0x509a31[_0x20df4e(0x17b)]) ? _0x509a31[_0x20df4e(0x1f4)] : _0x509a31[_0x20df4e(0x17b)];
+        }), document[_0x296c64(0x1b5) + _0x296c64(0x171)](_0x509a31[_0x296c64(0x124)], () => {
+            const _0x2c51c6 = _0x296c64;
+            _0x52c784[_0x2c51c6(0xea)][_0x2c51c6(0x237)] = _0x509a31[_0x2c51c6(0x17b)];
+        });
     }
-  });
-
-  saveNameBtn.addEventListener("click", saveName);
-
+    _0x509a31[_0x296c64(0x1f2)](_0x105251, _0x509a31[_0x296c64(0x18e)]) && (_0xb4e6e5[_0x296c64(0x1b5) + _0x296c64(0x171)](_0x509a31[_0x296c64(0x124)], _0x39a01a => {
+        const _0x483a1d = _0x296c64;
+        _0x39a01a[_0x483a1d(0x1df) + _0x483a1d(0x208)](), _0x133421[_0x483a1d(0xea)][_0x483a1d(0x237)] = _0x509a31[_0x483a1d(0x242)](_0x133421[_0x483a1d(0xea)][_0x483a1d(0x237)], _0x509a31[_0x483a1d(0x17b)]) ? _0x509a31[_0x483a1d(0x1f4)] : _0x509a31[_0x483a1d(0x17b)];
+    }), document[_0x296c64(0x1b5) + _0x296c64(0x171)](_0x509a31[_0x296c64(0x124)], () => {
+        const _0x308085 = _0x296c64;
+        _0x133421[_0x308085(0xea)][_0x308085(0x237)] = _0x509a31[_0x308085(0x17b)];
+    }));
+}
+function handleRealtimeMessage(_0x4ae04c, _0x3003bb) {
+    const _0xd3f70c = _0x1eb4d7, _0x170f1b = {
+            'WRPWp': function (_0x13e06e, _0x39ae54) {
+                return _0x13e06e === _0x39ae54;
+            },
+            'LuFkY': _0xd3f70c(0x147),
+            'AXKFM': function (_0x4d2e0c, _0x245046) {
+                return _0x4d2e0c(_0x245046);
+            },
+            'jXmEE': function (_0x557b52, _0x520d72) {
+                return _0x557b52 === _0x520d72;
+            },
+            'MVwda': _0xd3f70c(0x14c),
+            'ZFRBs': _0xd3f70c(0x1b0),
+            'Hdcuc': _0xd3f70c(0x1ca),
+            'koHXM': _0xd3f70c(0x1d7),
+            'bNQdj': function (_0x3d8fb8, _0x4506b9) {
+                return _0x3d8fb8 in _0x4506b9;
+            },
+            'jwvMt': _0xd3f70c(0x15a) + 't',
+            'eoImv': function (_0x11579a, _0x3438e8) {
+                return _0x11579a === _0x3438e8;
+            },
+            'zEgTN': function (_0x55759b, _0x533891) {
+                return _0x55759b !== _0x533891;
+            },
+            'mWbzK': _0xd3f70c(0x19c),
+            'RZrTb': function (_0x4ba7ce, _0x3d53f1) {
+                return _0x4ba7ce(_0x3d53f1);
+            },
+            'TFEsP': _0xd3f70c(0x2ad) + _0xd3f70c(0x2a7) + _0xd3f70c(0x194) + _0xd3f70c(0x112),
+            'ofUkK': _0xd3f70c(0x1b4),
+            'vzbue': _0xd3f70c(0x22b) + _0xd3f70c(0x2b0) + _0xd3f70c(0x1f3) + _0xd3f70c(0x1d0) + _0xd3f70c(0x142),
+            'QrOmS': _0xd3f70c(0x2bc) + 'me',
+            'sdjnx': _0xd3f70c(0x1ee),
+            'lczUz': _0xd3f70c(0x143),
+            'zSLvT': _0xd3f70c(0x220)
+        };
+    if (!_0x4ae04c)
+        return;
+    if (_0x170f1b[_0xd3f70c(0x176)](_0x3003bb, _0x170f1b[_0xd3f70c(0x22a)]))
+        _0x170f1b[_0xd3f70c(0x2d1)](renderMessage, _0x4ae04c);
+    else {
+        if (_0x170f1b[_0xd3f70c(0x1b8)](_0x3003bb, _0x170f1b[_0xd3f70c(0x2c7)])) {
+            _0x170f1b[_0xd3f70c(0x2d1)](renderMessage, _0x4ae04c);
+            const _0x4c8c0b = messagesMap[_0xd3f70c(0x1da)](_0x4ae04c['id']);
+            if (_0x4c8c0b) {
+                const _0x328b1b = _0x4c8c0b[_0xd3f70c(0x2c0) + _0xd3f70c(0x1ab)](_0x170f1b[_0xd3f70c(0x24b)]);
+                if (_0x328b1b)
+                    _0x328b1b[_0xd3f70c(0x15a) + 't'] = _0x4ae04c[_0xd3f70c(0x249)] ? _0x170f1b[_0xd3f70c(0x126)] : _0x170f1b[_0xd3f70c(0x241)];
+                _0x328b1b && _0x170f1b[_0xd3f70c(0x25c)](_0x170f1b[_0xd3f70c(0x27e)], _0x328b1b) && (_0x328b1b[_0xd3f70c(0x15a) + 't'] = _0x4ae04c[_0xd3f70c(0x249)] ? _0x170f1b[_0xd3f70c(0x126)] : _0x170f1b[_0xd3f70c(0x241)]);
+            }
+        }
+    }
+    if (_0x170f1b[_0xd3f70c(0x144)](_0x4ae04c[_0xd3f70c(0x220)], username) && _0x170f1b[_0xd3f70c(0x18f)](typeof _0x4ae04c[_0xd3f70c(0x249)], _0x170f1b[_0xd3f70c(0x135)])) {
+        input[_0xd3f70c(0x257)] = _0x4ae04c[_0xd3f70c(0x249)], button[_0xd3f70c(0x257)] = _0x4ae04c[_0xd3f70c(0x249)];
+        if (_0x4ae04c[_0xd3f70c(0x249)])
+            _0x170f1b[_0xd3f70c(0x21a)](alert, _0x170f1b[_0xd3f70c(0x29e)]);
+    } else {
+        if (_0x170f1b[_0xd3f70c(0x144)](_0x3003bb, _0x170f1b[_0xd3f70c(0x1f0)])) {
+            const _0x8d2cc8 = messagesMap[_0xd3f70c(0x1da)](_0x4ae04c['id']);
+            _0x8d2cc8 && (_0x8d2cc8[_0xd3f70c(0x154)](), messagesMap[_0xd3f70c(0x15c)](_0x4ae04c['id'])), _0x170f1b[_0xd3f70c(0x176)](_0x4ae04c[_0xd3f70c(0x220)], username) && _0x4ae04c[_0xd3f70c(0x1fc) + 't'] && (_0x170f1b[_0xd3f70c(0x2d1)](alert, _0x170f1b[_0xd3f70c(0x121)]), localStorage[_0xd3f70c(0x193)](_0x170f1b[_0xd3f70c(0x23c)]), localStorage[_0xd3f70c(0x193)](_0x170f1b[_0xd3f70c(0x1a6)]), supabase[_0xd3f70c(0x299)](_0x170f1b[_0xd3f70c(0x11f)])[_0xd3f70c(0x251)]({ 'forceLogout': ![] })['eq'](_0x170f1b[_0xd3f70c(0x1fa)], username)[_0xd3f70c(0x2ba)](() => location[_0xd3f70c(0x10d)]()));
+        }
+    }
+}
+document[_0x1eb4d7(0x1b5) + _0x1eb4d7(0x171)](_0x1eb4d7(0x181), _0x217ee0 => {
+    const _0x48eb2d = _0x1eb4d7, _0x584dc3 = {
+            'ZNDYb': function (_0xd56a44, _0x14a46b) {
+                return _0xd56a44 === _0x14a46b;
+            },
+            'SMfwS': _0x48eb2d(0x24e) + _0x48eb2d(0x286) + _0x48eb2d(0x2cb),
+            'DDYrA': function (_0x3c376b) {
+                return _0x3c376b();
+            },
+            'rGJMg': function (_0x13b29e, _0x54bba3) {
+                return _0x13b29e(_0x54bba3);
+            },
+            'iaxmP': _0x48eb2d(0x219) + _0x48eb2d(0x16c) + _0x48eb2d(0x10c),
+            'YkqfR': _0x48eb2d(0x1ee),
+            'ruoSx': _0x48eb2d(0x287),
+            'mgeCM': _0x48eb2d(0x2bc) + 'me',
+            'ljocZ': _0x48eb2d(0x146)
+        };
+    if (_0x217ee0[_0x48eb2d(0x297)] && _0x217ee0[_0x48eb2d(0x2be)] && _0x217ee0[_0x48eb2d(0x22c)] && _0x584dc3[_0x48eb2d(0x2bb)](_0x217ee0[_0x48eb2d(0x292)][_0x48eb2d(0x2af) + 'e'](), 't')) {
+        const _0x1e96c3 = _0x584dc3[_0x48eb2d(0x111)][_0x48eb2d(0x11b)]('|');
+        let _0x3e1ad0 = -0x8cb + 0x3ef * 0x1 + 0x4dc;
+        while (!![]) {
+            switch (_0x1e96c3[_0x3e1ad0++]) {
+            case '0':
+                _0x584dc3[_0x48eb2d(0x263)](updateMessageLock);
+                continue;
+            case '1':
+                _0x217ee0[_0x48eb2d(0x1c2) + _0x48eb2d(0x119)]();
+                continue;
+            case '2':
+                _0x584dc3[_0x48eb2d(0x161)](alert, _0x584dc3[_0x48eb2d(0x25d)]);
+                continue;
+            case '3':
+                input[_0x48eb2d(0x257)] = !![];
+                continue;
+            case '4':
+                localStorage[_0x48eb2d(0x193)](_0x584dc3[_0x48eb2d(0x210)]);
+                continue;
+            case '5':
+                if (logBox)
+                    logBox[_0x48eb2d(0xea)][_0x48eb2d(0x237)] = _0x584dc3[_0x48eb2d(0x123)];
+                continue;
+            case '6':
+                nameInput[_0x48eb2d(0x27c)] = '';
+                continue;
+            case '7':
+                localStorage[_0x48eb2d(0x193)](_0x584dc3[_0x48eb2d(0x101)]);
+                continue;
+            case '8':
+                namePrompt[_0x48eb2d(0xea)][_0x48eb2d(0x237)] = _0x584dc3[_0x48eb2d(0x21d)];
+                continue;
+            case '9':
+                saveNameBtn[_0x48eb2d(0x183)] = saveName;
+                continue;
+            case '10':
+                button[_0x48eb2d(0x257)] = !![];
+                continue;
+            case '11':
+                currentRole = null;
+                continue;
+            }
+            break;
+        }
+    }
+}), saveNameBtn[_0x1eb4d7(0x1b5) + _0x1eb4d7(0x171)](_0x1eb4d7(0x231), saveName);
   </script>
   
   
