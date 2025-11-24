@@ -6,10 +6,27 @@ logBox.style.display = 'none'
 const namePrompt = document.getElementById('namePrompt')
 const nameInput = document.getElementById('nameInput')
 const saveNameBtn = document.getElementById('saveNameButton')
-const supabase = window.supabase.createClient(
-  'https://letslearnalgebra.vercel.app/api/supa/',
-  'anon-key-doesnt-matter' // proxy handles the real key
-)
+// New code
+const PROXY_BASE = 'https://letslearnalgebra.vercel.app/api/supa/rest/v1/';
+
+async function supaFetch(table, options = {}) {
+  const url = new URL(PROXY_BASE + table);
+  if (options.query) {
+    Object.entries(options.query).forEach(([k, v]) =>
+      url.searchParams.append(k, v)
+    );
+  }
+
+  const response = await fetch(url.toString(), {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  return response.json();
+}
+
+
 let username = localStorage.getItem('chatUsername') || ''
 let currentRole = localStorage.getItem('chatRole') || 'User'
 const messagesMap = new Map()
