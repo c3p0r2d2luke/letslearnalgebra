@@ -7,7 +7,7 @@ const namePrompt = document.getElementById('namePrompt')
 const nameInput = document.getElementById('nameInput')
 const saveNameBtn = document.getElementById('saveNameButton')
 const supabase = window.supabase.createClient(
-  'https://letslearnalgebra.vercel.app/api/supa/rest/v1/',
+  'https://letslearnalgebra.vercel.app/api/supa/',
   '' // empty, proxy handles auth
 )
 let username = localStorage.getItem('chatUsername') || ''
