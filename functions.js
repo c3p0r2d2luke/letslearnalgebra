@@ -8,7 +8,7 @@ const nameInput = document.getElementById('nameInput')
 const saveNameBtn = document.getElementById('saveNameButton')
 const supabase = window.supabase.createClient(
   'https://qjajtkdchvapthnidtwj.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M'
+  'sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA'
 )
 let username = localStorage.getItem('chatUsername') || ''
 let currentRole = localStorage.getItem('chatRole') || 'User'
