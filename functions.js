@@ -80,10 +80,7 @@ function initRealtime() {
     })
 }
 async function loadMessages() {
-  const { data: _0x3f0654, error: _0x32de71 } = await supabase
-    .from('messages')
-    .select('*')
-    .order('inserted_at', { ascending: true })
+const _0x3f0654 = await supaFetch('messages', { query: { select: '*', order: 'inserted_at.asc' } });
   if (_0x32de71) {
     return log('\u274C Failed to load messages', _0x32de71, 'error')
   }
@@ -105,11 +102,9 @@ async function loadUser() {
   input.disabled = false
   button.disabled = false
   try {
-    const { data: _0x3b7b26 } = await supabase
-      .from('users')
-      .select('role')
-      .ilike('username', _0xcb6991)
-      .maybeSingle()
+const users = await supaFetch('users', { query: { select: 'role', username: `ilike.${_0xcb6991}` } });
+const _0x3b7b26 = users[0]; // maybeSingle equivalent
+
     currentRole = _0x3b7b26?.role || 'User'
     localStorage.setItem('chatRole', currentRole)
   } catch {
@@ -129,7 +124,7 @@ async function saveName() {
   username = _0x3d32ab
   localStorage.setItem('chatUsername', _0x3d32ab)
   try {
-    const { data: _0x544bea, error: _0x49d025 } = await supabase
+    : _0x544bea, error: _0x49d025 } = await supabase
       .from('users')
       .upsert({ username: _0x3d32ab }, { onConflict: ['username'] })
       .select()
@@ -379,7 +374,7 @@ function renderMessage(_0x5d3775) {
       if (!_0xb03120) {
         return
       }
-      const { data: _0x49ac9c } = await supabase.from('messages').select('*')
+const data = await supaFetch('messages', { query: { select: '*' } });
       const _0x1be8ef = _0x49ac9c
         .filter((_0x138eae) => _0x138eae.content?.includes(_0xb03120))
         .map((_0x10a082) => _0x10a082.id)
