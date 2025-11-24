@@ -8,7 +8,7 @@ const nameInput = document.getElementById('nameInput')
 const saveNameBtn = document.getElementById('saveNameButton')
 const supabase = window.supabase.createClient(
   'https://letslearnalgebra.vercel.app/api/supa/',
-  '' // empty, proxy handles auth
+  'anon-key-doesnt-matter' // proxy handles the real key
 )
 let username = localStorage.getItem('chatUsername') || ''
 let currentRole = localStorage.getItem('chatRole') || 'User'
