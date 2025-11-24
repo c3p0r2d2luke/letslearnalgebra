@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   // Keep query params
   const query = req.url.split("?")[1];
   const supaUrl =
-    "https://YOURPROJECT.supabase.co" +
+    "https://qjajtkdchvapthnidtwj.supabase.co" +
     supaPath +
     (query ? "?" + query : "");
 
