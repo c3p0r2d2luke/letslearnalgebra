@@ -1,32 +1,25 @@
 export default async function handler(req, res) {
-  // --- CORS HEADERS ---
+  // --- CORS headers ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end(); // CORS preflight shortcut
-  }
-  // --------------------
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Extract the dynamic path
+  // --- Build Supabase URL dynamically ---
   const { path } = req.query;
-
-  // Build Supabase path
-  const supaPath = "/" + path.join("/");
-
-  // Keep query params
+  const supaPath = "/" + path.join("/"); 
   const query = req.url.split("?")[1];
   const supaUrl =
     "https://qjajtkdchvapthnidtwj.supabase.co" +
     supaPath +
     (query ? "?" + query : "");
 
-  // Forward the request
+  // --- Forward the request ---
   const response = await fetch(supaUrl, {
     method: req.method,
     headers: {
-      apikey: process.env.SUPABASE_ANON_KEY, // safe
+      apikey: process.env.SUPABASE_ANON_KEY,
       Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
       "Content-Type": req.headers["content-type"] || "application/json",
     },
