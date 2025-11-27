@@ -16,28 +16,27 @@ const saveNameBtn = document.getElementById('saveNameButton');
 const PROXY_BASE = 'https://letslearnalgebra.vercel.app/api/supa?path=rest/v1/';
 
 // supaFetch: small wrapper to call your proxy and forward query params and JSON body
-async function supaFetch(path, options = {}) {
-  const url = new URL(PROXY_BASE + path);
+async function supaFetch(table, options = {}) {
+  const url = new URL(PROXY_BASE + table);
 
   if (options.query) {
-    Object.entries(options.query).forEach(([k, v]) => {
-      // If value is undefined or null, skip it
-      if (typeof v !== 'undefined' && v !== null) {
-        url.searchParams.append(k, v);
-      }
+    Object.entries(options.query).forEach(([key, value]) => {
+      url.searchParams.append(key, value);
     });
   }
 
-  const resp = await fetch(url.toString(), {
-    method: options.method || 'GET',
+  const method = options.method || 'GET';
+
+  const response = await fetch(url.toString(), {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: options.method && options.method.toUpperCase() !== 'GET' ? JSON.stringify(options.body ?? {}) : undefined,
+    body: method === 'GET' ? null : JSON.stringify(options.body || {})
   });
 
-  // Try to parse JSON, but return text if not JSON
-  const text = await resp.text();
-  try { return JSON.parse(text); } catch (e) { return text; }
+  const text = await response.text();
+  try { return JSON.parse(text); } catch { return text; }
 }
+
 
 // App state
 let username = localStorage.getItem('chatUsername') || '';
