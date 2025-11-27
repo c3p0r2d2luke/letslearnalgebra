@@ -13,7 +13,7 @@ const nameInput = document.getElementById('nameInput');
 const saveNameBtn = document.getElementById('saveNameButton');
 
 // REST Proxy base (your vercel path to proxy)
-const PROXY_BASE = 'https://letslearnalgebra.vercel.app/api/supa/rest/v1/';
+const PROXY_BASE = 'https://letslearnalgebra.vercel.app/api/supa?path=rest/v1/';
 
 // supaFetch: small wrapper to call your proxy and forward query params and JSON body
 async function supaFetch(path, options = {}) {
