@@ -122,16 +122,8 @@ async function saveName() {
     return alert('Enter a name!')
   }
   username = _0x3d32ab
-  localStorage.setItem('chatUsername', _0x3d32ab)
-  try {
-    : _0x544bea, error: _0x49d025 } = await supabase
-      .from('users')
-      .upsert({ username: _0x3d32ab }, { onConflict: ['username'] })
-      .select()
-    if (_0x49d025) {
-      throw _0x49d025
-    }
-    const { data: _0x3bb830 } = await supabase
+  localStorage.setItem('chatUsername', _0x3d32ab)  
+const { data: _0x3bb830 } = await supabase
       .from('users')
       .select('role')
       .eq('username', _0x3d32ab)
