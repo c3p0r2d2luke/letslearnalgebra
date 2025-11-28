@@ -1,14 +1,17 @@
 export default async function handler(req, res) {
   // --- CORS headers ---
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  );
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
   // --- Build Supabase URL dynamically ---
   const { path } = req.query;
-  const supaPath = "/" + path.join("/"); 
+  const supaPath = "/" + path.join("/");
   const query = req.url.split("?")[1];
   const supaUrl =
     "https://qjajtkdchvapthnidtwj.supabase.co" +
