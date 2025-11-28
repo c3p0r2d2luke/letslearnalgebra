@@ -1,45 +1,60 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>Iframe + Console Logs</title>
-  <style>
-    iframe { width: 800px; height: 600px; border: 1px solid #333; }
-    #consoleOutput { background: #111; color: #0f0; padding: 8px; height: 200px; overflow-y: auto; font-family: monospace; margin-top: 12px; }
-  </style>
-</head>
-<body>
-  <h2>Iframe + Logs</h2>
-  <iframe src="chatwithteachers.html" id="myIframe"></iframe>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Iframe + Console Logs</title>
+    <style>
+      iframe {
+        width: 800px;
+        height: 600px;
+        border: 1px solid #333;
+      }
+      #consoleOutput {
+        background: #111;
+        color: #0f0;
+        padding: 8px;
+        height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Iframe + Logs</h2>
+    <iframe src="chatwithteachers.html" id="myIframe"></iframe>
 
-  <div id="consoleOutput"></div>
+    <div id="consoleOutput"></div>
 
-  <script>
-    window.addEventListener("message", (event) => {
-  const data = event.data;
-  if (!data?.type) return;
+    <script>
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data?.type) return;
 
-  switch(data.type) {
-    case "console":
-      console.log("Child log:", ...data.payload.args);
-      break;
+        switch (data.type) {
+          case "console":
+            console.log("Child log:", ...data.payload.args);
+            break;
 
-    case "nameSaved":
-      console.log("Child saved name:", data.payload.username, "Role:", data.payload.role);
-      // You can update your parent UI here if needed
-      break;
-  }
-});
+          case "nameSaved":
+            console.log(
+              "Child saved name:",
+              data.payload.username,
+              "Role:",
+              data.payload.role,
+            );
+            // You can update your parent UI here if needed
+            break;
+        }
+      });
 
-function sendToParent(type, payload) {
-    try {
-        parent.postMessage({ type, payload }, "*"); // "*" works for testing; you can restrict origin later
-    } catch (e) {
-        console.error("Failed to send message to parent:", e);
-    }
-}
-
-
-  </script>
-</body>
+      function sendToParent(type, payload) {
+        try {
+          parent.postMessage({ type, payload }, "*"); // "*" works for testing; you can restrict origin later
+        } catch (e) {
+          console.error("Failed to send message to parent:", e);
+        }
+      }
+    </script>
+  </body>
 </html>
