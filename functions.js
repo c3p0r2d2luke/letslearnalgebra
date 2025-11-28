@@ -45,7 +45,7 @@ const messagesMap = new Map();
 
 // UI helpers
 function updateMessageLock() {
-  const hasName = !!(nameInput && nameInput.value && nameInput.value.trim().length > 0);
+  const hasName = Boolean(nameInput?.value && nameInput.value.trim().length > 0);
   if (input) input.disabled = !hasName;
   if (button) button.disabled = !hasName;
 }
