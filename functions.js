@@ -554,11 +554,12 @@ function handleRealtimeMessage(record, eventType) {
   }
 
   // If the update contains blocked state for the current user, enforce it locally
-  if (record.username === username && typeof record.blocked !== 'undefined') {
-    if (input) input.disabled = record.blocked;
-    if (button) button.disabled = record.blocked;
-    if (record.blocked) alert('❌ You have been blocked by an admin!');
-  }
+if (record.username === username && typeof record.blocked !== 'undefined') {
+  if (input) input.disabled = record.blocked;
+  if (button) button.disabled = record.blocked;
+  if (record.blocked) alert('❌ You have been blocked by an admin!');
+}
+
 }
 
 // Hotkey: Ctrl+Alt+Shift+T to logout/clear
