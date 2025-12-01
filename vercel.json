@@ -1,15 +1,15 @@
 {
-  "version": 3,
-  "functions": {
-    "api/supa/[...path].js": {
-      "memory": 256,
-      "maxDuration": 10
-    }
-  },
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/supa/:path*",
-      "destination": "/api/supa/:path*"
+      "src": "api/supa/[...path].js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/supa/(.*)",
+      "dest": "/api/supa/[...path].js"
     }
   ]
 }
