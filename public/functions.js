@@ -10,20 +10,33 @@ const namePrompt = document.getElementById('namePrompt');
 const nameInput = document.getElementById('nameInput');
 const saveNameBtn = document.getElementById('saveNameButton');
 
-const PROXY_BASE = 'https://letslearnalgebra.vercel.app/api/supa/rest/v1/';
+const SUPABASE_URL = 'https://qjajtkdchvapthnidtwj.supabase.co/rest/v1/';
+const SUPABASE_ANON_KEY = 'sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA'; // Get from Supabase Dashboard → Settings → API → anon key
 
 async function supaFetch(table, options = {}) {
-  const url = new URL(PROXY_BASE + table);
-  if (options.query) Object.entries(options.query).forEach(([k, v]) => url.searchParams.append(k, v));
+  const url = new URL(SUPABASE_URL + table);
+  if (options.query) {
+    Object.entries(options.query).forEach(([k, v]) =>
+      url.searchParams.append(k, v)
+    );
+  }
+
   const method = options.method || 'GET';
+  
   const response = await fetch(url.toString(), {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    },
     body: method === 'GET' ? null : JSON.stringify(options.body || {})
   });
+
   const text = await response.text();
   try { return JSON.parse(text); } catch { return text; }
 }
+
 
 let username = localStorage.getItem('chatUsername') || '';
 let currentRole = localStorage.getItem('chatRole') || 'User';
