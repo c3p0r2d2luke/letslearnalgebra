@@ -26,11 +26,13 @@
 async function loadIframe() {
   const pw = document.getElementById("pw").value;
 
-  const res = await fetch("/api/getFrame", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: pw })
-  });
+const res = await fetch("/.netlify/functions/getFrame", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ password: pw })
+});
+
+
 
   if (!res.ok) {
     alert("Wrong password.");
