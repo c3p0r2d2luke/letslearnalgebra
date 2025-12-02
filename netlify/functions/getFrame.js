@@ -1,11 +1,15 @@
 const crypto = require("crypto");
 
-const HASHED = "387fa2846d81a73efacd99f920cd6fd89e9f24e579cf84eada912728bd62ad66";
+const HASHED =
+  "387fa2846d81a73efacd99f920cd6fd89e9f24e579cf84eada912728bd62ad66";
 
-exports.handler = async function(event, context) {
+exports.handler = async function (event, context) {
   try {
     if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+      return {
+        statusCode: 405,
+        body: JSON.stringify({ error: "Method not allowed" }),
+      };
     }
 
     const { password } = JSON.parse(event.body || "{}");
@@ -19,9 +23,8 @@ exports.handler = async function(event, context) {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ url: secretURL })
+      body: JSON.stringify({ url: secretURL }),
     };
-
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: "server error" }) };
   }
