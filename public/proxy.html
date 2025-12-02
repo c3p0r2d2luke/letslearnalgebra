@@ -1,51 +1,49 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>Protected</title>
-  <style>
-    body { font-family: sans-serif; margin: 50px; }
-    #frameContainer iframe {
-      width: 100%;
-      height: 90vh;
-      border: none;
-      margin-top: 20px;
-    }
-  </style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Protected</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 50px;
+      }
+      #frameContainer iframe {
+        width: 100%;
+        height: 90vh;
+        border: none;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Enter Password</h2>
 
-<h2>Enter Password</h2>
+    <input type="password" id="pw" placeholder="Password" />
+    <button onclick="loadIframe()">Unlock</button>
 
-<input type="password" id="pw" placeholder="Password">
-<button onclick="loadIframe()">Unlock</button>
+    <div id="frameContainer"></div>
 
-<div id="frameContainer"></div>
+    <script>
+      async function loadIframe() {
+        const pw = document.getElementById("pw").value;
 
-<script>
-async function loadIframe() {
-  const pw = document.getElementById("pw").value;
+        const res = await fetch("/.netlify/functions/getFrame", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pw }),
+        });
 
-const res = await fetch("/.netlify/functions/getFrame", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ password: pw })
-});
+        if (!res.ok) {
+          alert("Wrong password.");
+          return;
+        }
 
+        const data = await res.json();
 
-
-  if (!res.ok) {
-    alert("Wrong password.");
-    return;
-  }
-
-  const data = await res.json();
-
-  document.getElementById("frameContainer").innerHTML =
-    `<iframe src="${data.url}"></iframe>`;
-}
-</script>
-
-</body>
+        document.getElementById("frameContainer").innerHTML =
+          `<iframe src="${data.url}"></iframe>`;
+      }
+    </script>
+  </body>
 </html>
-
