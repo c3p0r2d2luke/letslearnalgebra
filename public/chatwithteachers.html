@@ -50,6 +50,17 @@ li.highlighted { background-color: #4f545c !important; }
 
 <div id="logBox"></div>
 
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+  window.supabase = createClient(
+    "https://qjajtkdchvapthnidtwj.supabase.co",
+    "sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA"
+  );
+</script>
+
+<script type="module" src="functions.js"></script>
+
+  
   <script src="functions.js"></script>  
 
 </body>
