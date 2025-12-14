@@ -10,7 +10,7 @@ const namePrompt = document.getElementById('namePrompt');
 const nameInput = document.getElementById('nameInput');
 const saveNameBtn = document.getElementById('saveNameButton');
 
-const SUPABASE_URL = 'https://qjajtkdchvapthnidtwj.supabase.co/';
+const SUPABASE_URL = 'https://qjajtkdchvapthnidtwj.supabase.co/rest/v1/';
 const SUPABASE_ANON_KEY = 'sb_publishable_7uXWpCRbMA4Zq-qiWz9Dmw__G1n8GIA'; // Get from Supabase Dashboard → Settings → API → anon key
 
 async function supaFetch(table, options = {}) {
