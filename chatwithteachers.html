@@ -63,7 +63,9 @@ li.highlighted { background-color: #4f545c !important; }
   // ------------------------ Supabase Setup ------------------------
   const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
   const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqYWp0a2RjaHZhcHRobmlkdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTI4MDgsImV4cCI6MjA3Mzc4ODgwOH0.BYyhualVRAOqctt8u3flAH9PHKaAV8bedV8JeaYjf7M"; // replace with your key
-  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+  // Use a unique variable name to avoid redeclaration conflicts
+  const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+
   
   // ------------------------ User data ------------------------
   let username = localStorage.getItem("chatUsername") || "";
@@ -92,7 +94,7 @@ li.highlighted { background-color: #4f545c !important; }
   let channel = null;
   function initRealtime() {
     if (channel) return;
-    channel = supabase.channel("messages-channel")
+    channel = supabaseClient.channel("messages-channel")
       .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
         handleRealtimeMessage(payload.new || payload.record, payload.eventType);
         log(`📡 Live update: ${payload.eventType}`);
@@ -105,7 +107,7 @@ li.highlighted { background-color: #4f545c !important; }
   
   // ------------------------ Load Messages ------------------------
   async function loadMessages() {
-    const { data, error } = await supabase.from("messages").select("*").order("inserted_at",{ascending:true});
+    const { data, error } = await supabaseClient.from("messages").select("*").order("inserted_at",{ascending:true});
     if (error) return log("❌ Failed to load messages", error, "error");
     data.forEach(msg => renderMessage(msg));
     log("✅ Messages loaded");
@@ -129,7 +131,7 @@ controls.classList.add("visible");
   button.disabled = false;
 
   try {
-    const { data } = await supabase
+    const { data } = await supabaseClient
       .from("users")
       .select("role")
       .ilike("username", storedName)
@@ -161,7 +163,7 @@ loadUser();
 
   try {
     // Upsert ensures the user exists and role is preserved if already there
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("users")
       .upsert({ username: name }, { onConflict: ['username'] })
       .select();
@@ -169,7 +171,7 @@ loadUser();
     if (error) throw error;
 
     // Fetch role
-    const { data: userData } = await supabase
+    const { data: userData } = await supabaseClient
       .from("users")
       .select("role")
       .eq("username", name)
@@ -205,7 +207,7 @@ controls.classList.add("visible");
     if (!content || !username) return;
 
     // Check if the user is blocked
-const { data: user } = await supabase.from("users")
+const { data: user } = await supabaseClient.from("users")
   .select("blocked")
   .eq("username", username)
   .maybeSingle();
@@ -224,7 +226,7 @@ if (user?.blocked) {
     } catch {}
   
     try {
-      const { data, error } = await supabase.from("messages")
+      const { data, error } = await supabaseClient.from("messages")
         .insert([{ username, content, role: currentRole, is_pinned: false, ip }])
         .select();
       if (!error) {
@@ -282,7 +284,7 @@ if (user?.blocked) {
     delBtn.onclick = async () => {
       if (li.dataset.pinned === "true") return alert("Cannot delete pinned message.");
       try {
-        await supabase.from("messages").delete().eq("id", msg.id);
+        await supabaseClient.from("messages").delete().eq("id", msg.id);
         li.remove();
         log(`🗑 Deleted message id=${msg.id}`);
       } catch (e) {
@@ -298,7 +300,7 @@ if (user?.blocked) {
       const newText = prompt("Edit message:", msg.content);
       if (!newText) return;
       try {
-        await supabase.from("messages").update({ content: newText }).eq("id", msg.id);
+        await supabaseClient.from("messages").update({ content: newText }).eq("id", msg.id);
         msg.content = newText;
         li.querySelector(".content").textContent = newText;
         log(`✏️ Edited message id=${msg.id}`);
@@ -315,8 +317,8 @@ if (user?.blocked) {
       const newName = prompt("New username for " + msg.username + ":", msg.username);
       if (!newName) return;
       try {
-        await supabase.from("users").upsert({ username: newName });
-        await supabase.from("messages").update({ username: newName }).eq("username", msg.username);
+        await supabaseClient.from("users").upsert({ username: newName });
+        await supabaseClient.from("messages").update({ username: newName }).eq("username", msg.username);
         li.querySelector(".username").textContent = newName;
         log(`🔁 Changed username ${msg.username} → ${newName}`);
       } catch (e) {
@@ -332,7 +334,7 @@ blockBtn.textContent = msg.blocked ? "Unblock" : "Block";
 blockBtn.onclick = async () => {
   try {
     const newBlocked = !msg.blocked;
-    await supabase.from("users").update({ blocked: newBlocked }).eq("username", msg.username);
+    await supabaseClient.from("users").update({ blocked: newBlocked }).eq("username", msg.username);
     msg.blocked = newBlocked;
     blockBtn.textContent = newBlocked ? "Unblock" : "Block";
     log(`${newBlocked ? "🔒 Blocked" : "🔓 Unblocked"} ${msg.username}`);
@@ -349,7 +351,7 @@ adminDiv.appendChild(blockBtn);
     logoutBtn.textContent = "Force Logout";
     logoutBtn.onclick = async () => {
       if (msg.username === username) return alert("Cannot logout yourself.");
-      await supabase.from("users").update({ forceLogout: true }).eq("username", msg.username);
+      await supabaseClient.from("users").update({ forceLogout: true }).eq("username", msg.username);
       log(`🔌 Forced logout for ${msg.username}`);
     };
     adminDiv.appendChild(logoutBtn);
@@ -387,9 +389,9 @@ adminDiv.appendChild(blockBtn);
     massDelBtn.onclick = async () => {
       const keyword = prompt("Enter keyword to delete:");
       if (!keyword) return;
-      const { data } = await supabase.from("messages").select("*");
+      const { data } = await supabaseClient.from("messages").select("*");
       const ids = data.filter(m => m.content?.includes(keyword)).map(m => m.id);
-      await supabase.from("messages").delete().in("id", ids);
+      await supabaseClient.from("messages").delete().in("id", ids);
       document.querySelectorAll("#messages li").forEach(liItem => {
         if (liItem.querySelector(".content")?.textContent.includes(keyword)) liItem.remove();
       });
@@ -402,8 +404,8 @@ adminDiv.appendChild(blockBtn);
     nukeBtn.textContent = "Delete User & Messages";
     nukeBtn.onclick = async () => {
       if (!confirm(`Delete ${msg.username} and all their messages?`)) return;
-      await supabase.from("messages").delete().eq("username", msg.username);
-      await supabase.from("users").delete().eq("username", msg.username);
+      await supabaseClient.from("messages").delete().eq("username", msg.username);
+      await supabaseClient.from("users").delete().eq("username", msg.username);
       document.querySelectorAll("#messages li").forEach(liItem => {
         if (liItem.querySelector(".username")?.textContent === msg.username) liItem.remove();
       });
@@ -423,7 +425,7 @@ adminDiv.appendChild(blockBtn);
     const promoteManagerBtn = document.createElement("button");
     promoteManagerBtn.textContent = "Promote → Manager";
     promoteManagerBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "Manager" });
+      await supabaseClient.from("users").upsert({ username: msg.username, role: "Manager" });
       log(`👑 Promoted ${msg.username} to Manager`);
       loadMessages();
     };
@@ -432,7 +434,7 @@ adminDiv.appendChild(blockBtn);
     const promoteAdminBtn = document.createElement("button");
     promoteAdminBtn.textContent = "Promote → Admin";
     promoteAdminBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "Admin" });
+      await supabaseClient.from("users").upsert({ username: msg.username, role: "Admin" });
       log(`👑 Promoted ${msg.username} to Admin`);
       loadMessages();
     };
@@ -441,7 +443,7 @@ adminDiv.appendChild(blockBtn);
     const demoteBtn = document.createElement("button");
     demoteBtn.textContent = "Demote → User";
     demoteBtn.onclick = async () => {
-      await supabase.from("users").upsert({ username: msg.username, role: "User" });
+      await supabaseClient.from("users").upsert({ username: msg.username, role: "User" });
       log(`🔻 Demoted ${msg.username} to User`);
       loadMessages();
     };
@@ -456,7 +458,7 @@ adminDiv.appendChild(blockBtn);
     }
     pinBtn.onclick = async () => {
       const isPinned = li.dataset.pinned === "true";
-      await supabase.from("messages").update({ is_pinned: !isPinned }).eq("id", msg.id);
+      await supabaseClient.from("messages").update({ is_pinned: !isPinned }).eq("id", msg.id);
       li.dataset.pinned = !isPinned ? "true" : "false";
       li.style.border = !isPinned ? "2px solid red" : "";
       pinBtn.textContent = !isPinned ? "Unpin" : "Pin";
@@ -481,7 +483,7 @@ adminDiv.appendChild(blockBtn);
   // Managers can only delete their own messages
   if (msg.username !== username) return alert("You can only delete your own messages.");
   try {
-    await supabase.from("messages").delete().eq("id", msg.id);
+    await supabaseClient.from("messages").delete().eq("id", msg.id);
     li.remove();
     log(`🗑 Deleted your message id=${msg.id}`);
   } catch (e) {
@@ -496,7 +498,7 @@ adminDiv.appendChild(blockBtn);
   reportBtn.onclick = async () => {
   alert(`🚨 Reported message from ${msg.username}: "${msg.content}"`);
   // optional: insert into a reports table if you want:
-  // await supabase.from("reports").insert({ reporter: username, reportedUser: msg.username, content: msg.content });
+  // await supabaseClient.from("reports").insert({ reporter: username, reportedUser: msg.username, content: msg.content });
   log(`🚨 Reported message id=${msg.id} by ${username}`);
 };
   managerDiv.appendChild(reportBtn);
@@ -552,7 +554,7 @@ if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
     alert("⚠️ You have been forcefully logged out by an admin!");
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
-    supabase.from("users").update({ forceLogout: false }).eq("username", username)
+    supabaseClient.from("users").update({ forceLogout: false }).eq("username", username)
       .then(() => location.reload());
 }
 
