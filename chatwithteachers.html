@@ -113,9 +113,12 @@ async function postLoginSetup(){
 // Login or show name for signup
 async function loginOrSignUp(){
     authMsg.textContent="";
-    const email=emailInput.value.trim();
-    const password=passwordInput.value.trim();
-    if(!email||!password){ authMsg.textContent="Enter email & password"; return; }
+const email = emailInput.value.trim();
+const password = passwordInput.value.trim();
+if(!email || !password){
+    authMsg.textContent = "Enter email & password";
+    return;
+}
     try{
         const { data: signInData, error: signInErr }=await supabaseClient.auth.signInWithPassword({email,password});
         if(signInErr){
