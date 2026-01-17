@@ -82,42 +82,47 @@ li.highlighted { background-color: #4f545c !important; }
   }
   
   // ------------------------ Load User ------------------------
-  async function loadUser() {
-    const { data: user } = await supabaseClient.auth.getUser();
-    if (!user) {
-      namePrompt.style.display = "block";
-      input.disabled = true;
-      button.disabled = true;
-      return;
-    }
-    currentUser = user.user;
-    
-    // fetch username and role from users table
-    let { data } = await supabaseClient
-      .from("users")
-      .select("username, role")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-    
-    if (!data) {
-      namePrompt.style.display = "block";
-      input.disabled = true;
-      button.disabled = true;
-      return;
-    }
-    
-    nameInput.value = data.username;
-    currentRole = data.role || "User";
-    namePrompt.style.display = "none";
-    
-    document.getElementById("controls").classList.add("visible");
-    input.disabled = false;
-    button.disabled = false;
-    logBox.style.display = currentRole === "Admin" ? "block" : "none";
-    
-    loadMessages();
-    initRealtime();
+async function loadUser() {
+  const { data: userData } = await supabaseClient.auth.getUser();
+  const user = userData?.user ?? null;
+
+  if (!user) {
+    // No user logged in
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+    return;
   }
+
+  currentUser = user;
+
+  // Now it's safe to access currentUser.id
+  let { data } = await supabaseClient
+    .from("users")
+    .select("username, role")
+    .eq("id", currentUser.id)
+    .maybeSingle();
+    
+  if (!data) {
+    namePrompt.style.display = "block";
+    input.disabled = true;
+    button.disabled = true;
+    return;
+  }
+
+  nameInput.value = data.username;
+  currentRole = data.role || "User";
+  namePrompt.style.display = "none";
+
+  document.getElementById("controls").classList.add("visible");
+  input.disabled = false;
+  button.disabled = false;
+  logBox.style.display = currentRole === "Admin" ? "block" : "none";
+
+  loadMessages();
+  initRealtime();
+}
+
   
   // ------------------------ Save Name ------------------------
   async function saveName() {
