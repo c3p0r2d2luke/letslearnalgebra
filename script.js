@@ -441,15 +441,94 @@ adminDiv.appendChild(blockBtn);
 };
   managerDiv.appendChild(delBtn);
 
-  // 🚨 Report message
-  const reportBtn = document.createElement("button");
-  reportBtn.textContent = "Report";
-  reportBtn.onclick = async () => {
-  alert(`🚨 Reported message from ${msg.username}: "${msg.content}"`);
-  // optional: insert into a reports table if you want:
-  // await supabaseClient.from("reports").insert({ reporter: username, reportedUser: msg.username, content: msg.content });
-  log(`🚨 Reported message id=${msg.id} by ${username}`);
+const reportBtn = document.createElement("button");
+reportBtn.textContent = "Report";
+reportBtn.onclick = async () => {
+  // cooldown to reduce spam
+  window.__lastReportTime = window.__lastReportTime || {};
+  const now = Date.now();
+  const cooldownMs = 30 * 1000; // 30 seconds
+  if (window.__lastReportTime[username] && now - window.__lastReportTime[username] < cooldownMs) {
+    return alert("Please wait a bit before reporting again.");
+  }
+
+  const reason = prompt("Optional: provide a reason for reporting this message:");
+  if (reason === null) return; // cancelled
+
+  reportBtn.disabled = true;
+
+  try {
+    // Try to get the authoritative username from the Supabase auth user (if available)
+    let reporterName = username; // fallback
+    try {
+      const { data: { user } = {} } = await supabaseClient.auth.getUser();
+      // adjust this if your username is stored somewhere else in the JWT/user_metadata
+      reporterName = user?.user_metadata?.username || user?.email || reporterName;
+    } catch (e) {
+      // non-fatal: proceed with local username
+      console.warn("Could not fetch auth user, using local username", e);
+    }
+
+    // 1) Insert the report into Supabase
+    const reportPayload = {
+      reporter: reporterName,
+      reported_user: msg.username,
+      message_id: msg.id ?? null,
+      content: msg.content ?? null,
+      reason: reason || null
+    };
+
+    const { data: inserted, error: insertError } = await supabaseClient
+      .from("reports")
+      .insert([reportPayload])
+      .select()
+      .maybeSingle();
+
+    if (insertError) throw insertError;
+    log(`✅ Report inserted id=${inserted?.id || '(unknown)'}`);
+
+    // 2) Send an email via EmailJS (best-effort)
+    const templateParams = {
+      reporter: reporterName,
+      reported_user: msg.username,
+      message_content: msg.content,
+      message_id: String(msg.id || ''),
+      reason: reason || '',
+      created_at: new Date().toISOString(),
+      url: window.location.href
+    };
+
+    try {
+      await emailjs.send("service_fkhhdph", "template_kc760ra", templateParams);
+      log("✉️ Email sent via EmailJS");
+
+      // mark email_sent true in DB (best-effort)
+      if (inserted?.id) {
+        await supabaseClient
+          .from("reports")
+          .update({ email_sent: true })
+          .eq("id", inserted.id);
+      }
+
+      alert("🚨 Message reported. Admins have been notified.");
+    } catch (emailErr) {
+      console.error("EmailJS send failed", emailErr);
+      log("❌ EmailJS send failed", emailErr, "error");
+      alert("Reported — failed to send notification email. Admins can still review the report in the admin panel.");
+    }
+
+    // set cooldown timestamp
+    window.__lastReportTime[username] = now;
+    log(`🚨 Report logged id=${inserted?.id} by ${reporterName}`);
+  } catch (err) {
+    console.error(err);
+    log("❌ Report failed", err, "error");
+    alert("Failed to submit report. Try again later.");
+  } finally {
+    reportBtn.disabled = false;
+  }
 };
+
   managerDiv.appendChild(reportBtn);
 
   li.appendChild(managerDiv);
