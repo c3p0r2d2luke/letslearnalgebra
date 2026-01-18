@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- EmailJS SDK (CDN) -->
-<script src="https://cdn.jsdelivr.net/npm/emailjs-com@2.6.4/dist/email.min.js"></script>
-
-<!-- Initialize EmailJS with your public user ID -->
-<script>
-  // Replace 'user_xxxxxxxxxxxxxxxxx' with your EmailJS User ID (public key)
-  emailjs.init('nohRtKASS4R_i2HtZ');
+<script type="text/javascript"
+        src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js">
+</script>
+<script type="text/javascript">
+   (function(){
+      emailjs.init({
+        publicKey: "nohRtKASS4R_i2HtZ",
+      });
+   })();
 </script>
 <meta charset="utf-8">
 <title>Chat With Teachers</title>
