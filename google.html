@@ -53,9 +53,9 @@
 
       await supabaseClient.auth.signInWithOAuth({
   provider: "google",
- /* options: {
-    redirectTo: "",
-  },*/
+  options: {
+    redirectTo: "https://letslearnalgebra.vercel.app/google.html",
+  },
 })
       }
 
