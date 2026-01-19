@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Supabase Google Sign-In Demo</title>
+
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #111;
+      color: #eee;
+      display: flex;
+      height: 100vh;
+      align-items: center;
+      justify-content: center;
+    }
+    button {
+      padding: 12px 18px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">Loading…</div>
+
+<script>
+  const SUPABASE_URL = "https://qjajtkdchvapthnidtwj.supabase.co"
+  const SUPABASE_ANON_KEY = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"
+
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  )
+
+  const app = document.getElementById("app")
+
+  async function showUI() {
+    const { data: { session } } = await supabaseClient.auth.getSession()
+
+    if (!session) {
+      // ❌ Not signed in
+      app.innerHTML = `
+        <div>
+          <h2>Please sign in</h2>
+          <button id="login">Sign in with Google</button>
+        </div>
+      `
+
+      await supabaseClient.auth.signInWithOAuth({
+  provider: "google",
+  options: {
+    redirectTo: "http://127.0.0.1:5500/chatwithteachers.html",
+  },
+})
+      }
+
+     else {
+      // ✅ Signed in
+      app.innerHTML = `
+        <div>
+          <h2>🎉 Yay, you're signed in!</h2>
+          <p>${session.user.email}</p>
+          <button id="logout">Log out</button>
+        </div>
+      `
+
+      document.getElementById("logout").onclick = async () => {
+        await supabaseClient.auth.signOut()
+        location.reload()
+      }
+    }
+  }
+
+  // Run once on load
+  showUI()
+
+  // React to auth changes (redirect back from Google)
+  supabaseClient.auth.onAuthStateChange(() => {
+    showUI()
+  })
+</script>
+
+</body>
+</html>
