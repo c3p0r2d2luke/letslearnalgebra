@@ -51,11 +51,12 @@
         </div>
       `
 
-      await supabaseClient.auth.signInWithOAuth({
-  provider: "google",
+// Trigger Google login
+const { data, error } = await supabase.auth.signInWithOAuth({
+  provider: 'google',
   options: {
-    redirectTo: "https://letslearnalgebra.vercel.app/google.html",
-  },
+    redirectTo: 'https://yourdomain.com/callback' // optional redirect
+  }
 })
       }
 
