@@ -1,0 +1,23 @@
+{
+  "name": "letslearnalgebra",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
+  "bugs": {
+    "url": "https://github.com/c3p0r2d2luke/letslearnalgebra/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3p0r2d2luke/letslearnalgebra.git"
+  },
+  "type": "module",
+  "main": "index.html",
+  "scripts": {
+    "publish": "node .build.js",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.2",
+    "typescript": "^5.9.3"
+  }
+}

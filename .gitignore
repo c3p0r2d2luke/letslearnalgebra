@@ -1,5 +1,5 @@
 # Ignore dot files
-*
+*.env
 
 # Ignore directories
 node_modules/
