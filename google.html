@@ -3,10 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Supabase Google Sign-In Demo</title>
-
-  <!-- Supabase JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -43,25 +40,23 @@
     const { data: { session } } = await supabaseClient.auth.getSession()
 
     if (!session) {
-      // ❌ Not signed in
       app.innerHTML = `
         <div>
           <h2>Please sign in</h2>
           <button id="login">Sign in with Google</button>
         </div>
       `
-
-// Trigger Google login
-const { data, error } = await supabase.auth.signInWithOAuth({
-  provider: 'google',
-  options: {
-    redirectTo: 'https://yourdomain.com/callback' // optional redirect
-  }
-})
+      document.getElementById("login").onclick = async () => {
+        const { data, error } = await supabaseClient.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: "http://localhost:5500/google.html"
+          }
+        })
+        if (error) console.error(error)
       }
 
-     else {
-      // ✅ Signed in
+    } else {
       app.innerHTML = `
         <div>
           <h2>🎉 Yay, you're signed in!</h2>
@@ -69,7 +64,6 @@ const { data, error } = await supabase.auth.signInWithOAuth({
           <button id="logout">Log out</button>
         </div>
       `
-
       document.getElementById("logout").onclick = async () => {
         await supabaseClient.auth.signOut()
         location.reload()
@@ -81,7 +75,7 @@ const { data, error } = await supabase.auth.signInWithOAuth({
   showUI()
 
   // React to auth changes (redirect back from Google)
-  supabaseClient.auth.onAuthStateChange(() => {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
     showUI()
   })
 </script>
