@@ -1,0 +1,6 @@
+# Ignore dot files
+*
+
+# Ignore directories
+node_modules/
+dist/
