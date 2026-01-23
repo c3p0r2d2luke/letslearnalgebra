@@ -10,8 +10,8 @@
   const saveNameBtn = document.getElementById("saveNameButton");
   
   // ------------------------ Supabase Setup ------------------------
-  const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-  const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; // replace with your key
+  const supabaseUrl = "http://127.0.0.1:54321";
+  const supabaseKey = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"; // replace with your key
   // Use a unique variable name to avoid redeclaration conflicts
   const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
