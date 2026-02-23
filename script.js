@@ -1,4 +1,4 @@
-
+const NO_EMBED_PHRASE = "potatoheadman";
   const input = document.getElementById("messageInput");
   const button = document.getElementById("sendButton");
   const messagesList = document.getElementById("messages");
@@ -208,7 +208,6 @@ async function sendMessage() {
     log("❌ Failed to send message", e, "error");
   }
 }
-
 async function buildLinkPreview(url) {
   try {
     const res = await fetch(
@@ -260,22 +259,41 @@ async function buildLinkPreview(url) {
     const contentDiv = document.createElement("div");
     contentDiv.className = "content";
 if (msg.role === "Admin") {
-  const urlMatch = msg.content.match(/https?:\/\/\S+/i);
+  const wrapper = document.createElement("div");
 
-  if (urlMatch) {
-    const url = urlMatch[0];
+  // Remove NO_EMBED_PHRASE here first
+  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-    // Basic clickable link first
-    contentDiv.innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
+  wrapper.innerHTML = cleanContent;
+  contentDiv.appendChild(wrapper);
 
-    // Add preview
-    buildLinkPreview(url).then(preview => {
+  // Find URLs in TEXT NODES ONLY
+  const walker = document.createTreeWalker(
+    wrapper,
+    NodeFilter.SHOW_TEXT,
+    null
+  );
+
+  let foundUrl = null;
+
+  while (walker.nextNode()) {
+    const text = walker.currentNode.nodeValue;
+    const match = text.match(/\bhttps?:\/\/[^\s<]+/);
+    if (match) {
+      foundUrl = match[0];
+      break;
+    }
+  }
+
+  const skipEmbed = msg.content.includes(NO_EMBED_PHRASE);
+  if (foundUrl && !skipEmbed) {
+    buildLinkPreview(foundUrl).then(preview => {
       if (preview) {
-        contentDiv.innerHTML += preview;
+        contentDiv.appendChild(
+          document.createRange().createContextualFragment(preview)
+        );
       }
     });
-  } else {
-    contentDiv.innerHTML = msg.content;
   }
 } else {
   contentDiv.textContent = msg.content;
@@ -673,4 +691,11 @@ if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
 
   saveNameBtn.addEventListener("click", saveName);
 
-  
+button.addEventListener("click", sendMessage);
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
