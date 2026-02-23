@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Proxy Test</title>
+</head>
+<body>
+  <h1>Proxy Test</h1>
+  <button id="run">Run Test</button>
+  <pre id="output">Click the button to test.</pre>
+
+  <script>
+    const PROXY_URL = "https://letslearnalgebra.netlify.app/proxy";
+
+    async function getURL(pageURL) {
+      const data = { pageURL };
+
+      const config = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      };
+
+      const res = await fetch(PROXY_URL, config);
+      const htmlContent = await res.text();
+      return htmlContent;
+    }
+
+    document.getElementById("run").onclick = async () => {
+      document.getElementById("output").textContent = "Loading...";
+      const html = await getURL("https://www.example.com");
+      document.getElementById("output").textContent = html;
+    };
+  </script>
+</body>
+</html>
