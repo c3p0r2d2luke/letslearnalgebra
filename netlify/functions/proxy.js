@@ -1,35 +1,70 @@
-import fetch from 'node-fetch';
+// REMOVE node-fetch — Netlify already provides fetch globally
+// import fetch from 'node-fetch';
 
 export async function handler(event, context) {
   try {
+    // Log the raw body
+    console.log("RAW BODY:", event.body);
+
     if (!event.body) {
       return {
         statusCode: 400,
-        body: "Bad JSON!"
+        body: "ERROR: event.body was empty or undefined"
       };
     }
 
-    const data = JSON.parse(event.body);
+    let data;
+    try {
+      data = JSON.parse(event.body);
+    } catch (err) {
+      return {
+        statusCode: 400,
+        body: "ERROR: JSON.parse failed:\n" + err.message + "\n\nBODY RECEIVED:\n" + event.body
+      };
+    }
+
+    console.log("PARSED JSON:", data);
+
     const { pageURL } = data;
 
-    const res = await fetch(pageURL);
+    if (!pageURL) {
+      return {
+        statusCode: 400,
+        body: "ERROR: pageURL missing from JSON.\nJSON received:\n" + JSON.stringify(data, null, 2)
+      };
+    }
+
+    console.log("FETCHING URL:", pageURL);
+
+    let res;
+    try {
+      res = await fetch(pageURL);
+    } catch (err) {
+      return {
+        statusCode: 500,
+        body: "ERROR: fetch() failed:\n" + err.message + "\n\nURL:\n" + pageURL
+      };
+    }
+
     const htmlContent = await res.text();
 
     return {
       statusCode: 200,
-      body: htmlContent,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "text/html"
+      },
+      body: htmlContent
     };
-  } catch (e) {
-    let responseBody = "Something bad happened!";
-    if (e instanceof SyntaxError) {
-      responseBody = "Bad JSON!";
-    } else if (e instanceof TypeError) {
-      responseBody = "Bad URL!";
-    }
 
+  } catch (err) {
     return {
-      statusCode: 404,
-      body: responseBody,
+      statusCode: 500,
+      body:
+        "UNCAUGHT ERROR:\n" +
+        err.message +
+        "\n\nSTACK TRACE:\n" +
+        err.stack
     };
   }
 }

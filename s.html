@@ -1,40 +1,21 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>Proxy Test</title>
-</head>
 <body>
-  <h1>Proxy Test</h1>
-
-  <button id="run">Run Proxy Test</button>
-  <pre id="output">Click the button to test…</pre>
+  <button id="run">Test Proxy</button>
+  <pre id="out"></pre>
 
   <script>
-    const PROXY_URL = "https://letslearnalgebra.netlify.app/proxy";
+    const PROXY = "https://letslearnalgebra.netlify.app/proxy";
 
-    async function testProxy() {
-      document.getElementById("output").textContent = "Loading…";
+    document.getElementById("run").onclick = async () => {
+      const res = await fetch(PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageURL: "https://example.com" })
+      });
 
-      try {
-        const res = await fetch(PROXY_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            pageURL: "https://www.example.com"
-          })
-        });
-
-        const text = await res.text();
-        document.getElementById("output").textContent = text;
-      } catch (err) {
-        document.getElementById("output").textContent = "Error: " + err;
-      }
-    }
-
-    document.getElementById("run").onclick = testProxy;
+      document.getElementById("out").textContent = await res.text();
+    };
   </script>
 </body>
 </html>
