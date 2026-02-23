@@ -11,7 +11,7 @@
       const res = await fetch(PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageURL: "https://example.com" })
+        body: JSON.stringify({ pageURL: "https://httpbin.org/html" })
       });
 
       document.getElementById("out").textContent = await res.text();
