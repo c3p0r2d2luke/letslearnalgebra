@@ -201,6 +201,32 @@ if (user?.blocked) {
   button.addEventListener("click", sendMessage);
   input.addEventListener("keypress", e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
   
+//Discord-style Links
+async function buildLinkPreview(url) {
+  try {
+    // Free OpenGraph preview API
+    const res = await fetch(
+      `https://api.microlink.io?url=${encodeURIComponent(url)}`
+    );
+    const { data } = await res.json();
+
+    if (!data) return null;
+
+    return `
+      <div class="link-preview">
+        ${data.image ? `<img src="${data.image.url}" />` : ""}
+        <div class="lp-text">
+          <div class="lp-title">${data.title || url}</div>
+          <div class="lp-desc">${data.description || ""}</div>
+          <a href="${url}" target="_blank">${url}</a>
+        </div>
+      </div>
+    `;
+  } catch {
+    return null;
+  }
+}
+
   // ------------------------ Render Message ------------------------
   function renderMessage(msg) {
     let li = messagesMap.get(msg.id);
@@ -228,8 +254,27 @@ if (user?.blocked) {
     // Message content
     const contentDiv = document.createElement("div");
     contentDiv.className = "content";
-    if (msg.role === "Admin") contentDiv.innerHTML = msg.content;
-    else contentDiv.textContent = msg.content;
+if (msg.role === "Admin") {
+  const urlMatch = msg.content.match(/https?:\/\/\S+/i);
+
+  if (urlMatch) {
+    const url = urlMatch[0];
+
+    // Basic clickable link first
+    contentDiv.innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
+
+    // Add preview
+    buildLinkPreview(url).then(preview => {
+      if (preview) {
+        contentDiv.innerHTML += preview;
+      }
+    });
+  } else {
+    contentDiv.innerHTML = msg.content;
+  }
+} else {
+  contentDiv.textContent = msg.content;
+}
     li.appendChild(contentDiv);
   
     // Admin panel
