@@ -209,6 +209,29 @@ async function sendMessage() {
   }
 }
 
+async function buildLinkPreview(url) {
+  try {
+    const res = await fetch(
+      `https://api.microlink.io?url=${encodeURIComponent(url)}`
+    );
+    const { data } = await res.json();
+    if (!data) return null;
+
+    return `
+      <div class="link-preview">
+        ${data.image ? `<img src="${data.image.url}">` : ""}
+        <div class="lp-text">
+          <div class="lp-title">${data.title || url}</div>
+          <div class="lp-desc">${data.description || ""}</div>
+          <a href="${url}" target="_blank">${url}</a>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.warn("Preview failed for", url, e);
+    return null;
+  }
+}
   // ------------------------ Render Message ------------------------
   function renderMessage(msg) {
     let li = messagesMap.get(msg.id);
