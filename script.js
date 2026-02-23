@@ -150,11 +150,22 @@ controls.classList.add("visible");
 }
 
   
+//URL Blocker
+function containsUrl(text) {
+  // Matches http(s), www, or bare domains like example.com
+  const urlRegex = /(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})/i;
+  return urlRegex.test(text);
+}
   // ------------------------ Send Message ------------------------
   async function sendMessage() {
     const content = input.value.trim();
     if (!content || !username) return;
 
+    // 🚫 Block URLs for non-admins
+if (currentRole !== "Admin" && containsUrl(content)) {
+  alert("❌ Only admins are allowed to send links.");
+  return;
+}
     // Check if the user is blocked
 const { data: user } = await supabaseClient.from("users")
   .select("blocked")
