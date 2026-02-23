@@ -160,75 +160,52 @@ function containsPlainTextUrl(text) {
   return urlRegex.test(textOnly);
 }
   // ------------------------ Send Message ------------------------
-  async function sendMessage() {
-    const content = input.value.trim();
-    if (!content || !username) return;
+async function sendMessage() {
+  let content = input.value.trim();
+  if (!content || !username) return;
 
-    // 🚫 Block URLs for non-admins
-if (currentRole !== "Admin" && containsPlainTextUrl(content)) {
-  alert("❌ Only admins are allowed to send links.");
-  return;
-}  alert("❌ Only admins are allowed to send links.");
-  return;
-}
-    // Check if the user is blocked
-const { data: user } = await supabaseClient.from("users")
-  .select("blocked")
-  .eq("username", username)
-  .maybeSingle();
-
-if (user?.blocked) {
-  alert("❌ You are blocked from sending messages.");
-  return;
-}
-
-  
-    let ip = "unknown";
-    try {
-      const res = await fetch("https://api.ipify.org?format=json");
-      const data = await res.json();
-      ip = data.ip || "unknown";
-    } catch {}
-  
-    try {
-      const { data, error } = await supabaseClient.from("messages")
-        .insert([{ username, content, role: currentRole, is_pinned: false, ip }])
-        .select();
-      if (!error) {
-        input.value = "";
-        log("✅ Message sent to Supabase");
-      }
-    } catch (e) {
-      log("❌ Failed to send message", e, "error");
-    }
+  // 🚫 Block URLs for non-admins (ignore URLs inside HTML)
+  if (currentRole !== "Admin" && containsPlainTextUrl(content)) {
+    alert("❌ Only admins are allowed to send links.");
+    return;
   }
-  
-  button.addEventListener("click", sendMessage);
-  input.addEventListener("keypress", e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
-  
-//Discord-style Links
-async function buildLinkPreview(url) {
+
+  // Check if the user is blocked
+  const { data: user } = await supabaseClient
+    .from("users")
+    .select("blocked")
+    .eq("username", username)
+    .maybeSingle();
+
+  if (user?.blocked) {
+    alert("❌ You are blocked from sending messages.");
+    return;
+  }
+
+  let ip = "unknown";
   try {
-    // Free OpenGraph preview API
-    const res = await fetch(
-      `https://api.microlink.io?url=${encodeURIComponent(url)}`
-    );
-    const { data } = await res.json();
+    const res = await fetch("https://api.ipify.org?format=json");
+    const data = await res.json();
+    ip = data.ip || "unknown";
+  } catch {}
 
-    if (!data) return null;
+  try {
+    const { error } = await supabaseClient.from("messages").insert([
+      {
+        username,
+        content,
+        role: currentRole,
+        is_pinned: false,
+        ip
+      }
+    ]);
 
-    return `
-      <div class="link-preview">
-        ${data.image ? `<img src="${data.image.url}" />` : ""}
-        <div class="lp-text">
-          <div class="lp-title">${data.title || url}</div>
-          <div class="lp-desc">${data.description || ""}</div>
-          <a href="${url}" target="_blank">${url}</a>
-        </div>
-      </div>
-    `;
-  } catch {
-    return null;
+    if (!error) {
+      input.value = "";
+      log("✅ Message sent to Supabase");
+    }
+  } catch (e) {
+    log("❌ Failed to send message", e, "error");
   }
 }
 
