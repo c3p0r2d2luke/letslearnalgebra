@@ -15,6 +15,11 @@ document.addEventListener("keydown", function(event) {
         event.preventDefault();
         window.location.href = "chatwithteachers.html";
     }
+     // Shift + S -> s.html
+    if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        window.location.href = "s.html";
+    }
 });
 </script>
 
