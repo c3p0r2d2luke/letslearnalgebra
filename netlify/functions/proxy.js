@@ -90,25 +90,37 @@ function proxify(url, base) {
 }
 
 function rewriteHtml(html, base) {
+  // FIX #1 — inject correct path AND inject early
   html = html.replace(
-    /<\/head>/i,
-    `<script src="/inject.js"></script></head>`
+    /<head[^>]*>/i,
+    match => `${match}<script src="/prxe/inject.js"></script>`
   );
 
+  // Remove <base> tags
   html = html.replace(/<base[^>]*>/gi, "");
 
+  // FIX #2 — skip already-proxied URLs
   html = html.replace(
     /\b(href|src|action)="(.*?)"/gi,
-    (m, attr, value) => `${attr}="${proxify(value, base)}"`
+    (m, attr, value) => {
+      if (value.startsWith("/p/")) return m;
+      if (/^javascript:/i.test(value) || value.startsWith("#")) return m;
+      return `${attr}="${proxify(value, base)}"`;
+    }
   );
 
   html = html.replace(
     /\b(href|src|action)='(.*?)'/gi,
-    (m, attr, value) => `${attr}='${proxify(value, base)}'`
+    (m, attr, value) => {
+      if (value.startsWith("/p/")) return m;
+      if (/^javascript:/i.test(value) || value.startsWith("#")) return m;
+      return `${attr}='${proxify(value, base)}'`;
+    }
   );
 
+  // CSS url(...)
   html = html.replace(/url\((['"]?)(.+?)\1\)/gi, (m, q, v) => {
-    if (v.startsWith("data:")) return m;
+    if (v.startsWith("data:") || v.startsWith("/p/")) return m;
     return `url("${proxify(v, base)}")`;
   });
 
@@ -117,7 +129,7 @@ function rewriteHtml(html, base) {
 
 function rewriteCss(css, base) {
   return css.replace(/url\((['"]?)(.+?)\1\)/gi, (m, q, v) => {
-    if (v.startsWith("data:")) return m;
+    if (v.startsWith("data:") || v.startsWith("/p/")) return m;
     return `url("${proxify(v, base)}")`;
   });
 }
