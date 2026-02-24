@@ -1,3 +1,5 @@
+import https from "https";
+
 export async function handler(event) {
   try {
     let url = event.queryStringParameters?.url;
@@ -8,16 +10,19 @@ export async function handler(event) {
 
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
-    // Minimal headers to avoid breaking fetch
+    // Minimal headers
     const fetchHeaders = {};
     if (event.headers["user-agent"]) fetchHeaders["user-agent"] = event.headers["user-agent"];
     if (event.headers.accept) fetchHeaders.accept = event.headers.accept;
+
+    const agent = new https.Agent({ rejectUnauthorized: false });
 
     const res = await fetch(url, {
       method: event.httpMethod,
       headers: fetchHeaders,
       body: ["GET","HEAD"].includes(event.httpMethod) ? undefined : event.body,
-      redirect: "manual"
+      redirect: "manual",
+      agent
     });
 
     const headers = {};
