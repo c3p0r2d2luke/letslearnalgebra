@@ -1,33 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>PRXE Proxy</title>
+  <meta charset="UTF-8">
+  <title>PRXE Proxy Iframe</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    input { width: 400px; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; }
+    iframe { width: 100%; height: 80vh; margin-top: 1rem; border: 1px solid #ccc; }
+  </style>
 </head>
 <body>
+  <h1>PRXE Proxy</h1>
   <input id="url" placeholder="https://example.com">
-  <button>Go</button>
+  <button id="go">Go</button>
+
+  <iframe id="viewer" src=""></iframe>
 
   <script src="proxy.js"></script>
   <script>
-    // Register service worker with proper scope
+    // Register service worker
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/prxe/sw.js", { scope: "/prxe/" });
     }
 
-    const input = document.querySelector("#url");
-    const button = document.querySelector("button");
+    const input = document.getElementById("url");
+    const button = document.getElementById("go");
+    const iframe = document.getElementById("viewer");
 
-    button.onclick = () => {
-      const u = input.value;
-      location.href = "/prxe/" + encodeURIComponent(u);
+    const loadProxy = url => {
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+      iframe.src = "/prxe/" + encodeURIComponent(url);
     };
 
-    // Auto-load if /prxe/... URL is typed directly
-    if (location.pathname.startsWith("/prxe/")) {
-      const target = decodeURIComponent(location.pathname.slice(6));
+    button.addEventListener("click", () => loadProxy(input.value));
+    input.addEventListener("keydown", e => { if (e.key === "Enter") loadProxy(input.value); });
+
+    // Auto-load ?url= query parameter
+    const params = new URLSearchParams(location.search);
+    const target = params.get("url");
+    if (target) {
       input.value = target;
-      // Let service worker handle the fetch automatically
+      loadProxy(target);
     }
   </script>
 </body>

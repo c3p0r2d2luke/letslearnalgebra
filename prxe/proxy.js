@@ -6,17 +6,14 @@
     if (url.startsWith("blob:") || url.startsWith("data:")) return url;
     if (url.startsWith(PREFIX)) return url;
 
-    // Absolute URLs
     if (url.startsWith("http://") || url.startsWith("https://")) {
       return PREFIX + encodeURIComponent(url);
     }
 
-    // Root-relative
     if (url.startsWith("/")) {
       return PREFIX + encodeURIComponent(location.origin + url);
     }
 
-    // Relative
     return PREFIX + encodeURIComponent(new URL(url, location.href).href);
   };
 
@@ -44,6 +41,7 @@
     const a = e.target.closest("a");
     if (a && a.href) {
       a.href = rewrite(a.href);
+      a.target = "iframe"; // ensure links open inside iframe
     }
   }, true);
 
@@ -63,7 +61,6 @@
     set: u => loc.assign(rewrite(u))
   });
 
-  // ---- history ----
   ["pushState", "replaceState"].forEach(fn => {
     const orig = history[fn];
     history[fn] = function (state, title, url) {
