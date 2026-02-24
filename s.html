@@ -1,8 +1,22 @@
 <!DOCTYPE html>
 <html>
+<head>
+  <meta charset="UTF-8">
+  <title>Proxy Renderer</title>
+  <style>
+    iframe {
+      width: 100%;
+      height: 90vh;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
 <body>
-  <button id="run">Test Proxy</button>
-  <pre id="out"></pre>
+  <h1>Proxy Renderer</h1>
+
+  <button id="run">Load via Proxy</button>
+
+  <iframe id="frame"></iframe>
 
   <script>
     const PROXY = "https://letslearnalgebra.netlify.app/proxy";
@@ -11,10 +25,17 @@
       const res = await fetch(PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageURL: "https://google.com" })
+        body: JSON.stringify({ pageURL: "https://httpbin.org/html" })
       });
 
-      document.getElementById("out").textContent = await res.text();
+      const html = await res.text();
+
+      // Render inside iframe
+      const frame = document.getElementById("frame");
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write(html);
+      doc.close();
     };
   </script>
 </body>
