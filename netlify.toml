@@ -1,7 +1,10 @@
-[functions]
-node_bundler = "esbuild"
-
 [[redirects]]
-  from = "/proxy"
-  to = "/.netlify/functions/proxy"
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
   status = 200
+
+[[headers]]
+  for = "/prxe/sw.js"
+  [headers.values]
+    Service-Worker-Allowed = "/"
+    Cache-Control = "no-store"
