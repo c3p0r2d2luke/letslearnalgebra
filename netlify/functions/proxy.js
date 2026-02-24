@@ -102,15 +102,16 @@ function respond(status, debug, debugObj, body, contentType = "text/plain") {
 }
 
 function getTarget(event) {
-  let encoded = event.queryStringParameters?.url;
-  if (!encoded) return null;
+  let raw = event.queryStringParameters?.url;
+  if (!raw) return null;
 
-  if (!/^https?:\/\//i.test(encoded)) {
-    encoded = "https://" + encoded;
+  // If it already looks like a real URL, just use it
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
   }
 
-  // decodePath expects leading slash
-  return decodePath("/" + encoded);
+  // Otherwise, assume it is uv-encoded
+  return decodePath("/" + raw);
 }
 
 /**
