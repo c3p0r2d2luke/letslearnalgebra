@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PRXE Proxy</title>
+</head>
+<body>
+  <input id="url" placeholder="https://example.com">
+  <button>Go</button>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/prxe/sw.js", { scope: "/" });
+    }
+
+    document.querySelector("button").onclick = () => {
+      const u = document.querySelector("#url").value;
+      location.href = "/prxe/" + encodeURIComponent(u);
+    };
+  </script>
+</body>
+</html>
