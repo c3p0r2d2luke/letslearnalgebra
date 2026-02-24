@@ -1,27 +1,40 @@
 export async function handler(event) {
-  let url = event.queryStringParameters?.url;
-  if (!url) return { statusCode: 400, body: "Missing url" };
+  try {
+    let url = event.queryStringParameters?.url;
+    if (!url) return { statusCode: 400, body: "Missing url" };
 
-  if (url.startsWith("/prxe/")) url = url.slice(6);
-  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    if (url.startsWith("/prxe/")) url = url.slice(6);
+    url = decodeURIComponent(url);
 
-  const res = await fetch(url, {
-    method: event.httpMethod,
-    headers: event.headers,
-    body: ["GET","HEAD"].includes(event.httpMethod) ? undefined : event.body,
-    redirect: "manual"
-  });
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
-  const headers = {};
-  res.headers.forEach((v,k)=>{ if(k.toLowerCase()!=="set-cookie") headers[k]=v; });
+    // Minimal headers to avoid breaking fetch
+    const fetchHeaders = {};
+    if (event.headers["user-agent"]) fetchHeaders["user-agent"] = event.headers["user-agent"];
+    if (event.headers.accept) fetchHeaders.accept = event.headers.accept;
 
-  const contentType = res.headers.get("content-type") || "";
+    const res = await fetch(url, {
+      method: event.httpMethod,
+      headers: fetchHeaders,
+      body: ["GET","HEAD"].includes(event.httpMethod) ? undefined : event.body,
+      redirect: "manual"
+    });
 
-  if (contentType.includes("text/html") || contentType.includes("application/javascript") || contentType.includes("text/css")) {
-    const body = await res.text();
-    return { statusCode: res.status, headers, body };
-  } else {
-    const buffer = Buffer.from(await res.arrayBuffer());
-    return { statusCode: res.status, headers, body: buffer.toString("base64"), isBase64Encoded:true };
+    const headers = {};
+    res.headers.forEach((v,k)=>{ if(k.toLowerCase()!=="set-cookie") headers[k]=v; });
+
+    const contentType = res.headers.get("content-type") || "";
+
+    if (contentType.includes("text/html") || contentType.includes("application/javascript") || contentType.includes("text/css")) {
+      const body = await res.text();
+      return { statusCode: res.status, headers, body };
+    } else {
+      const buffer = Buffer.from(await res.arrayBuffer());
+      return { statusCode: res.status, headers, body: buffer.toString("base64"), isBase64Encoded:true };
+    }
+
+  } catch (err) {
+    console.error("Fetch failed:", err);
+    return { statusCode: 500, body: "Fetch failed: " + err.message };
   }
 }
