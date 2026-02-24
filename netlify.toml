@@ -5,7 +5,10 @@
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
-
+  from = "/prxe/*"
+  to = "/index.html"
+  status = 200
+  
 [[headers]]
   for = "/prxe/sw.js"
   [headers.values]
