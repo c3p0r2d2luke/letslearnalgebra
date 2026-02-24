@@ -1,8 +1,5 @@
-[build]
-  functions = "netlify/functions"
-  publish = "."
-
 [[redirects]]
   from = "/p/*"
-  to = "/.netlify/functions/proxy"
+  to = "/.netlify/functions/proxy?url=:splat"
   status = 200
+  force = true
