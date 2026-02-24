@@ -1,0 +1,8 @@
+[build]
+  functions = "netlify/functions"
+  publish = "prxe"
+
+[[redirects]]
+  from = "/p/*"
+  to = "/.netlify/functions/proxy/:splat"
+  status = 200

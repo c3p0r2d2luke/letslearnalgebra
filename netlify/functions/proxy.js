@@ -1,33 +1,130 @@
 // netlify/functions/proxy.js
 
+import { decodePath, encodeUrl } from "../../prxe/uv-encode.js";
+
 export async function handler(event) {
   try {
-    const url = event.queryStringParameters.url;
-    if (!url) {
-      return { statusCode: 400, body: "Missing ?url=" };
+    const target = getTarget(event);
+    if (!target) {
+      return { statusCode: 400, body: "Missing target URL" };
     }
 
-    const res = await fetch(url);
-    let html = await res.text();
-
-    // Basic rewrite: convert all absolute/relative links to proxy links
-    html = html.replace(/href="([^"]+)"/g, (m, link) => {
-      const newURL = new URL(link, url).href;
-      return `href="/proxy?url=${encodeURIComponent(newURL)}"`;
+    const res = await fetch(target, {
+      method: event.httpMethod,
+      headers: filterHeaders(event.headers, target),
+      body: ["GET", "HEAD"].includes(event.httpMethod) ? undefined : event.body
     });
 
-    html = html.replace(/src="([^"]+)"/g, (m, link) => {
-      const newURL = new URL(link, url).href;
-      return `src="/proxy?url=${encodeURIComponent(newURL)}"`;
-    });
+    const type = res.headers.get("content-type") || "";
+    const buf = Buffer.from(await res.arrayBuffer());
+
+    if (type.includes("text/html")) {
+      let html = buf.toString("utf8");
+      html = rewriteHtml(html, target);
+      return {
+        statusCode: res.status,
+        headers: { "content-type": "text/html; charset=utf-8" },
+        body: html
+      };
+    }
+
+    if (type.includes("text/css")) {
+      let css = buf.toString("utf8");
+      css = rewriteCss(css, target);
+      return {
+        statusCode: res.status,
+        headers: { "content-type": "text/css; charset=utf-8" },
+        body: css
+      };
+    }
+
+    if (type.includes("javascript")) {
+      let js = buf.toString("utf8");
+      js = rewriteJs(js, target);
+      return {
+        statusCode: res.status,
+        headers: { "content-type": type },
+        body: js
+      };
+    }
 
     return {
-      statusCode: 200,
-      headers: { "Content-Type": "text/html" },
-      body: html
+      statusCode: res.status,
+      headers: { "content-type": type },
+      body: buf.toString("base64"),
+      isBase64Encoded: true
     };
 
-  } catch (err) {
-    return { statusCode: 500, body: "Proxy error: " + err.message };
+  } catch (e) {
+    return { statusCode: 500, body: "Proxy error: " + e.message };
   }
+}
+
+function getTarget(event) {
+  const decoded = decodePath(event.path);
+  if (decoded) return decoded;
+
+  const qs = event.queryStringParameters || {};
+  return qs.url || null;
+}
+
+function filterHeaders(headers, target) {
+  const out = {};
+  const url = new URL(target);
+  for (const [k, v] of Object.entries(headers || {})) {
+    const key = k.toLowerCase();
+    if (["host", "x-forwarded-host", "x-forwarded-proto"].includes(key)) continue;
+    out[key] = v;
+  }
+  out["host"] = url.host;
+  return out;
+}
+
+function proxify(url, base) {
+  try {
+    const abs = new URL(url, base).href;
+    return encodeUrl(abs);
+  } catch {
+    return url;
+  }
+}
+
+function rewriteHtml(html, base) {
+  html = html.replace(
+    /<\/head>/i,
+    `<script src="/inject.js"></script></head>`
+  );
+
+  html = html.replace(/<base[^>]*>/gi, "");
+
+  html = html.replace(
+    /\b(href|src|action)="(.*?)"/gi,
+    (m, attr, value) => `${attr}="${proxify(value, base)}"`
+  );
+
+  html = html.replace(
+    /\b(href|src|action)='(.*?)'/gi,
+    (m, attr, value) => `${attr}='${proxify(value, base)}'`
+  );
+
+  html = html.replace(/url\((['"]?)(.+?)\1\)/gi, (m, q, v) => {
+    if (v.startsWith("data:")) return m;
+    return `url("${proxify(v, base)}")`;
+  });
+
+  return html;
+}
+
+function rewriteCss(css, base) {
+  return css.replace(/url\((['"]?)(.+?)\1\)/gi, (m, q, v) => {
+    if (v.startsWith("data:")) return m;
+    return `url("${proxify(v, base)}")`;
+  });
+}
+
+function rewriteJs(js, base) {
+  return js.replace(
+    /(["'`])((https?:)?\/\/[^"'`]+)\1/g,
+    (m, q, v) => `${q}${proxify(v, base)}${q}`
+  );
 }

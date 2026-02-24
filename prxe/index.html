@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Netlify Proxy Browser</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #bar {
+      padding: 8px;
+      background: #111;
+      color: #eee;
+      display: flex;
+      gap: 8px;
+    }
+    #url {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #222;
+      color: #eee;
+    }
+    button {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      background: #3b82f6;
+      color: white;
+    }
+    iframe {
+      width: 100vw;
+      height: calc(100vh - 44px);
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <input id="url" placeholder="https://example.com" />
+    <button onclick="prxeGo()">Go</button>
+  </div>
+
+  <iframe id="view"></iframe>
+
+  <script src="/client.js"></script>
+</body>
+</html>
