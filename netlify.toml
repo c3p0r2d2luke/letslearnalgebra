@@ -8,7 +8,21 @@ for = "/prxe/sw.js"
   Service-Worker-Allowed = "/prxe/"
   Cache-Control = "no-store"
 
-# Route all /prxe/* URLs to the fetch function
+# Exclude static files from the proxy function
+[[redirects]]
+from = "/prxe/index.html"
+to = "/prxe/index.html"
+status = 200
+[[redirects]]
+from = "/prxe/proxy.js"
+to = "/prxe/proxy.js"
+status = 200
+[[redirects]]
+from = "/prxe/sw.js"
+to = "/prxe/sw.js"
+status = 200
+
+# Route all other /prxe/* URLs to the fetch function
 [[redirects]]
 from = "/prxe/*"
 to = "/.netlify/functions/fetch?url=:splat"
