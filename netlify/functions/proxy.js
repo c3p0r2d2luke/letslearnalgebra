@@ -1,52 +1,56 @@
-// REMOVE node-fetch — Netlify already provides fetch globally
-// import fetch from 'node-fetch';
-
 export async function handler(event, context) {
   try {
-    // Log the raw body
-    console.log("RAW BODY:", event.body);
-
     if (!event.body) {
-      return {
-        statusCode: 400,
-        body: "ERROR: event.body was empty or undefined"
-      };
+      return { statusCode: 400, body: "No JSON body" };
     }
 
-    let data;
-    try {
-      data = JSON.parse(event.body);
-    } catch (err) {
-      return {
-        statusCode: 400,
-        body: "ERROR: JSON.parse failed:\n" + err.message + "\n\nBODY RECEIVED:\n" + event.body
-      };
-    }
-
-    console.log("PARSED JSON:", data);
-
+    const data = JSON.parse(event.body);
     const { pageURL } = data;
 
     if (!pageURL) {
-      return {
-        statusCode: 400,
-        body: "ERROR: pageURL missing from JSON.\nJSON received:\n" + JSON.stringify(data, null, 2)
-      };
+      return { statusCode: 400, body: "Missing pageURL" };
     }
 
-    console.log("FETCHING URL:", pageURL);
+    const res = await fetch(pageURL, {
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
 
-    let res;
-    try {
-      res = await fetch(pageURL);
-    } catch (err) {
-      return {
-        statusCode: 500,
-        body: "ERROR: fetch() failed:\n" + err.message + "\n\nURL:\n" + pageURL
-      };
-    }
+    let html = await res.text();
 
-    const htmlContent = await res.text();
+    // Base URL for resolving relative links
+    const base = pageURL.replace(/\/[^\/]*$/, "");
+
+    // Rewrite all <a href> links to go back through the proxy
+    html = html.replace(/<a\s+[^>]*href="([^"]+)"[^>]*>/gi, (match, href) => {
+      let absolute;
+
+      if (href.startsWith("http")) {
+        absolute = href;
+      } else if (href.startsWith("/")) {
+        const origin = pageURL.match(/^https?:\/\/[^\/]+/)[0];
+        absolute = origin + href;
+      } else {
+        absolute = base + "/" + href;
+      }
+
+      return match.replace(
+        href,
+        `https://letslearnalgebra.netlify.app/proxy?url=${encodeURIComponent(absolute)}`
+      );
+    });
+
+    // Inject script to notify parent window of navigation
+    const inject = `
+      <script>
+        try {
+          window.parent.postMessage({ proxiedURL: "${pageURL}" }, "*");
+        } catch (e) {}
+      </script>
+    `;
+
+    html = html.replace("</body>", inject + "</body>");
 
     return {
       statusCode: 200,
@@ -54,17 +58,13 @@ export async function handler(event, context) {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "text/html"
       },
-      body: htmlContent
+      body: html
     };
 
   } catch (err) {
     return {
       statusCode: 500,
-      body:
-        "UNCAUGHT ERROR:\n" +
-        err.message +
-        "\n\nSTACK TRACE:\n" +
-        err.stack
+      body: "Proxy error: " + err.message
     };
   }
 }

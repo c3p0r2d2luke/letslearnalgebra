@@ -2,41 +2,69 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Proxy Renderer</title>
+  <title>Proxy Browser</title>
   <style>
+    body { font-family: sans-serif; margin: 0; padding: 0; }
+    #bar {
+      padding: 10px;
+      background: #eee;
+      display: flex;
+      gap: 10px;
+    }
+    #url {
+      flex: 1;
+      padding: 8px;
+      font-size: 16px;
+    }
     iframe {
       width: 100%;
-      height: 90vh;
-      border: 1px solid #ccc;
+      height: calc(100vh - 60px);
+      border: none;
     }
   </style>
 </head>
 <body>
-  <h1>Proxy Renderer</h1>
 
-  <button id="run">Load via Proxy</button>
+  <div id="bar">
+    <input id="url" type="text" placeholder="Enter URL…" />
+    <button id="go">Go</button>
+  </div>
 
   <iframe id="frame"></iframe>
 
   <script>
     const PROXY = "https://letslearnalgebra.netlify.app/proxy";
 
-    document.getElementById("run").onclick = async () => {
+    async function load(url) {
+      document.getElementById("url").value = url;
+
       const res = await fetch(PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageURL: "https://github.com" })
+        body: JSON.stringify({ pageURL: url })
       });
 
       const html = await res.text();
 
-      // Render inside iframe
       const frame = document.getElementById("frame");
       const doc = frame.contentDocument || frame.contentWindow.document;
       doc.open();
       doc.write(html);
       doc.close();
+    }
+
+    document.getElementById("go").onclick = () => {
+      const url = document.getElementById("url").value;
+      load(url);
     };
+
+    // Listen for navigation events from inside the iframe
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.proxiedURL) {
+        document.getElementById("url").value = event.data.proxiedURL;
+      }
+    });
   </script>
+
 </body>
 </html>
