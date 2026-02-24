@@ -12,7 +12,6 @@ export async function handler(event) {
     redirect: "manual"
   });
 
-  // Copy headers except set-cookie
   const headers = {};
   res.headers.forEach((v, k) => {
     if (k.toLowerCase() === "set-cookie") return;
@@ -21,8 +20,10 @@ export async function handler(event) {
 
   const contentType = res.headers.get("content-type") || "";
 
-  if (contentType.includes("text/html") || contentType.includes("application/javascript")) {
-    // Return HTML/JS as text
+  // Return HTML, JS, CSS as text
+  if (contentType.includes("text/html") ||
+      contentType.includes("application/javascript") ||
+      contentType.includes("text/css")) {
     const body = await res.text();
     return {
       statusCode: res.status,
@@ -30,7 +31,7 @@ export async function handler(event) {
       body
     };
   } else {
-    // Return everything else as base64
+    // Everything else: binary
     const buffer = Buffer.from(await res.arrayBuffer());
     return {
       statusCode: res.status,

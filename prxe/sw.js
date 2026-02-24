@@ -11,7 +11,7 @@ self.addEventListener("fetch", event => {
 
   event.respondWith(
     (async () => {
-      // Fetch through your Netlify function
+      // Fetch through Netlify function
       const res = await fetch(`/api/fetch?url=${encodeURIComponent(target)}`, {
         method: event.request.method,
         headers: event.request.headers,
@@ -22,7 +22,6 @@ self.addEventListener("fetch", event => {
         credentials: "include"
       });
 
-      // Clone headers
       const headers = {};
       res.headers.forEach((v, k) => {
         if (k.toLowerCase() === "set-cookie") return;
@@ -32,38 +31,46 @@ self.addEventListener("fetch", event => {
       const contentType = res.headers.get("content-type") || "";
       let body;
 
+      // Only rewrite HTML
       if (contentType.includes("text/html")) {
-        // Get HTML text
         body = await res.text();
 
-        // Rewrite all links, forms, scripts, JS redirects
+        const targetOrigin = new URL(target).origin;
+
         const rewrite = (u) => {
           if (!u) return u;
-          if (u.startsWith("http") || u.startsWith("data:") || u.startsWith("blob:")) {
-            return "/prxe/" + encodeURIComponent(u);
+          if (u.startsWith("blob:") || u.startsWith("data:")) return u;
+
+          let fullUrl;
+          try {
+            fullUrl = new URL(u, target).href;
+          } catch {
+            return u;
           }
-          // Root-relative
-          if (u.startsWith("/")) {
-            const base = new URL(target).origin;
-            return "/prxe/" + encodeURIComponent(base + u);
+
+          // Only rewrite URLs from the same origin
+          if (fullUrl.startsWith(targetOrigin)) {
+            return "/prxe/" + encodeURIComponent(fullUrl);
           }
-          // Relative
-          return "/prxe/" + encodeURIComponent(new URL(u, target).href);
+
+          // Leave external assets alone
+          return u;
         };
 
-        // Rewrite href, src, action
+        // Rewrite links, forms, images, scripts, and JS redirects
         body = body
           .replace(/(href|src|action)=["']([^"']+)["']/gi, (_, attr, u) => `${attr}="${rewrite(u)}"`)
           .replace(/window\.location\s*=\s*["']([^"']+)["']/gi, (_, u) => `window.location="${rewrite(u)}"`)
           .replace(/fetch\((["'])([^"']+)\1/gi, (_, q, u) => `fetch(${q}${rewrite(u)}${q})`);
+      } else if (contentType.includes("application/javascript") || contentType.includes("text/css")) {
+        // JS and CSS: return as text
+        body = await res.text();
       } else {
-        // Not HTML? Return as-is
+        // Everything else: return as base64
         const buffer = Buffer.from(await res.arrayBuffer());
-        body = buffer.toString("base64");
-        return new Response(body, {
+        return new Response(buffer, {
           status: res.status,
-          headers,
-          isBase64Encoded: true
+          headers
         });
       }
 
