@@ -61,11 +61,14 @@ export async function handler(event) {
 }
 
 function getTarget(event) {
-  const decoded = decodePath(event.path);
-  if (decoded) return decoded;
+  // rawPath preserves the original URL
+  const raw = event.rawPath || event.path;
 
-  const qs = event.queryStringParameters || {};
-  return qs.url || null;
+  // remove "/p/"
+  const encoded = raw.replace(/^\/p\//, "");
+  if (!encoded) return null;
+
+  return decodePath("/" + encoded);
 }
 
 function filterHeaders(headers, target) {
