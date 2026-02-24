@@ -1,6 +1,12 @@
 export async function handler(event) {
-  const url = event.queryStringParameters?.url;
+  let url = event.queryStringParameters?.url;
   if (!url) return { statusCode: 400, body: "Missing url" };
+
+  // Remove leading /prxe/ if present
+  if (url.startsWith("/prxe/")) url = url.slice(6);
+
+  // Add https if missing
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
   const res = await fetch(url, {
     method: event.httpMethod,
@@ -20,18 +26,14 @@ export async function handler(event) {
 
   const contentType = res.headers.get("content-type") || "";
 
-  // Return HTML, JS, CSS as text
-  if (contentType.includes("text/html") ||
-      contentType.includes("application/javascript") ||
-      contentType.includes("text/css")) {
+  if (
+    contentType.includes("text/html") ||
+    contentType.includes("application/javascript") ||
+    contentType.includes("text/css")
+  ) {
     const body = await res.text();
-    return {
-      statusCode: res.status,
-      headers,
-      body
-    };
+    return { statusCode: res.status, headers, body };
   } else {
-    // Everything else: binary
     const buffer = Buffer.from(await res.arrayBuffer());
     return {
       statusCode: res.status,

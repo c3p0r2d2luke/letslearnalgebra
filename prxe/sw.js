@@ -11,8 +11,7 @@ self.addEventListener("fetch", event => {
 
   event.respondWith(
     (async () => {
-      // Fetch through Netlify function
-      const res = await fetch(`/api/fetch?url=${encodeURIComponent(target)}`, {
+      const res = await fetch(`/.netlify/functions/fetch?url=${encodeURIComponent(target)}`, {
         method: event.request.method,
         headers: event.request.headers,
         body:
@@ -31,53 +30,36 @@ self.addEventListener("fetch", event => {
       const contentType = res.headers.get("content-type") || "";
       let body;
 
-      // Only rewrite HTML
       if (contentType.includes("text/html")) {
         body = await res.text();
-
         const targetOrigin = new URL(target).origin;
 
-        const rewrite = (u) => {
+        const rewrite = u => {
           if (!u) return u;
           if (u.startsWith("blob:") || u.startsWith("data:")) return u;
 
           let fullUrl;
-          try {
-            fullUrl = new URL(u, target).href;
-          } catch {
-            return u;
-          }
+          try { fullUrl = new URL(u, target).href; } catch { return u; }
 
-          // Only rewrite URLs from the same origin
           if (fullUrl.startsWith(targetOrigin)) {
             return "/prxe/" + encodeURIComponent(fullUrl);
           }
 
-          // Leave external assets alone
-          return u;
+          return u; // external assets left alone
         };
 
-        // Rewrite links, forms, images, scripts, and JS redirects
         body = body
           .replace(/(href|src|action)=["']([^"']+)["']/gi, (_, attr, u) => `${attr}="${rewrite(u)}"`)
           .replace(/window\.location\s*=\s*["']([^"']+)["']/gi, (_, u) => `window.location="${rewrite(u)}"`)
           .replace(/fetch\((["'])([^"']+)\1/gi, (_, q, u) => `fetch(${q}${rewrite(u)}${q})`);
       } else if (contentType.includes("application/javascript") || contentType.includes("text/css")) {
-        // JS and CSS: return as text
         body = await res.text();
       } else {
-        // Everything else: return as base64
         const buffer = Buffer.from(await res.arrayBuffer());
-        return new Response(buffer, {
-          status: res.status,
-          headers
-        });
+        return new Response(buffer, { status: res.status, headers });
       }
 
-      return new Response(body, {
-        status: res.status,
-        headers
-      });
+      return new Response(body, { status: res.status, headers });
     })()
   );
 });

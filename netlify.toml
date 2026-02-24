@@ -1,22 +1,16 @@
 [build]
   publish = "."
 
-# Service worker
+# Service worker headers
 [[headers]]
 for = "/prxe/sw.js"
 [headers.values]
-  Service-Worker-Allowed = "/"
+  Service-Worker-Allowed = "/prxe/"
   Cache-Control = "no-store"
 
-# Route all /prxe/* to the fetch function
+# Route all /prxe/* URLs to the fetch function
 [[redirects]]
-  from = "/prxe/*"
-  to = "/.netlify/functions/fetch?url=:splat"
-  status = 200
-  force = true
-
-# Optional: fallback for SPA index.html (if you want / to load index)
-[[redirects]]
-  from = "/"
-  to = "/index.html"
-  status = 200
+from = "/prxe/*"
+to = "/.netlify/functions/fetch?url=:splat"
+status = 200
+force = true

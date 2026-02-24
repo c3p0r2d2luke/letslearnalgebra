@@ -6,17 +6,17 @@
     if (url.startsWith("blob:") || url.startsWith("data:")) return url;
     if (url.startsWith(PREFIX)) return url;
 
-    // Absolute
+    // Absolute URLs
     if (url.startsWith("http://") || url.startsWith("https://")) {
       return PREFIX + encodeURIComponent(url);
     }
 
-    // Root-relative (/login)
+    // Root-relative
     if (url.startsWith("/")) {
       return PREFIX + encodeURIComponent(location.origin + url);
     }
 
-    // Relative (login)
+    // Relative
     return PREFIX + encodeURIComponent(new URL(url, location.href).href);
   };
 
@@ -53,7 +53,6 @@
 
   // ---- location ----
   const loc = window.location;
-
   ["assign", "replace"].forEach(fn => {
     const orig = loc[fn].bind(loc);
     loc[fn] = u => orig(rewrite(u));
