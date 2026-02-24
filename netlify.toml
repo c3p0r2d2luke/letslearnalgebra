@@ -1,3 +1,7 @@
+[build]
+  publish = "."           # or "public" or wherever your site build output is
+  functions = "netlify/functions"
+
 [[redirects]]
   from = "/p/*"
   to = "/.netlify/functions/proxy?url=:splat"
