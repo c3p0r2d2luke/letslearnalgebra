@@ -3,16 +3,27 @@
 import { decodePath, encodeUrl } from "../../prxe/uv-encode.js";
 
 export async function handler(event) {
+  const debug = event.queryStringParameters?.debug === "1";
+
   try {
     const target = getTarget(event);
     if (!target) {
-      return { statusCode: 400, body: "Missing target URL" };
+      return respond(
+        400,
+        debug,
+        { error: "Missing target URL", event },
+        "Missing target URL"
+      );
     }
+
+    const headers = filterHeaders(event.headers, target);
 
     const res = await fetch(target, {
       method: event.httpMethod,
-      headers: filterHeaders(event.headers, target),
-      body: ["GET", "HEAD"].includes(event.httpMethod) ? undefined : event.body
+      headers,
+      body: ["GET", "HEAD"].includes(event.httpMethod)
+        ? undefined
+        : event.body
     });
 
     const type = res.headers.get("content-type") || "";
@@ -21,33 +32,34 @@ export async function handler(event) {
     if (type.includes("text/html")) {
       let html = buf.toString("utf8");
       html = rewriteHtml(html, target);
-      return {
-        statusCode: res.status,
-        headers: { "content-type": "text/html; charset=utf-8" },
-        body: html
-      };
+      return respond(res.status, debug, {
+        type,
+        target,
+        rewritten: "html"
+      }, html, "text/html; charset=utf-8");
     }
 
     if (type.includes("text/css")) {
       let css = buf.toString("utf8");
       css = rewriteCss(css, target);
-      return {
-        statusCode: res.status,
-        headers: { "content-type": "text/css; charset=utf-8" },
-        body: css
-      };
+      return respond(res.status, debug, {
+        type,
+        target,
+        rewritten: "css"
+      }, css, "text/css; charset=utf-8");
     }
 
     if (type.includes("javascript")) {
       let js = buf.toString("utf8");
       js = rewriteJs(js, target);
-      return {
-        statusCode: res.status,
-        headers: { "content-type": type },
-        body: js
-      };
+      return respond(res.status, debug, {
+        type,
+        target,
+        rewritten: "js"
+      }, js, type);
     }
 
+    // Binary
     return {
       statusCode: res.status,
       headers: { "content-type": type },
@@ -56,30 +68,81 @@ export async function handler(event) {
     };
 
   } catch (e) {
-    return { statusCode: 500, body: "Proxy error: " + e.message };
+    return respond(
+      500,
+      debug,
+      {
+        name: e.name,
+        message: e.message,
+        stack: e.stack,
+        path: event.path,
+        query: event.queryStringParameters
+      },
+      "Proxy error: " + e.message
+    );
   }
+}
+
+/* ================= HELPERS ================= */
+
+function respond(status, debug, debugObj, body, contentType = "text/plain") {
+  if (debug) {
+    return {
+      statusCode: status,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(debugObj, null, 2)
+    };
+  }
+
+  return {
+    statusCode: status,
+    headers: { "content-type": contentType },
+    body
+  };
 }
 
 function getTarget(event) {
-  // rawPath preserves the original URL
-  const raw = event.rawPath || event.path;
-
-  // remove "/p/"
-  const encoded = raw.replace(/^\/p\//, "");
+  let encoded = event.queryStringParameters?.url;
   if (!encoded) return null;
 
+  if (!/^https?:\/\//i.test(encoded)) {
+    encoded = "https://" + encoded;
+  }
+
+  // decodePath expects leading slash
   return decodePath("/" + encoded);
 }
 
+/**
+ * 🚨 CRITICAL FIX
+ * Invalid characters were caused by forwarding unsafe headers.
+ */
 function filterHeaders(headers, target) {
   const out = {};
   const url = new URL(target);
+
   for (const [k, v] of Object.entries(headers || {})) {
+    if (!v) continue;
+    if (Array.isArray(v)) continue;
+
     const key = k.toLowerCase();
-    if (["host", "x-forwarded-host", "x-forwarded-proto"].includes(key)) continue;
-    out[key] = v;
+
+    if (
+      [
+        "host",
+        "connection",
+        "content-length",
+        "accept-encoding",
+        "x-forwarded-for",
+        "x-forwarded-proto",
+        "x-nf-client-connection-ip"
+      ].includes(key)
+    ) continue;
+
+    out[key] = String(v);
   }
-  out["host"] = url.host;
+
+  out.host = url.host;
   return out;
 }
 
@@ -92,22 +155,21 @@ function proxify(url, base) {
   }
 }
 
+/* ================= REWRITES ================= */
+
 function rewriteHtml(html, base) {
-  // FIX #1 — inject correct path AND inject early
   html = html.replace(
     /<head[^>]*>/i,
-    match => `${match}<script src="/prxe/inject.js"></script>`
+    m => `${m}<script src="/prxe/inject.js"></script>`
   );
 
-  // Remove <base> tags
   html = html.replace(/<base[^>]*>/gi, "");
 
-  // FIX #2 — skip already-proxied URLs
   html = html.replace(
     /\b(href|src|action)="(.*?)"/gi,
     (m, attr, value) => {
       if (value.startsWith("/p/")) return m;
-      if (/^javascript:/i.test(value) || value.startsWith("#")) return m;
+      if (/^(javascript:|#)/i.test(value)) return m;
       return `${attr}="${proxify(value, base)}"`;
     }
   );
@@ -116,12 +178,11 @@ function rewriteHtml(html, base) {
     /\b(href|src|action)='(.*?)'/gi,
     (m, attr, value) => {
       if (value.startsWith("/p/")) return m;
-      if (/^javascript:/i.test(value) || value.startsWith("#")) return m;
+      if (/^(javascript:|#)/i.test(value)) return m;
       return `${attr}='${proxify(value, base)}'`;
     }
   );
 
-  // CSS url(...)
   html = html.replace(/url\((['"]?)(.+?)\1\)/gi, (m, q, v) => {
     if (v.startsWith("data:") || v.startsWith("/p/")) return m;
     return `url("${proxify(v, base)}")`;
