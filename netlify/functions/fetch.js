@@ -1,6 +1,8 @@
 export async function handler(event) {
   const url = event.queryStringParameters?.url;
-  if (!url) return { statusCode: 400, body: "Missing url" };
+  if (!url) {
+    return { statusCode: 400, body: "Missing url" };
+  }
 
   const res = await fetch(url, {
     method: event.httpMethod,
@@ -12,15 +14,20 @@ export async function handler(event) {
     redirect: "manual"
   });
 
+  // Convert response to base64
+  const buffer = Buffer.from(await res.arrayBuffer());
+
   const headers = {};
-  res.headers.forEach((v, k) => {
-    if (k.toLowerCase() === "set-cookie") return;
-    headers[k] = v;
+  res.headers.forEach((value, key) => {
+    // Netlify disallows multiple set-cookie headers anyway
+    if (key.toLowerCase() === "set-cookie") return;
+    headers[key] = value;
   });
 
   return {
     statusCode: res.status,
     headers,
-    body: await res.arrayBuffer()
+    body: buffer.toString("base64"),
+    isBase64Encoded: true
   };
 }
