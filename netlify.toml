@@ -3,7 +3,6 @@
   functions = "netlify/functions"
 
 [[redirects]]
-  from = "/p/*"
-  to = "/.netlify/functions/proxy?url=:splat"
+  from = "/proxy"
+  to = "/.netlify/functions/proxy"
   status = 200
-  force = true
