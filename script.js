@@ -201,9 +201,25 @@ async function sendMessage() {
     ]);
 
     if (!error) {
-      input.value = "";
-      log("✅ Message sent to Supabase");
-    }
+  input.value = "";
+  log("✅ Message sent to Supabase");
+
+  // 🔔 PUSH NOTIFICATION LOGIC
+  const isImportant =
+    currentRole === "Admin" && content.includes("!important!");
+
+  fetch("/functions/v1/send-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: isImportant
+        ? "🚨 IMPORTANT ANNOUNCEMENT"
+        : "New message",
+      body: `${username}: ${content.replace("!important!", "")}`,
+      important: isImportant
+    })
+  });
+}
   } catch (e) {
     log("❌ Failed to send message", e, "error");
   }
@@ -699,3 +715,49 @@ input.addEventListener("keydown", (e) => {
     sendMessage();
   }
 });
+
+// Discord-style right click menu
+messagesList.addEventListener("contextmenu", e => {
+  const li = e.target.closest("li");
+  if (!li) return;
+
+  e.preventDefault();
+
+  const adminMenu = li.querySelector(".adminControls, .managerControls");
+  if (!adminMenu) return;
+
+  adminMenu.style.display = "flex";
+  adminMenu.style.left = e.pageX + "px";
+  adminMenu.style.top = e.pageY + "px";
+});
+
+// Close menus on click
+document.addEventListener("click", () => {
+  document
+    .querySelectorAll(".adminControls, .managerControls")
+    .forEach(m => (m.style.display = "none"));
+});
+const VAPID_PUBLIC_KEY = "BASYo0tS0nRAG504ReCj95aY9QacgW9vPLQKkMJRU8LXPDMtYIg-oeA__TvgyDJlop9mQqeRC1j_7ydtlKCk0zA";
+
+async function enablePush() {
+  if (!("serviceWorker" in navigator)) return;
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") return;
+
+  const registration = await navigator.serviceWorker.register("/sw.js");
+
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: VAPID_PUBLIC_KEY
+  });
+
+  await supabaseClient.from("push_subscriptions").upsert({
+    username,
+    subscription
+  });
+
+  console.log("🔔 Push enabled");
+}
+
+enablePush();

@@ -3,3 +3,13 @@ enabled = true
 client_id = "629864925314-djg89vu5gmfjd0miqpn6she0pk5nch4j.apps.googleusercontent.com"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET)"
 skip_nonce_check = false
+[functions.send-push]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-push/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/send-push/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/send-push/*.html" ]

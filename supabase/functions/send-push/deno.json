@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "@supabase/functions-js": "jsr:@supabase/functions-js@^2"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"],
+    "strict": true
+  }
+}
