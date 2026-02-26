@@ -208,7 +208,7 @@ async function sendMessage() {
   const isImportant =
     currentRole === "Admin" && content.includes("!important!");
 
-  fetch("/functions/v1/send-push", {
+  fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
