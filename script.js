@@ -326,6 +326,8 @@ li.addEventListener("contextmenu", (e) => {
     addButton("Block User", () => blockUser(author));
   }
 
+  enhanceMessage(li, msg);
+
   menu.style.position = "fixed";
   menu.style.left = e.clientX + "px";
   menu.style.top = e.clientY + "px";
@@ -596,3 +598,307 @@ async function unblockUser(user) {
     console.error("Unblock failed", err);
   }
 }
+
+// ======================== DISCORD STYLE FEATURES ========================
+
+
+// ---------------- EDIT MESSAGE ----------------
+async function editMessage(messageId) {
+
+  const li = messagesMap.get(Number(messageId));
+  if (!li) return;
+
+  const contentEl = li.querySelector(".content");
+  const oldText = contentEl.textContent;
+
+  const newText = prompt("Edit message:", oldText);
+  if (!newText || newText === oldText) return;
+
+  try {
+
+    const { error } = await supabaseClient
+      .from("messages")
+      .update({ content: newText })
+      .eq("id", messageId);
+
+    if (error) throw error;
+
+  } catch (err) {
+    console.error("Edit failed", err);
+  }
+
+}
+
+
+
+// ---------------- REACTION BUBBLES ----------------
+
+async function addReaction(messageId, emoji) {
+
+  try {
+
+    const { data } = await supabaseClient
+      .from("reactions")
+      .select("*")
+      .eq("message_id", messageId)
+      .eq("username", username)
+      .eq("emoji", emoji)
+      .maybeSingle();
+
+    if (data) {
+      await supabaseClient
+        .from("reactions")
+        .delete()
+        .eq("id", data.id);
+      return;
+    }
+
+    await supabaseClient
+      .from("reactions")
+      .insert({
+        message_id: messageId,
+        username: username,
+        emoji: emoji
+      });
+
+  } catch (err) {
+    console.error("Reaction error", err);
+  }
+
+}
+
+
+
+async function renderReactions(messageId, container) {
+
+  const { data } = await supabaseClient
+    .from("reactions")
+    .select("*")
+    .eq("message_id", messageId);
+
+  if (!data) return;
+
+  const reactionsMap = {};
+
+  data.forEach(r => {
+    if (!reactionsMap[r.emoji]) reactionsMap[r.emoji] = [];
+    reactionsMap[r.emoji].push(r.username);
+  });
+
+  const wrap = document.createElement("div");
+  wrap.className = "reactionBar";
+
+  Object.entries(reactionsMap).forEach(([emoji, users]) => {
+
+    const bubble = document.createElement("span");
+
+    bubble.textContent = `${emoji} ${users.length}`;
+    bubble.className = "reactionBubble";
+
+    bubble.onclick = () => addReaction(messageId, emoji);
+
+    wrap.appendChild(bubble);
+
+  });
+
+  container.appendChild(wrap);
+
+}
+
+
+
+// ---------------- THREAD REPLIES ----------------
+
+let replyingTo = null;
+
+function startReply(messageId) {
+
+  replyingTo = messageId;
+
+  const li = messagesMap.get(Number(messageId));
+  if (!li) return;
+
+  const author = li.dataset.user;
+
+  input.value = `@${author} `;
+  input.focus();
+
+}
+
+
+
+async function sendReply(content) {
+
+  if (!replyingTo) return;
+
+  await supabaseClient
+    .from("messages")
+    .insert({
+      username: username,
+      content: content,
+      role: currentRole,
+      reply_to: replyingTo
+    });
+
+  replyingTo = null;
+
+}
+
+
+
+// ---------------- RENDER REPLY PREVIEW ----------------
+
+function renderReply(msg, li) {
+
+  if (!msg.reply_to) return;
+
+  const original = messagesMap.get(msg.reply_to);
+  if (!original) return;
+
+  const preview = document.createElement("div");
+  preview.className = "replyPreview";
+
+  const name = original.dataset.user;
+  const text = original.querySelector(".content")?.textContent || "";
+
+  preview.textContent = `Replying to ${name}: ${text.substring(0,40)}...`;
+
+  li.prepend(preview);
+
+}
+
+
+
+// ---------------- TYPING INDICATOR ----------------
+
+let typingTimeout = null;
+
+input.addEventListener("input", async () => {
+
+  if (!username) return;
+
+  await supabaseClient
+    .from("typing")
+    .upsert({
+      username: username,
+      typing: true,
+      updated_at: new Date()
+    });
+
+  clearTimeout(typingTimeout);
+
+  typingTimeout = setTimeout(async () => {
+
+    await supabaseClient
+      .from("typing")
+      .update({ typing: false })
+      .eq("username", username);
+
+  }, 2000);
+
+});
+
+
+
+async function updateTypingIndicator() {
+
+  const { data } = await supabaseClient
+    .from("typing")
+    .select("*")
+    .eq("typing", true);
+
+  const box = document.getElementById("typingIndicator");
+  if (!box) return;
+
+  const users = data
+    .filter(u => u.username !== username)
+    .map(u => u.username);
+
+  if (!users.length) {
+    box.textContent = "";
+    return;
+  }
+
+  box.textContent = `${users.join(", ")} typing...`;
+
+}
+
+
+
+// run typing indicator refresh
+setInterval(updateTypingIndicator, 1500);
+
+
+
+
+// ---------------- HOVER CONTROLS ----------------
+
+function attachHoverControls(li, msg) {
+
+  const controls = document.createElement("div");
+
+  controls.className = "hoverControls";
+
+  controls.style.position = "absolute";
+  controls.style.right = "10px";
+  controls.style.top = "5px";
+  controls.style.display = "none";
+
+
+
+  const reactBtn = document.createElement("button");
+  reactBtn.textContent = "😀";
+  reactBtn.onclick = () => addReaction(msg.id, "😀");
+
+
+
+  const replyBtn = document.createElement("button");
+  replyBtn.textContent = "↩";
+  replyBtn.onclick = () => startReply(msg.id);
+
+
+
+  const editBtn = document.createElement("button");
+  editBtn.textContent = "✏";
+  editBtn.onclick = () => editMessage(msg.id);
+
+
+
+  controls.appendChild(reactBtn);
+  controls.appendChild(replyBtn);
+  controls.appendChild(editBtn);
+
+  li.style.position = "relative";
+  li.appendChild(controls);
+
+
+
+  li.addEventListener("mouseenter", () => {
+    controls.style.display = "block";
+  });
+
+  li.addEventListener("mouseleave", () => {
+    controls.style.display = "none";
+  });
+
+}
+
+
+
+// ---------------- PATCH INTO MESSAGE RENDER ----------------
+
+// call this inside renderMessage AFTER message content is created
+
+function enhanceMessage(li, msg) {
+
+  attachHoverControls(li, msg);
+
+  renderReply(msg, li);
+
+  renderReactions(msg.id, li);
+
+}
+
+
+
+// ======================== END FEATURES ========================
