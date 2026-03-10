@@ -304,6 +304,169 @@ color:white;
 margin-left:4px;
 cursor:pointer;
 }
+
+/* ===============================
+   TABS
+   =============================== */
+
+.tab-container {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.tab {
+  flex: 1;
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: var(--text-main);
+  background: var(--bg-hover);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: transparent;
+}
+
+.tabs-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-pane {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+.tab-pane.active {
+  display: flex;
+  flex-direction: column;
+}
+
+#messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Thread styling */
+.thread-item {
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+}
+
+.thread-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.thread-reply-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.thread-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--bg-tertiary);
+  margin-top: 8px;
+}
+
+.thread-reply {
+  font-size: 0.9rem;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.reply-author {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.reactionBar {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.replyPreview {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+  margin-bottom: 6px;
+  font-style: italic;
+  display: none;
+}
+
+.replyContext {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 180px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.replyContext::before {
+  content: "↖";
+  color: var(--accent);
+  font-weight: bold;
+  flex-shrink: 0;
+  margin-top: -2px;
+}
+
+.replyContextContent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.replyContextAuthor {
+  color: var(--accent);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
 </style>
 </head>
 <body>
@@ -315,7 +478,19 @@ cursor:pointer;
 </div>
 
 <div class="chat-app">
-  <ul id="messages"></ul>
+  <div class="tab-container">
+    <div class="tab active" data-tab="messages">Messages</div>
+    <div class="tab" data-tab="threads">Threads</div>
+  </div>
+
+  <div class="tabs-content">
+    <div class="tab-pane active" id="messages-pane">
+      <ul id="messages"></ul>
+    </div>
+    <div class="tab-pane" id="threads-pane">
+      <div id="threadsContainer"></div>
+    </div>
+  </div>
 
   <div id="controls">
     <input type="file" id="fileUpload" style="display:none">

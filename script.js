@@ -3,7 +3,31 @@ const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 const logBox = document.getElementById("logBox");
+const threadsContainer = document.getElementById("threadsContainer");
 logBox.style.display = "none";
+
+// ======================== TAB SYSTEM ========================
+let currentTab = "messages";
+
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    const tabName = tab.dataset.tab;
+    currentTab = tabName;
+    
+    // Update active tab styling
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    
+    // Update panes
+    document.querySelectorAll(".tab-pane").forEach(pane => pane.classList.remove("active"));
+    document.getElementById(`${tabName}-pane`).classList.add("active");
+    
+    // Refresh threads view if switching to threads
+    if (tabName === "threads") {
+      renderAllThreads();
+    }
+  });
+});
 
 const namePrompt = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
@@ -159,10 +183,23 @@ async function sendMessage() {
   } catch {}
 
   try {
-    const { error } = await supabaseClient.from("messages").insert([{ username, content, role: currentRole, is_pinned: false, ip }]);
+    const messageData = { username, content, role: currentRole, is_pinned: false, ip };
+    
+    // Include reply_to field if replying to another message
+    if (replyingTo) {
+      messageData.reply_to = replyingTo;
+    }
+    
+    const { error } = await supabaseClient.from("messages").insert([messageData]);
     if (!error) {
       input.value = "";
       log("✅ Message sent to Supabase");
+      
+      // Reset reply text
+      if (replyingTo) {
+        replyingTo = null;
+        input.placeholder = "Message #general";
+      }
 
       const isImportant = currentRole === "Admin" && content.includes("!important!");
       fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
@@ -174,6 +211,11 @@ async function sendMessage() {
           important: isImportant
         })
       });
+      
+      // Refresh threads view if currently viewing threads
+      if (currentTab === "threads") {
+        renderAllThreads();
+      }
     }
   } catch (e) {
     log("❌ Failed to send message", e, "error");
@@ -254,6 +296,34 @@ function renderMessage(msg) {
     contentDiv.textContent = msg.content;
   }
   li.appendChild(contentDiv);
+
+  // Add reply context if this message is a reply
+  if (msg.reply_to) {
+    supabaseClient
+      .from("messages")
+      .select("username, content")
+      .eq("id", msg.reply_to)
+      .maybeSingle()
+      .then(({ data: parentMsg }) => {
+        if (parentMsg) {
+          const replyContext = document.createElement("div");
+          replyContext.className = "replyContext";
+          
+          const author = parentMsg.username === "Frenchwizz" ? "Takeo" : parentMsg.username;
+          const content = parentMsg.content.substring(0, 50);
+          
+          replyContext.innerHTML = `
+            <div class="replyContextContent">
+              <div class="replyContextAuthor">${author}</div>
+              <div>${content}${parentMsg.content.length > 50 ? "..." : ""}</div>
+            </div>
+          `;
+          
+          li.style.position = "relative";
+          li.appendChild(replyContext);
+        }
+      });
+  }
 
   // ---------------- Admin / Manager Controls ----------------
   const adminDiv = document.createElement("div");
@@ -412,42 +482,6 @@ document.addEventListener("click", () => {
 // ------------------------ ADMIN MENU FUNCTIONS ------------------------
 
 // Reply
-async function startReply(messageId) {
-  const msg = messagesMap.get(Number(messageId));
-  if (!msg) return;
-
-  const author = msg.dataset.user;
-  const content = msg.querySelector(".content")?.textContent || "";
-
-  input.value = `@${author} ${content.substring(0,50)}... `;
-  input.focus();
-}
-
-
-// Reaction
-async function addReaction(messageId, emoji) {
-  try {
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("content")
-      .eq("id", messageId)
-      .single();
-
-    if (error) throw error;
-
-    const newContent = data.content + " " + emoji;
-
-    await supabaseClient
-      .from("messages")
-      .update({ content: newContent })
-      .eq("id", messageId);
-
-  } catch (err) {
-    console.error("Reaction failed", err);
-  }
-}
-
-
 // Report message (with EmailJS)
 async function reportMessage(messageId) {
   try {
@@ -712,17 +746,17 @@ async function renderReactions(messageId, container) {
 let replyingTo = null;
 
 function startReply(messageId) {
-
   replyingTo = messageId;
 
   const li = messagesMap.get(Number(messageId));
   if (!li) return;
 
   const author = li.dataset.user;
+  const content = li.querySelector(".content")?.textContent || "";
 
   input.value = `@${author} `;
+  input.placeholder = `Replying to ${author}: ${content.substring(0, 40)}...`;
   input.focus();
-
 }
 
 
@@ -893,12 +927,87 @@ function enhanceMessage(li, msg) {
 
   attachHoverControls(li, msg);
 
-  renderReply(msg, li);
+  // renderReply is now handled in renderMessage with replyContext for Discord-style
+  // renderReply(msg, li);
 
   renderReactions(msg.id, li);
 
 }
 
+
+// ======================== THREAD SYSTEM ========================
+
+// Get all threads (messages with replies)
+async function getAllThreads() {
+  const { data: allMessages } = await supabaseClient
+    .from("messages")
+    .select("*")
+    .order("inserted_at", { ascending: true });
+
+  if (!allMessages) return [];
+
+  // Group messages by reply_to
+  const threads = {};
+  allMessages.forEach(msg => {
+    if (msg.reply_to) {
+      if (!threads[msg.reply_to]) threads[msg.reply_to] = { parent: null, replies: [] };
+      threads[msg.reply_to].replies.push(msg);
+    }
+  });
+
+  // Get parent messages
+  allMessages.forEach(msg => {
+    if (threads[msg.id]) {
+      threads[msg.id].parent = msg;
+    }
+  });
+
+  return Object.values(threads).filter(t => t.parent);
+}
+
+// Render all threads in the threads tab
+async function renderAllThreads() {
+  threadsContainer.innerHTML = "";
+  const threads = await getAllThreads();
+
+  if (threads.length === 0) {
+    threadsContainer.innerHTML = "<p style='color: var(--text-muted); padding: 16px;'>No threads yet. Start a thread by replying to a message!</p>";
+    return;
+  }
+
+  threads.forEach(thread => {
+    const threadEl = document.createElement("div");
+    threadEl.className = "thread-item";
+
+    // Parent message
+    const parentDiv = document.createElement("div");
+    parentDiv.className = "thread-header";
+    parentDiv.innerHTML = `
+      <div>
+        <strong>${thread.parent.username === "Frenchwizz" ? "Takeo" : thread.parent.username}</strong>: ${thread.parent.content.substring(0, 100)}${thread.parent.content.length > 100 ? "..." : ""}
+      </div>
+      <div class="thread-reply-count">${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}</div>
+    `;
+    threadEl.appendChild(parentDiv);
+
+    // Replies
+    const repliesDiv = document.createElement("div");
+    repliesDiv.className = "thread-replies";
+
+    thread.replies.forEach(reply => {
+      const replyEl = document.createElement("div");
+      replyEl.className = "thread-reply";
+      replyEl.innerHTML = `
+        <div class="reply-author">${reply.username === "Frenchwizz" ? "Takeo" : reply.username}</div>
+        <div>${reply.content}</div>
+      `;
+      repliesDiv.appendChild(replyEl);
+    });
+
+    threadEl.appendChild(repliesDiv);
+    threadsContainer.appendChild(threadEl);
+  });
+}
 
 
 // ======================== END FEATURES ========================
