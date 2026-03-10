@@ -292,9 +292,17 @@ function renderMessage(msg) {
         if (preview) contentDiv.appendChild(document.createRange().createContextualFragment(preview));
       });
     }
-  } else {
-    contentDiv.textContent = msg.content;
-  }
+} else {
+
+  const wrapper = document.createElement("div");
+
+  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+
+  wrapper.innerHTML = cleanContent;
+
+  contentDiv.appendChild(wrapper);
+
+}
   li.appendChild(contentDiv);
 
   // Add reply context if this message is a reply
@@ -334,9 +342,204 @@ function renderMessage(msg) {
   managerDiv.className = "managerControls";
   managerDiv.style.display = "none";
 
-  // All buttons kept exactly as your code (delete, edit, block, mute, pin, promote, report, etc.)
-  // ... copy-paste all of your buttons creation here, unchanged ...
-  // (omitted for brevity in this snippet, but in the full file, it's identical to your code)
+async function forceLogout(user) {
+
+  if (!confirm(`Force logout ${user}?`)) return;
+
+  try {
+
+    await supabaseClient
+      .from("users")
+      .update({ forceLogout: true })
+      .eq("username", user);
+
+    alert(`${user} will be logged out.`);
+
+  } catch (err) {
+    console.error("Force logout failed", err);
+  }
+
+}
+
+async function changeName(user) {
+  const newName = prompt(`Enter a new name for ${user}:`);
+  if (!newName || newName === user) return;
+
+  try {
+    // 1️⃣ Update the username in the users table
+    await supabaseClient
+      .from("users")
+      .update({ username: newName })
+      .eq("username", user);
+
+    // 2️⃣ Update all messages by that user
+    await supabaseClient
+      .from("messages")
+      .update({ username: newName })
+      .eq("username", user);
+
+    // 3️⃣ Update messagesMap locally for live view
+    messagesMap.forEach((el) => {
+      if (el.dataset.user === user) {
+        el.dataset.user = newName;
+        const unameDiv = el.querySelector(".username");
+        if (unameDiv) unameDiv.textContent = newName;
+      }
+    });
+
+    // 4️⃣ Update localStorage if the admin is renaming themselves
+    if (user === username) {
+      username = newName;
+      localStorage.setItem("chatUsername", newName);
+    }
+
+    alert(`Username changed from "${user}" to "${newName}"`);
+  } catch (err) {
+    console.error("Change name failed", err);
+    alert("❌ Failed to change name.");
+  }
+}
+
+async function exportChat() {
+
+  try {
+
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("*");
+
+    if (error) throw error;
+
+    const blob = new Blob(
+      [JSON.stringify(data, null, 2)],
+      { type: "application/json" }
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chat_export.json";
+    a.click();
+
+    URL.revokeObjectURL(url);
+
+  } catch (err) {
+    console.error("Export failed", err);
+  }
+
+}
+
+async function deleteKeyword() {
+
+  const keyword = prompt("Enter keyword to delete:");
+  if (!keyword) return;
+
+  try {
+
+    const { data } = await supabaseClient
+      .from("messages")
+      .select("id,content");
+
+    const matches = data.filter(m => m.content?.includes(keyword));
+
+    if (!matches.length) {
+      alert("No messages found.");
+      return;
+    }
+
+    if (!confirm(`Delete ${matches.length} messages containing "${keyword}"?`)) return;
+
+    for (const msg of matches) {
+      await supabaseClient
+        .from("messages")
+        .delete()
+        .eq("id", msg.id);
+
+      const li = messagesMap.get(msg.id);
+      if (li) li.remove();
+    }
+
+  } catch (err) {
+    console.error("Delete keyword failed", err);
+  }
+
+}
+
+async function deleteUser(user) {
+
+  if (!confirm(`Delete ${user} and all their messages?`)) return;
+
+  try {
+
+    await supabaseClient
+      .from("messages")
+      .delete()
+      .eq("username", user);
+
+    await supabaseClient
+      .from("users")
+      .delete()
+      .eq("username", user);
+
+    messagesMap.forEach((el) => {
+      if (el.dataset.user === user) el.remove();
+    });
+
+  } catch (err) {
+    console.error("Delete user failed", err);
+  }
+
+}
+
+async function promote(user) {
+
+  const role = prompt("Set role (User / Manager / Admin):", "User");
+
+  if (!role || !["User","Manager","Admin"].includes(role)) {
+    alert("Invalid role.");
+    return;
+  }
+
+  try {
+
+    await supabaseClient
+      .from("users")
+      .update({ role })
+      .eq("username", user);
+
+    alert(`${user} is now ${role}`);
+
+  } catch (err) {
+    console.error("Role change failed", err);
+  }
+
+}
+
+async function userInfo(user) {
+
+  try {
+
+    const { data } = await supabaseClient
+      .from("users")
+      .select("*")
+      .eq("username", user)
+      .maybeSingle();
+
+    if (!data) return alert("User not found.");
+
+    alert(
+      `User: ${user}
+Role: ${data.role || "User"}
+Blocked: ${data.blocked || false}
+Muted Until: ${data.muted_until || "None"}`
+    );
+
+  } catch (err) {
+    console.error("User info failed", err);
+  }
+
+}
 
   if(viewerRole === "Admin") li.appendChild(adminDiv);
   else if(viewerRole === "Manager") li.appendChild(managerDiv);
@@ -356,6 +559,8 @@ li.addEventListener("contextmenu", (e) => {
   const messageId = message.dataset.id;
   const author = message.dataset.user;
 
+  let currentSection = menu;
+
   const addButton = (label, action) => {
     const btn = document.createElement("button");
     btn.textContent = label;
@@ -366,6 +571,8 @@ li.addEventListener("contextmenu", (e) => {
     btn.style.background = "transparent";
     btn.style.cursor = "pointer";
     btn.style.color = "white";
+    btn.style.textAlign = "left";
+
     btn.onmouseenter = () => btn.style.background = "#40444b";
     btn.onmouseleave = () => btn.style.background = "transparent";
 
@@ -374,26 +581,73 @@ li.addEventListener("contextmenu", (e) => {
       menu.style.display = "none";
     };
 
-    menu.appendChild(btn);
+    currentSection.appendChild(btn);
+  };
+
+  const addSection = (title) => {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    const header = document.createElement("div");
+    header.textContent = title + " ▶";
+    header.style.fontSize = "12px";
+    header.style.padding = "6px";
+    header.style.cursor = "pointer";
+    header.style.color = "white";
+    header.style.background = "transparent";
+
+    header.onmouseenter = () => header.style.background = "#40444b";
+    header.onmouseleave = () => header.style.background = "transparent";
+
+    const sub = document.createElement("div");
+    sub.style.position = "absolute";
+    sub.style.left = "100%";
+    sub.style.top = "0";
+    sub.style.background = "#2f3136";
+    sub.style.border = "1px solid #444";
+    sub.style.display = "none";
+    sub.style.minWidth = "180px";
+
+    wrapper.onmouseenter = () => sub.style.display = "block";
+    wrapper.onmouseleave = () => sub.style.display = "none";
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(sub);
+    menu.appendChild(wrapper);
+
+    currentSection = sub;
   };
 
   // Basic actions (everyone)
   addButton("Reply", () => startReply(messageId));
-
   addButton("React 👍", () => addReaction(messageId, "👍"));
-
   addButton("Report", () => reportMessage(messageId));
 
-  // Manager actions
-  if (currentRole === "Manager" || currentRole === "Admin") {
-    addButton("Pin Message", () => pinMessage(messageId));
-  }
+// Manager actions (only for managers on their own messages)
+if (currentRole === "Manager" && author === username) {
+  addSection("Manager");
+  addButton("Delete My Message", () => deleteMessage(messageId));
+}
 
   // Admin actions
   if (currentRole === "Admin") {
+
+    addSection("Delete");
     addButton("Delete", () => deleteMessage(messageId));
+    addButton("Delete By Keyword", () => deleteKeyword(message));
+    addButton("Delete User + Messages", () => deleteUser(author));
+
+    addSection("Info");
+    addButton("User Info", () => userInfo(author));
+    addButton("Export Chat", () => exportChat(message));
+
+    addSection("Edit");
+    addButton("Edit Message", () => editMessage(messageId));
+    addButton("Change Name", () => changeName(author));
+    addButton("Promote / Demote", () => promote(author));
     addButton("Mute User", () => muteUser(author));
     addButton("Block User", () => blockUser(author));
+    addButton("Force Logout", () => forceLogout(author));
   }
 
   enhanceMessage(li, msg);
@@ -643,7 +897,7 @@ async function editMessage(messageId) {
   if (!li) return;
 
   const contentEl = li.querySelector(".content");
-  const oldText = contentEl.textContent;
+  const oldText = contentEl.innerHTML;
 
   const newText = prompt("Edit message:", oldText);
   if (!newText || newText === oldText) return;
@@ -752,7 +1006,7 @@ function startReply(messageId) {
   if (!li) return;
 
   const author = li.dataset.user;
-  const content = li.querySelector(".content")?.textContent || "";
+  const content = li.querySelector(".content")?.innerHTML || "";
 
   input.value = `@${author} `;
   input.placeholder = `Replying to ${author}: ${content.substring(0, 40)}...`;
@@ -793,7 +1047,7 @@ function renderReply(msg, li) {
   preview.className = "replyPreview";
 
   const name = original.dataset.user;
-  const text = original.querySelector(".content")?.textContent || "";
+  const text = original.querySelector(".content")?.innerHTML || "";
 
   preview.textContent = `Replying to ${name}: ${text.substring(0,40)}...`;
 
@@ -892,15 +1146,8 @@ function attachHoverControls(li, msg) {
 
 
 
-  const editBtn = document.createElement("button");
-  editBtn.textContent = "✏";
-  editBtn.onclick = () => editMessage(msg.id);
-
-
-
   controls.appendChild(reactBtn);
   controls.appendChild(replyBtn);
-  controls.appendChild(editBtn);
 
   li.style.position = "relative";
   li.appendChild(controls);

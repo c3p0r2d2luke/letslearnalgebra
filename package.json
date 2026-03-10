@@ -3,19 +3,23 @@
   "version": "1.0.0",
   "description": "",
   "main": "script.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://@github.com/c3p0r2d2luke/letslearnalgebra.git"
+    "url": "git+https://github.com/c3p0r2d2luke/letslearnalgebra.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/c3p0r2d2luke/letslearnalgebra/issues"
   },
-  "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme"
+  "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
+  "devDependencies": {
+    "eslint": "^10.0.3",
+    "@eslint/eslintrc": "^3.3.5"
+  }
 }
