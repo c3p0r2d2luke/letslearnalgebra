@@ -275,6 +275,7 @@ function renderMessage(msg) {
   if (msg.role === "Admin") {
     const wrapper = document.createElement("div");
     const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+    // only admins can send HTML, so render it normally
     wrapper.innerHTML = cleanContent;
     contentDiv.appendChild(wrapper);
 
@@ -298,7 +299,8 @@ function renderMessage(msg) {
 
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-  wrapper.innerHTML = cleanContent;
+  // escape any HTML for non-admin roles by setting textContent
+  wrapper.textContent = cleanContent;
 
   contentDiv.appendChild(wrapper);
 

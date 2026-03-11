@@ -303,10 +303,18 @@ function renderMessage(msg) {
   uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
   li.appendChild(uname);
 
-  // Content (text only — avoids stored XSS)
+  // Content (admins may include HTML, others treated as plain text)
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
-  contentDiv.textContent = msg.content;
+  if (msg.role === "Admin") {
+    // render HTML for admins
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = msg.content;
+    contentDiv.appendChild(wrapper);
+  } else {
+    // escape HTML for non-admins
+    contentDiv.textContent = msg.content;
+  }
   li.appendChild(contentDiv);
 
   // Admin controls container
