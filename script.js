@@ -100,7 +100,7 @@ async function loadUser() {
   button.disabled = false;
 
   try {
-    const { data } = await supabaseClient.from("users").select("role").ilike("username", storedName).maybeSingle();
+    const { data } = await supabaseClient.from("users").select("role").eq("username", storedName).maybeSingle();
     currentRole = data?.role || "User";
     localStorage.setItem("chatRole", currentRole);
   } catch {
@@ -433,39 +433,46 @@ async function exportChat() {
 }
 
 async function deleteKeyword() {
-
   const keyword = prompt("Enter keyword to delete:");
   if (!keyword) return;
 
   try {
-
-    const { data } = await supabaseClient
+    // Use ilike for case-insensitive partial matching
+    const { data, error } = await supabaseClient
       .from("messages")
-      .select("id,content");
+      .select("id")
+      .ilike("content", `%${keyword}%`); // ✅ Partial match
 
-    const matches = data.filter(m => m.content?.includes(keyword));
+    if (error) throw error;
 
-    if (!matches.length) {
+    if (!data.length) {
       alert("No messages found.");
       return;
     }
 
-    if (!confirm(`Delete ${matches.length} messages containing "${keyword}"?`)) return;
+    if (!confirm(`Delete ${data.length} messages containing "${keyword}"?`)) return;
 
-    for (const msg of matches) {
-      await supabaseClient
+    // Delete each message individually with proper ID filter
+    for (const msg of data) {
+      const { error: deleteError } = await supabaseClient
         .from("messages")
         .delete()
-        .eq("id", msg.id);
-
-      const li = messagesMap.get(msg.id);
-      if (li) li.remove();
+        .eq("id", msg.id); // ✅ Filter by ID
+      
+      if (deleteError) throw deleteError;
     }
 
+    // Remove from local cache
+    data.forEach(msg => {
+      const li = messagesMap.get(msg.id);
+      if (li) li.remove();
+    });
+
+    alert(`✅ Deleted ${data.length} messages.`);
   } catch (err) {
     console.error("Delete keyword failed", err);
+    alert("❌ Failed to delete messages.");
   }
-
 }
 
 async function deleteUser(user) {
@@ -523,10 +530,10 @@ async function userInfo(user) {
   try {
 
     const { data } = await supabaseClient
-      .from("users")
-      .select("*")
-      .eq("username", user)
-      .maybeSingle();
+  .from("users")
+  .select("role")
+  .eq("username", user)
+  .single();
 
     if (!data) return alert("User not found.");
 
@@ -753,14 +760,13 @@ async function reportMessage(messageId) {
 
     if (error) throw error;
 
-    const reportData = {
-      reporter: username,
-      offender: data.username,
-      message: data.content,
-      reason: reason,
-      message_id: messageId,
-      time: new Date().toLocaleString()
-    };
+   const reportData = {
+  reporter: username,
+  reported_user: data.username,
+  content: data.content,
+  reason: reason,
+  message_id: messageId
+};
 
     // store in database
     await supabaseClient
@@ -812,22 +818,18 @@ async function pinMessage(messageId) {
   }
 }
 
-
-// Delete message
+// Delete Message
 async function deleteMessage(messageId) {
   if (!confirm("Delete this message?")) return;
 
-  try {
+  const { error } = await supabaseClient.rpc("delete_message_if_admin", {
+    msg_id: messageId,
+    requester: username
+  });
 
-    const { error } = await supabaseClient
-      .from("messages")
-      .delete()
-      .eq("id", messageId);
-
-    if (error) throw error;
-
-  } catch (err) {
-    console.error("Delete failed", err);
+  if (error) {
+    console.error("Delete failed", error);
+    alert("❌ You are not allowed to delete messages.");
   }
 }
 
