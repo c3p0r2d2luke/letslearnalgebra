@@ -861,14 +861,36 @@ async function pinMessage(messageId) {
 async function deleteMessage(messageId) {
   if (!confirm("Delete this message?")) return;
 
-  const { error } = await supabaseClient.rpc("delete_message_if_admin", {
-    msg_id: messageId,
-    requester: username
-  });
+  // 1. STRICT ROLE CHECK (Client Side)
+  if (currentRole !== "Admin") {
+    alert("❌ Access Denied: Only Admins can delete messages.");
+    return;
+  }
+
+  // 2. Perform the delete
+  const { data, error } = await supabaseClient
+    .from("messages")
+    .delete()
+    .eq("id", messageId)
+    .select(); // Select to confirm deletion
 
   if (error) {
-    console.error("Delete failed", error);
-    alert("❌ You are not allowed to delete messages.");
+    console.error("Delete error:", error);
+    alert(`❌ Delete failed: ${error.message}`);
+  } else {
+    // 3. Verify rows were actually deleted
+    if (data && data.length > 0) {
+      alert(`✅ Success! Deleted 1 message.`);
+      // Remove from local cache
+      const li = messagesMap.get(Number(messageId));
+      if (li) {
+        li.remove();
+        messagesMap.delete(Number(messageId));
+      }
+    } else {
+      // This happens if RLS blocks it (0 rows affected)
+      alert("⚠️ Delete command sent, but 0 rows were affected. \nThis usually means RLS is blocking the delete.\n\nCheck your Supabase Policies.");
+    }
   }
 }
 
