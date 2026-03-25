@@ -40,7 +40,7 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 // ------------------------ User data ------------------------
 let username = localStorage.getItem("chatUsername") || "";
-let currentRole = localStorage.getItem("chatRole") || "User";
+let currentRole = "User";
 const messagesMap = new Map();
 
 // ------------------------ Name Lock ------------------------
@@ -99,14 +99,26 @@ async function loadUser() {
   input.disabled = false;
   button.disabled = false;
 
-  try {
-    const { data } = await supabaseClient.from("users").select("role").eq("username", storedName).maybeSingle();
-    currentRole = data?.role || "User";
-    localStorage.setItem("chatRole", currentRole);
-  } catch {
+try {
+  const { data, error } = await supabaseClient
+    .from("users")
+    .select("role, blocked")
+    .eq("username", storedName)
+    .single();
+
+  if (error) {
+    console.error("Failed to fetch user role:", error);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
+  } else {
+    currentRole = data?.role || "User";
+    localStorage.setItem("chatRole", currentRole);
   }
+} catch (err) {
+  console.error("Exception fetching user:", err);
+  currentRole = "User";
+  localStorage.setItem("chatRole", "User");
+}
 
   logBox.style.display = currentRole === "Admin" ? "block" : "none";
 
@@ -114,7 +126,10 @@ async function loadUser() {
   initRealtime();
 }
 
-loadUser();
+loadUser().then(() => {
+  console.log("Final role:", currentRole);
+  console.log("Username:", username);
+});
 
 // ------------------------ Save Name ------------------------
 async function saveName() {
@@ -125,14 +140,38 @@ async function saveName() {
   localStorage.setItem("chatUsername", name);
 
   try {
-    const { data, error } = await supabaseClient.from("users").upsert({ username: name }, { onConflict: ['username'] }).select();
-    if (error) throw error;
+    // First check if user exists
+    const { data: existingUser, error: checkError } = await supabaseClient
+      .from("users")
+      .select("role")
+      .eq("username", name)
+      .single();
 
-    const { data: userData } = await supabaseClient.from("users").select("role").eq("username", name).maybeSingle();
-    currentRole = userData?.role || "User";
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error("Check error:", checkError);
+    }
+
+    // If user exists, update role; if not, insert with default role
+    const { data, error } = await supabaseClient
+      .from("users")
+      .upsert({ 
+        username: name,
+        role: existingUser?.role || "User"  // Keep existing role if user exists
+      }, { 
+        onConflict: ['username']
+      })
+      .select("role");
+
+    if (error) {
+      console.error("Failed to save user:", error);
+      currentRole = "User";
+    } else {
+      currentRole = data?.[0]?.role || "User";
+    }
+
     localStorage.setItem("chatRole", currentRole);
   } catch (err) {
-    console.error(err);
+    console.error("Exception saving user:", err);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
   }
@@ -169,7 +208,7 @@ async function sendMessage() {
     return;
   }
 
-  const { data: user } = await supabaseClient.from("users").select("blocked").eq("username", username).maybeSingle();
+  const { data: user } = await supabaseClient.from("users").select("blocked").eq("username", username).single();
   if (user?.blocked) {
     alert("❌ You are blocked from sending messages.");
     return;
@@ -313,7 +352,7 @@ function renderMessage(msg) {
       .from("messages")
       .select("username, content")
       .eq("id", msg.reply_to)
-      .maybeSingle()
+      .single()
       .then(({ data: parentMsg }) => {
         if (parentMsg) {
           const replyContext = document.createElement("div");
@@ -935,7 +974,7 @@ async function addReaction(messageId, emoji) {
       .eq("message_id", messageId)
       .eq("username", username)
       .eq("emoji", emoji)
-      .maybeSingle();
+      .single();
 
     if (data) {
       await supabaseClient
@@ -1260,5 +1299,47 @@ async function renderAllThreads() {
   });
 }
 
+// ===================== Force Logout Logic =====================
+function watchForceLogout(currentUsername) {
+  supabaseClient
+    .channel('force-logout')
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'users',
+        filter: `username=eq.${currentUsername}`
+      },
+      (payload) => {
+        if (payload.new.forceLogout) {
+          handleForcedLogout();
+        }
+      }
+    )
+    .subscribe();
+}
 
+function handleForcedLogout() {
+  console.log("💀 You have been force logged out");
+
+  // 🔥 Clear EVERYTHING
+  localStorage.clear();
+  sessionStorage.clear();
+
+  // Optional: clear cookies too
+  document.cookie.split(";").forEach(c => {
+    document.cookie = c
+      .replace(/^ +/, "")
+      .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+
+  // Supabase logout
+  supabaseClient.auth.signOut();
+
+  alert("You have been logged out by an admin.");
+
+  // Reload or redirect
+  location.reload() // or just location.reload()
+}
 // ======================== END FEATURES ========================
