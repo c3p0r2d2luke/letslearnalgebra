@@ -285,7 +285,7 @@ async function buildLinkPreview(url) {
 }
 
 // ------------------------ Render Message ------------------------
-function renderMessage(msg) {
+async function renderMessage(msg) {
   let li = messagesMap.get(msg.id);
   const viewerRole = currentRole;
 
@@ -314,7 +314,6 @@ function renderMessage(msg) {
   if (msg.role === "Admin") {
     const wrapper = document.createElement("div");
     const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-    // only admins can send HTML, so render it normally
     wrapper.innerHTML = cleanContent;
     contentDiv.appendChild(wrapper);
 
@@ -332,18 +331,12 @@ function renderMessage(msg) {
         if (preview) contentDiv.appendChild(document.createRange().createContextualFragment(preview));
       });
     }
-} else {
-
-  const wrapper = document.createElement("div");
-
-  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-
-  // escape any HTML for non-admin roles by setting textContent
-  wrapper.textContent = cleanContent;
-
-  contentDiv.appendChild(wrapper);
-
-}
+  } else {
+    const wrapper = document.createElement("div");
+    const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+    wrapper.textContent = cleanContent;
+    contentDiv.appendChild(wrapper);
+  }
   li.appendChild(contentDiv);
 
   // Add reply context if this message is a reply
@@ -364,7 +357,7 @@ function renderMessage(msg) {
           replyContext.innerHTML = `
             <div class="replyContextContent">
               <div class="replyContextAuthor">${author}</div>
-              <div>${content}${parentMsg.content.length > 50 ? "..." : ""}</div>
+              <div>$${content}$${parentMsg.content.length > 50 ? "..." : ""}</div>
             </div>
           `;
           
@@ -383,331 +376,20 @@ function renderMessage(msg) {
   managerDiv.className = "managerControls";
   managerDiv.style.display = "none";
 
-async function forceLogout(user) {
-
-  if (!confirm(`Force logout ${user}?`)) return;
-
-  try {
-
-    await supabaseClient
-      .from("users")
-      .update({ forceLogout: true })
-      .eq("username", user);
-
-    alert(`${user} will be logged out.`);
-
-  } catch (err) {
-    console.error("Force logout failed", err);
-  }
-
-}
-
-async function changeName(user) {
-  const newName = prompt(`Enter a new name for ${user}:`);
-  if (!newName || newName === user) return;
-
-  try {
-    // 1️⃣ Update the username in the users table
-    await supabaseClient
-      .from("users")
-      .update({ username: newName })
-      .eq("username", user);
-
-    // 2️⃣ Update all messages by that user
-    await supabaseClient
-      .from("messages")
-      .update({ username: newName })
-      .eq("username", user);
-
-    // 3️⃣ Update messagesMap locally for live view
-    messagesMap.forEach((el) => {
-      if (el.dataset.user === user) {
-        el.dataset.user = newName;
-        const unameDiv = el.querySelector(".username");
-        if (unameDiv) unameDiv.textContent = newName;
-      }
-    });
-
-    // 4️⃣ Update localStorage if the admin is renaming themselves
-    if (user === username) {
-      username = newName;
-      localStorage.setItem("chatUsername", newName);
-    }
-
-    alert(`Username changed from "${user}" to "${newName}"`);
-  } catch (err) {
-    console.error("Change name failed", err);
-    alert("❌ Failed to change name.");
-  }
-}
-
-async function exportChat() {
-
-  try {
-
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("*");
-
-    if (error) throw error;
-
-    const blob = new Blob(
-      [JSON.stringify(data, null, 2)],
-      { type: "application/json" }
-    );
-
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "chat_export.json";
-    a.click();
-
-    URL.revokeObjectURL(url);
-
-  } catch (err) {
-    console.error("Export failed", err);
-  }
-
-}
-
-async function deleteKeyword() {
-  const keyword = prompt("Enter keyword to delete:");
-  if (!keyword) return;
-
-  try {
-    // Use ilike for case-insensitive partial matching
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("id")
-      .ilike("content", `%${keyword}%`); // ✅ Partial match
-
-    if (error) throw error;
-
-    if (!data.length) {
-      alert("No messages found.");
-      return;
-    }
-
-    if (!confirm(`Delete ${data.length} messages containing "${keyword}"?`)) return;
-
-    // Delete each message individually with proper ID filter
-    const ids = data.map(msg => msg.id);
-
-const { error: deleteError } = await supabaseClient
-  .from("messages")
-  .delete()
-  .in("id", ids);
-
-if (deleteError) throw deleteError;
-
-    // Remove from local cache
-    data.forEach(msg => {
-      const li = messagesMap.get(msg.id);
-      if (li) li.remove();
-    });
-
-    alert(`✅ Deleted ${data.length} messages.`);
-  } catch (err) {
-    console.error("Delete keyword failed", err);
-    alert("❌ Failed to delete messages.");
-  }
-}
-
-async function deleteUser(user) {
-
-  if (!confirm(`Delete ${user} and all their messages?`)) return;
-
-  try {
-
-    await supabaseClient
-      .from("messages")
-      .delete()
-      .eq("username", user);
-
-    await supabaseClient
-      .from("users")
-      .delete()
-      .eq("username", user);
-
-    messagesMap.forEach((el) => {
-      if (el.dataset.user === user) el.remove();
-    });
-
-  } catch (err) {
-    console.error("Delete user failed", err);
-  }
-
-}
-
-async function promote(user) {
-
-  const role = prompt("Set role (User / Manager / Admin):", "User");
-
-  if (!role || !["User","Manager","Admin"].includes(role)) {
-    alert("Invalid role.");
-    return;
-  }
-
-  try {
-
-    await supabaseClient
-      .from("users")
-      .update({ role })
-      .eq("username", user);
-
-    alert(`${user} is now ${role}`);
-
-  } catch (err) {
-    console.error("Role change failed", err);
-  }
-
-}
-
-async function userInfo(user) {
-
-  try {
-
-    const { data } = await supabaseClient
-  .from("users")
-  .select("role")
-  .eq("username", user)
-  .single();
-
-    if (!data) return alert("User not found.");
-
-    alert(
-      `User: ${user}
-Role: ${data.role || "User"}
-Blocked: ${data.blocked || false}
-Muted Until: ${data.muted_until || "None"}`
-    );
-
-  } catch (err) {
-    console.error("User info failed", err);
-  }
-
-}
+  // ... [keep your existing admin/manager control functions here] ...
 
   if(viewerRole === "Admin") li.appendChild(adminDiv);
   else if(viewerRole === "Manager") li.appendChild(managerDiv);
 
   // Right-click menu for Discord-style
-li.addEventListener("contextmenu", (e) => {
-  const message = e.target.closest("li");
-  if (!message) return;
+  li.addEventListener("contextmenu", (e) => {
+    // ... [keep your existing contextmenu code] ...
+  });
 
-  e.preventDefault();
-
-  const menu = document.getElementById("adminMenu");
-  if (!menu) return;
-
-  menu.innerHTML = "";
-
-  const messageId = message.dataset.id;
-  const author = message.dataset.user;
-
-  let currentSection = menu;
-
-  const addButton = (label, action) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "6px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = "white";
-    btn.style.textAlign = "left";
-
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
-
-    btn.onclick = () => {
-      action();
-      menu.style.display = "none";
-    };
-
-    currentSection.appendChild(btn);
-  };
-
-  const addSection = (title) => {
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
-
-    const header = document.createElement("div");
-    header.textContent = title + " ▶";
-    header.style.fontSize = "12px";
-    header.style.padding = "6px";
-    header.style.cursor = "pointer";
-    header.style.color = "white";
-    header.style.background = "transparent";
-
-    header.onmouseenter = () => header.style.background = "#40444b";
-    header.onmouseleave = () => header.style.background = "transparent";
-
-    const sub = document.createElement("div");
-    sub.style.position = "absolute";
-    sub.style.left = "100%";
-    sub.style.top = "0";
-    sub.style.background = "#2f3136";
-    sub.style.border = "1px solid #444";
-    sub.style.display = "none";
-    sub.style.minWidth = "180px";
-
-    wrapper.onmouseenter = () => sub.style.display = "block";
-    wrapper.onmouseleave = () => sub.style.display = "none";
-
-    wrapper.appendChild(header);
-    wrapper.appendChild(sub);
-    menu.appendChild(wrapper);
-
-    currentSection = sub;
-  };
-
-  // Basic actions (everyone)
-  addButton("Reply", () => startReply(messageId));
-  addButton("React 👍", () => addReaction(messageId, "👍"));
-  addButton("Report", () => reportMessage(messageId));
-
-// Manager actions (only for managers on their own messages)
-if (currentRole === "Manager" && author === username) {
-  addSection("Manager");
-  addButton("Delete My Message", () => deleteMessage(messageId));
-}
-
-  // Admin actions
-  if (currentRole === "Admin") {
-
-    addSection("Delete");
-    addButton("Delete", () => deleteMessage(messageId));
-    addButton("Delete By Keyword", () => deleteKeyword(message));
-    addButton("Delete User + Messages", () => deleteUser(author));
-
-    addSection("Info");
-    addButton("User Info", () => userInfo(author));
-    addButton("Export Chat", () => exportChat(message));
-
-    addSection("Edit");
-    addButton("Edit Message", () => editMessage(messageId));
-    addButton("Change Name", () => changeName(author));
-    addButton("Promote / Demote", () => promote(author));
-    addButton("Mute User", () => muteUser(author));
-    addButton("Block User", () => blockUser(author));
-    addButton("Force Logout", () => forceLogout(author));
-  }
-
-  enhanceMessage(li, msg);
-
-  menu.style.position = "fixed";
-  menu.style.left = e.clientX + "px";
-  menu.style.top = e.clientY + "px";
-  menu.style.background = "#2f3136";
-  menu.style.border = "1px solid #444";
-  menu.style.padding = "4px";
-  menu.style.display = "block";
-});
+  // Use requestAnimationFrame to ensure DOM is stable before enhancing
+  requestAnimationFrame(() => {
+    enhanceMessage(li, msg);
+  });
 }
 
 // ------------------------ Realtime Handler ------------------------
@@ -779,6 +461,14 @@ enablePush();
 document.addEventListener("click", () => {
   const menu = document.getElementById("adminMenu");
   if (menu) menu.style.display = "none";
+});
+
+// Close emoji picker when clicking outside
+document.addEventListener("click", (e) => {
+  const picker = document.getElementById("emojiPicker");
+  if (picker && !picker.contains(e.target) && !e.target.classList.contains("emoji-trigger")) {
+    picker.style.display = "none";
+  }
 });
 
 // ------------------------ ADMIN MENU FUNCTIONS ------------------------
@@ -1023,39 +713,57 @@ async function addReaction(messageId, emoji) {
 
 
 async function renderReactions(messageId, container) {
+  // 1. Clear existing reactions to prevent duplicates on re-render
+  const existingBar = container.querySelector(".reactionBar");
+  if (existingBar) {
+    existingBar.remove();
+  }
 
-  const { data } = await supabaseClient
-    .from("reactions")
-    .select("*")
-    .eq("message_id", messageId);
+  try {
+    const { data, error } = await supabaseClient
+      .from("reactions")
+      .select("*")
+      .eq("message_id", messageId);
 
-  if (!data) return;
+    if (error) {
+      console.error("Error fetching reactions:", error);
+      return;
+    }
 
-  const reactionsMap = {};
+    if (!data || data.length === 0) return;
 
-  data.forEach(r => {
-    if (!reactionsMap[r.emoji]) reactionsMap[r.emoji] = [];
-    reactionsMap[r.emoji].push(r.username);
-  });
+    const reactionsMap = {};
+    data.forEach(r => {
+      if (!reactionsMap[r.emoji]) reactionsMap[r.emoji] = [];
+      reactionsMap[r.emoji].push(r.username);
+    });
 
-  const wrap = document.createElement("div");
-  wrap.className = "reactionBar";
+    const wrap = document.createElement("div");
+    wrap.className = "reactionBar";
+    wrap.style.marginTop = "8px"; // Add some spacing
+    wrap.style.display = "flex";
+    wrap.style.gap = "8px";
 
-  Object.entries(reactionsMap).forEach(([emoji, users]) => {
+    Object.entries(reactionsMap).forEach(([emoji, users]) => {
+      const bubble = document.createElement("span");
+      bubble.textContent = `${emoji} ${users.length}`;
+      bubble.className = "reactionBubble";
+      bubble.style.cursor = "pointer";
+      bubble.style.padding = "4px 8px";
+      bubble.style.borderRadius = "12px";
+      bubble.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+      bubble.style.fontSize = "14px";
+      
+      // Toggle reaction on click
+      bubble.onclick = () => addReaction(messageId, emoji);
 
-    const bubble = document.createElement("span");
+      wrap.appendChild(bubble);
+    });
 
-    bubble.textContent = `${emoji} ${users.length}`;
-    bubble.className = "reactionBubble";
-
-    bubble.onclick = () => addReaction(messageId, emoji);
-
-    wrap.appendChild(bubble);
-
-  });
-
-  container.appendChild(wrap);
-
+    container.appendChild(wrap);
+  } catch (err) {
+    console.error("Render reactions error", err);
+  }
 }
 
 
@@ -1187,37 +895,50 @@ setInterval(updateTypingIndicator, 1500);
 // ---------------- HOVER CONTROLS ----------------
 
 function attachHoverControls(li, msg) {
-
   const controls = document.createElement("div");
-
   controls.className = "hoverControls";
-
   controls.style.position = "absolute";
   controls.style.right = "10px";
   controls.style.top = "5px";
   controls.style.display = "none";
+  controls.style.zIndex = "1000";
 
-
-
+  // React Button (Triggers Picker)
   const reactBtn = document.createElement("button");
-  reactBtn.textContent = "😀";
-  reactBtn.onclick = () => addReaction(msg.id, "😀");
-
-
+  reactBtn.textContent = "😀"; // Icon for the button itself
+  reactBtn.className = "emoji-trigger"; // Tag to prevent closing when clicking it
+  reactBtn.style.background = "transparent";
+  reactBtn.style.border = "none";
+  reactBtn.style.cursor = "pointer";
+  reactBtn.style.fontSize = "18px";
+  
+  reactBtn.onclick = (e) => {
+    e.stopPropagation(); // Prevent immediate closure
+    const picker = document.getElementById("emojiPicker");
+    
+    // Position picker near the button
+    const rect = reactBtn.getBoundingClientRect();
+    picker.style.top = (rect.bottom + 5) + "px";
+    picker.style.left = rect.left + "px";
+    picker.style.display = "block";
+    
+    // Store the message ID on the picker for the selection handler
+    picker.dataset.targetMessageId = msg.id;
+  };
 
   const replyBtn = document.createElement("button");
   replyBtn.textContent = "↩";
+  replyBtn.style.background = "transparent";
+  replyBtn.style.border = "none";
+  replyBtn.style.cursor = "pointer";
+  replyBtn.style.fontSize = "18px";
   replyBtn.onclick = () => startReply(msg.id);
-
-
 
   controls.appendChild(reactBtn);
   controls.appendChild(replyBtn);
 
   li.style.position = "relative";
   li.appendChild(controls);
-
-
 
   li.addEventListener("mouseenter", () => {
     controls.style.display = "block";
@@ -1226,10 +947,21 @@ function attachHoverControls(li, msg) {
   li.addEventListener("mouseleave", () => {
     controls.style.display = "none";
   });
-
 }
 
+// Handle Emoji Selection from Picker
+document.querySelectorAll(".emoji-option").forEach(option => {
+  option.addEventListener("click", function() {
+    const picker = document.getElementById("emojiPicker");
+    const messageId = picker.dataset.targetMessageId;
+    const emoji = this.textContent;
 
+    if (messageId && emoji) {
+      addReaction(messageId, emoji);
+      picker.style.display = "none";
+    }
+  });
+});
 
 // ---------------- PATCH INTO MESSAGE RENDER ----------------
 
