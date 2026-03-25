@@ -507,3 +507,106 @@ li[data-pinned="true"] {
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+/* ===== DISCORD-STYLE FLEX LAYOUT ===== */
+.chat-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Messages fill remaining space */
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* Admin log box */
+#logBox {
+  max-height: 160px;
+  overflow-y: auto;
+  background: #0f0f10;
+  color: #00ff88;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px;
+  border-top: 1px solid var(--bg-secondary);
+}
+
+/* Controls fixed to bottom */
+#controls {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+#messageInput {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  min-height: 44px;
+}
+
+#messageInput::placeholder {
+  color: var(--text-muted);
+}
+
+#messageInput:focus {
+  outline: none;
+}
+
+#uploadBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+#uploadBtn img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+#uploadBtn:hover {
+  opacity: 0.7;
+}
+
+#sendButton {
+  display: none;
+}
+
+/* Make sure messages adjust when log box is shown */
+.chat-app #messages {
+  /* If logBox is visible, subtract its height */
+  margin-bottom: 0;
+}
+
+/* Scrollbars for messages and log box */
+#messages::-webkit-scrollbar,
+#logBox::-webkit-scrollbar {
+  width: 8px;
+}
+
+#messages::-webkit-scrollbar-thumb,
+#logBox::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+}
+
+#messages::-webkit-scrollbar-track,
+#logBox::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.05);
+}
