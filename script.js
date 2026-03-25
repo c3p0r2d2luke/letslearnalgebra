@@ -453,14 +453,14 @@ async function deleteKeyword() {
     if (!confirm(`Delete ${data.length} messages containing "${keyword}"?`)) return;
 
     // Delete each message individually with proper ID filter
-    for (const msg of data) {
-      const { error: deleteError } = await supabaseClient
-        .from("messages")
-        .delete()
-        .eq("id", msg.id); // ✅ Filter by ID
-      
-      if (deleteError) throw deleteError;
-    }
+    const ids = data.map(msg => msg.id);
+
+const { error: deleteError } = await supabaseClient
+  .from("messages")
+  .delete()
+  .in("id", ids);
+
+if (deleteError) throw deleteError;
 
     // Remove from local cache
     data.forEach(msg => {
