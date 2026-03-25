@@ -1,3 +1,4 @@
+/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, NodeFilter, Date, Blob, URL */
 const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
@@ -134,10 +135,12 @@ loadUser().then(() => {
 // ------------------------ Save Name ------------------------
 async function saveName() {
   const name = nameInput.value.trim();
-  if (!name) return alert("Enter a name!");
+  if (!name) return alert("❌ Enter a name first!");
 
   username = name;
   localStorage.setItem("chatUsername", name);
+
+  alert(`📝 Starting save for: ${name}`);
 
   try {
     // First check if user exists
@@ -148,29 +151,37 @@ async function saveName() {
       .single();
 
     if (checkError && checkError.code !== 'PGRST116') {
+      alert(`⚠️ Check error: ${checkError.message}`);
       console.error("Check error:", checkError);
     }
+
+    alert(`🔍 User exists: ${existingUser ? 'YES' : 'NO'}`);
 
     // If user exists, update role; if not, insert with default role
     const { data, error } = await supabaseClient
       .from("users")
       .upsert({ 
         username: name,
-        role: existingUser?.role || "User"  // Keep existing role if user exists
+        role: existingUser?.role || "User"
       }, { 
         onConflict: ['username']
       })
       .select("role");
 
     if (error) {
+      alert(`❌ UPSERT FAILED!\n\nError: ${error.message}\n\nCheck your Supabase RLS policies!`);
       console.error("Failed to save user:", error);
       currentRole = "User";
     } else {
+      alert(`✅ UPSERT SUCCESS!\n\nRole: ${data?.[0]?.role || "User"}`);
       currentRole = data?.[0]?.role || "User";
     }
 
     localStorage.setItem("chatRole", currentRole);
+    alert(`💾 Saved to localStorage - Role: ${currentRole}`);
+
   } catch (err) {
+    alert(`💥 EXCEPTION CAUGHT!\n\n${err.message}`);
     console.error("Exception saving user:", err);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
@@ -188,7 +199,7 @@ async function saveName() {
   logBox.style.display = currentRole === "Admin" ? "block" : "none";
 
   updateMessageLock();
-  alert(`Welcome, ${name}! You are a ${currentRole}.`);
+  alert(`🎉 Welcome, ${name}! You are a ${currentRole}.`);
 }
 
 //URL Blocker
@@ -312,10 +323,56 @@ async function renderMessage(msg) {
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
   if (msg.role === "Admin") {
-    const wrapper = document.createElement("div");
-    const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-    wrapper.innerHTML = cleanContent;
-    contentDiv.appendChild(wrapper);
+const wrapper = document.createElement("div");
+const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+
+// Match: [📄 filename](url)
+const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+
+if (fileMatch) {
+  let fileName = fileMatch[1];
+  let url = fileMatch[2].trim();
+
+  // 🔧 Fix your broken URLs (this was your original bug)
+  url = url.replace(/[)\]\s]+$/, "");
+
+  const type = getFileType(url);
+
+  console.log("Fixed URL:", url);
+  console.log("Type:", type);
+
+  // 💥 FULL REPLACEMENT — no text, no preview, JUST media
+  if (type === "image") {
+    wrapper.innerHTML = `
+      <img src="${url}" style="max-width: 300px; border-radius: 8px; cursor: pointer;">
+    `;
+  } 
+  else if (type === "video") {
+    wrapper.innerHTML = `
+      <video controls style="max-width: 300px; border-radius: 8px;">
+        <source src="${url}">
+      </video>
+    `;
+  } 
+  else if (type === "audio") {
+    wrapper.innerHTML = `
+      <audio controls>
+        <source src="${url}">
+      </audio>
+    `;
+  } 
+  else {
+    wrapper.innerHTML = `
+      <a href="${url}" target="_blank">📄 ${fileName}</a>
+    `;
+  }
+
+} else {
+  // Normal text message
+  wrapper.textContent = cleanContent;
+}
+
+contentDiv.appendChild(wrapper);
 
     const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
     let foundUrl = null;
@@ -334,8 +391,50 @@ async function renderMessage(msg) {
   } else {
     const wrapper = document.createElement("div");
     const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-    wrapper.textContent = cleanContent;
-    contentDiv.appendChild(wrapper);
+const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+
+let url = fileMatch[2].trim();
+
+// Remove trailing ) or weird characters
+url = url.replace(/[)\]\s]+$/, "");
+
+if (fileMatch) {
+  const fileName = fileMatch[1];
+  const url = fileMatch[2];
+
+  const type = getFileType(url);
+
+console.log("URL:", url);
+console.log("Detected type:", type);
+
+  if (type === "image") {
+    wrapper.innerHTML = `
+      <img src="${url}" style="max-width: 300px; border-radius: 8px; cursor: pointer;">
+    `;
+  } 
+  else if (type === "video") {
+    wrapper.innerHTML = `
+      <video controls style="max-width: 300px; border-radius: 8px;">
+        <source src="${url}">
+      </video>
+    `;
+  } 
+  else if (type === "audio") {
+    wrapper.innerHTML = `
+      <audio controls>
+        <source src="${url}">
+      </audio>
+    `;
+  } 
+  else {
+    wrapper.innerHTML = `
+      <a href="${url}" target="_blank">📄 ${fileName}</a>
+    `;
+  }
+
+} else {
+  wrapper.textContent = cleanContent;
+}    contentDiv.appendChild(wrapper);
   }
   li.appendChild(contentDiv);
 
@@ -376,15 +475,331 @@ async function renderMessage(msg) {
   managerDiv.className = "managerControls";
   managerDiv.style.display = "none";
 
-  // ... [keep your existing admin/manager control functions here] ...
+async function forceLogout(user) {
+
+  if (!confirm(`Force logout ${user}?`)) return;
+
+  try {
+
+    await supabaseClient
+      .from("users")
+      .update({ forceLogout: true })
+      .eq("username", user);
+
+    alert(`${user} will be logged out.`);
+
+  } catch (err) {
+    console.error("Force logout failed", err);
+  }
+
+}
+
+async function changeName(user) {
+  const newName = prompt(`Enter a new name for ${user}:`);
+  if (!newName || newName === user) return;
+
+  try {
+    // 1️⃣ Update the username in the users table
+    await supabaseClient
+      .from("users")
+      .update({ username: newName })
+      .eq("username", user);
+
+    // 2️⃣ Update all messages by that user
+    await supabaseClient
+      .from("messages")
+      .update({ username: newName })
+      .eq("username", user);
+
+    // 3️⃣ Update messagesMap locally for live view
+    messagesMap.forEach((el) => {
+      if (el.dataset.user === user) {
+        el.dataset.user = newName;
+        const unameDiv = el.querySelector(".username");
+        if (unameDiv) unameDiv.textContent = newName;
+      }
+    });
+
+    // 4️⃣ Update localStorage if the admin is renaming themselves
+    if (user === username) {
+      username = newName;
+      localStorage.setItem("chatUsername", newName);
+    }
+
+    alert(`Username changed from "${user}" to "${newName}"`);
+  } catch (err) {
+    console.error("Change name failed", err);
+    alert("❌ Failed to change name.");
+  }
+}
+
+async function exportChat() {
+
+  try {
+
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("*");
+
+    if (error) throw error;
+
+    const blob = new Blob(
+      [JSON.stringify(data, null, 2)],
+      { type: "application/json" }
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chat_export.json";
+    a.click();
+
+    URL.revokeObjectURL(url);
+
+  } catch (err) {
+    console.error("Export failed", err);
+  }
+
+}
+
+async function deleteKeyword() {
+  const keyword = prompt("Enter keyword to delete:");
+  if (!keyword) return;
+
+  try {
+    // Use ilike for case-insensitive partial matching
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("id")
+      .ilike("content", `%${keyword}%`); // ✅ Partial match
+
+    if (error) throw error;
+
+    if (!data.length) {
+      alert("No messages found.");
+      return;
+    }
+
+    if (!confirm(`Delete ${data.length} messages containing "${keyword}"?`)) return;
+
+    // Delete each message individually with proper ID filter
+    const ids = data.map(msg => msg.id);
+
+const { error: deleteError } = await supabaseClient
+  .from("messages")
+  .delete()
+  .in("id", ids);
+
+if (deleteError) throw deleteError;
+
+    // Remove from local cache
+    data.forEach(msg => {
+      const li = messagesMap.get(msg.id);
+      if (li) li.remove();
+    });
+
+    alert(`✅ Deleted ${data.length} messages.`);
+  } catch (err) {
+    console.error("Delete keyword failed", err);
+    alert("❌ Failed to delete messages.");
+  }
+}
+
+async function deleteUser(user) {
+
+  if (!confirm(`Delete ${user} and all their messages?`)) return;
+
+  try {
+
+    await supabaseClient
+      .from("messages")
+      .delete()
+      .eq("username", user);
+
+    await supabaseClient
+      .from("users")
+      .delete()
+      .eq("username", user);
+
+    messagesMap.forEach((el) => {
+      if (el.dataset.user === user) el.remove();
+    });
+
+  } catch (err) {
+    console.error("Delete user failed", err);
+  }
+
+}
+
+async function promote(user) {
+
+  const role = prompt("Set role (User / Manager / Admin):", "User");
+
+  if (!role || !["User","Manager","Admin"].includes(role)) {
+    alert("Invalid role.");
+    return;
+  }
+
+  try {
+
+    await supabaseClient
+      .from("users")
+      .update({ role })
+      .eq("username", user);
+
+    alert(`${user} is now ${role}`);
+
+  } catch (err) {
+    console.error("Role change failed", err);
+  }
+
+}
+
+async function userInfo(user) {
+
+  try {
+
+    const { data } = await supabaseClient
+  .from("users")
+  .select("role")
+  .eq("username", user)
+  .single();
+
+    if (!data) return alert("User not found.");
+
+    alert(
+      `User: ${user}
+Role: ${data.role || "User"}
+Blocked: ${data.blocked || false}
+Muted Until: ${data.muted_until || "None"}`
+    );
+
+  } catch (err) {
+    console.error("User info failed", err);
+  }
+
+}
 
   if(viewerRole === "Admin") li.appendChild(adminDiv);
   else if(viewerRole === "Manager") li.appendChild(managerDiv);
 
   // Right-click menu for Discord-style
   li.addEventListener("contextmenu", (e) => {
-    // ... [keep your existing contextmenu code] ...
-  });
+  const message = e.target.closest("li");
+  if (!message) return;
+
+  e.preventDefault();
+
+  const menu = document.getElementById("adminMenu");
+  if (!menu) return;
+
+  menu.innerHTML = "";
+
+  const messageId = message.dataset.id;
+  const author = message.dataset.user;
+
+  let currentSection = menu;
+
+  const addButton = (label, action) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.padding = "6px";
+    btn.style.border = "none";
+    btn.style.background = "transparent";
+    btn.style.cursor = "pointer";
+    btn.style.color = "white";
+    btn.style.textAlign = "left";
+
+    btn.onmouseenter = () => btn.style.background = "#40444b";
+    btn.onmouseleave = () => btn.style.background = "transparent";
+
+    btn.onclick = () => {
+      action();
+      menu.style.display = "none";
+    };
+
+    currentSection.appendChild(btn);
+  };
+
+  const addSection = (title) => {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    const header = document.createElement("div");
+    header.textContent = title + " ▶";
+    header.style.fontSize = "12px";
+    header.style.padding = "6px";
+    header.style.cursor = "pointer";
+    header.style.color = "white";
+    header.style.background = "transparent";
+
+    header.onmouseenter = () => header.style.background = "#40444b";
+    header.onmouseleave = () => header.style.background = "transparent";
+
+    const sub = document.createElement("div");
+    sub.style.position = "absolute";
+    sub.style.left = "100%";
+    sub.style.top = "0";
+    sub.style.background = "#2f3136";
+    sub.style.border = "1px solid #444";
+    sub.style.display = "none";
+    sub.style.minWidth = "180px";
+
+    wrapper.onmouseenter = () => sub.style.display = "block";
+    wrapper.onmouseleave = () => sub.style.display = "none";
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(sub);
+    menu.appendChild(wrapper);
+
+    currentSection = sub;
+  };
+
+  // Basic actions (everyone)
+  addButton("Reply", () => startReply(messageId));
+  addButton("React 👍", () => addReaction(messageId, "👍"));
+  addButton("Report", () => reportMessage(messageId));
+
+// Manager actions (only for managers on their own messages)
+if (currentRole === "Manager" && author === username) {
+  addSection("Manager");
+  addButton("Delete My Message", () => deleteMessage(messageId));
+}
+
+  // Admin actions
+  if (currentRole === "Admin") {
+
+    addSection("Delete");
+    addButton("Delete", () => deleteMessage(messageId));
+    addButton("Delete By Keyword", () => deleteKeyword(message));
+    addButton("Delete User + Messages", () => deleteUser(author));
+
+    addSection("Info");
+    addButton("User Info", () => userInfo(author));
+    addButton("Export Chat", () => exportChat(message));
+
+    addSection("Edit");
+    addButton("Edit Message", () => editMessage(messageId));
+    addButton("Change Name", () => changeName(author));
+    addButton("Promote / Demote", () => promote(author));
+    addButton("Mute User", () => muteUser(author));
+    addButton("Block User", () => blockUser(author));
+    addButton("Force Logout", () => forceLogout(author));
+  }
+
+  enhanceMessage(li, msg);
+
+  menu.style.position = "fixed";
+  menu.style.left = e.clientX + "px";
+  menu.style.top = e.clientY + "px";
+  menu.style.background = "#2f3136";
+  menu.style.border = "1px solid #444";
+  menu.style.padding = "4px";
+  menu.style.display = "block";
+});
 
   // Use requestAnimationFrame to ensure DOM is stable before enhancing
   requestAnimationFrame(() => {
@@ -832,62 +1247,35 @@ function renderReply(msg, li) {
 
 // ---------------- TYPING INDICATOR ----------------
 
-let typingTimeout = null;
+// Initialize once
+const typingChannel = supabaseClient.channel('typing-indicator')
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "typing" }, () => {
+    updateTypingUI();
+  })
+  .on("postgres_changes", { event: "UPDATE", schema: "public", table: "typing" }, () => {
+    updateTypingUI();
+  })
+  .subscribe();
 
+// Simplified input handler
 input.addEventListener("input", async () => {
-
   if (!username) return;
-
-  await supabaseClient
-    .from("typing")
-    .upsert({
-      username: username,
-      typing: true,
-      updated_at: new Date()
-    });
-
+  
+  // Debounce locally before sending to DB
   clearTimeout(typingTimeout);
+  
+  // Send "typing" status
+  await supabaseClient.from("typing").upsert({
+    username: username,
+    typing: true,
+    updated_at: new Date()
+  });
 
   typingTimeout = setTimeout(async () => {
-
-    await supabaseClient
-      .from("typing")
-      .update({ typing: false })
+    await supabaseClient.from("typing").update({ typing: false })
       .eq("username", username);
-
   }, 2000);
-
 });
-
-
-
-async function updateTypingIndicator() {
-
-  const { data } = await supabaseClient
-    .from("typing")
-    .select("*")
-    .eq("typing", true);
-
-  const box = document.getElementById("typingIndicator");
-  if (!box) return;
-
-  const users = data
-    .filter(u => u.username !== username)
-    .map(u => u.username);
-
-  if (!users.length) {
-    box.textContent = "";
-    return;
-  }
-
-  box.textContent = `${users.join(", ")} typing...`;
-
-}
-
-
-
-// run typing indicator refresh
-setInterval(updateTypingIndicator, 1500);
 
 
 
@@ -1096,4 +1484,156 @@ function handleForcedLogout() {
   // Reload or redirect
   location.reload() // or just location.reload()
 }
+
+// ======================== FILE UPLOAD ========================
+const fileInput = document.getElementById("fileInput");
+const uploadBtn = document.getElementById("uploadBtn");
+
+// Open file picker when upload button is clicked
+uploadBtn.addEventListener("click", () => fileInput.click());
+
+// Handle file selection
+fileInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Validate file size (e.g., max 10MB)
+  const MAX_SIZE = 10 * 1024 * 1024;
+  if (file.size > MAX_SIZE) {
+    alert("❌ File too large. Max 10MB allowed.");
+    fileInput.value = "";
+    return;
+  }
+
+  // Show loading state
+  uploadBtn.textContent = "⏳";
+  uploadBtn.disabled = true;
+
+  try {
+    // 1. Generate unique filename
+    const timestamp = Date.now();
+    const fileName = `${timestamp}_${file.name.replace(/\s+/g, "_")}`;
+
+    // 2. Upload to Supabase Storage
+    const { error: uploadError } = await supabaseClient.storage
+  .from("chat-files")
+  .upload(fileName, file);
+
+    if (uploadError) throw uploadError;
+
+    // 3. Get public URL
+    const { data: urlData } = supabaseClient.storage
+      .from("chat-files")
+      .getPublicUrl(fileName);
+
+    // 4. Send message with file link
+    const fileLink = urlData.publicUrl;
+    const messageContent = `[📄 ${file.name}](${fileLink})`;
+
+    // Insert message directly (bypassing normal input flow)
+    const messageData = {
+      username,
+      content: messageContent,
+      role: currentRole,
+      is_pinned: false,
+      ip: "unknown" // You could fetch IP here if needed
+    };
+
+    if (replyingTo) {
+      messageData.reply_to = replyingTo;
+    }
+
+    const { error: insertError } = await supabaseClient
+      .from("messages")
+      .insert([messageData]);
+
+    if (insertError) throw insertError;
+
+    // Reset UI
+    input.value = "";
+    fileInput.value = "";
+    replyingTo = null;
+    uploadBtn.textContent = "📎";
+    uploadBtn.disabled = false;
+
+    log("✅ File uploaded successfully");
+
+  } catch (err) {
+    console.error("Upload failed:", err);
+    alert("❌ Upload failed: " + err.message);
+    uploadBtn.textContent = "📎";
+    uploadBtn.disabled = false;
+    fileInput.value = "";
+  }
+});
+
+function updateTypingUI() {
+  const box = document.getElementById("typingIndicator");
+  if (!box) return;
+  
+  supabaseClient
+    .from("typing")
+    .select("username")
+    .eq("typing", true)
+    .then(({ data }) => {
+      if (!data) {
+        box.textContent = "";
+        return;
+      }
+      
+      const typingUsers = data
+        .filter(u => u.username !== username)
+        .map(u => u.username);
+      
+      box.textContent = typingUsers.length > 0 
+        ? `${typingUsers.join(", ")} typing...` 
+        : "";
+    });
+}
+
+let typingTimeout = null;
+
+function getFileType(url) {
+  try {
+    const cleanUrl = url.split('?')[0].split('#')[0];
+
+    const match = cleanUrl.match(/\.([a-z0-9]+)$/i);
+    if (!match) return "unknown";
+
+    const ext = match[1].toLowerCase();
+
+    if (["png","jpg","jpeg","gif","webp","bmp","svg"].includes(ext)) return "image";
+    if (["mp4","webm","ogg","mov"].includes(ext)) return "video";
+    if (["mp3","wav","ogg"].includes(ext)) return "audio";
+    if (["pdf","txt","doc","docx"].includes(ext)) return "document";
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.tagName === "IMG") {
+    const src = e.target.src;
+    const overlay = document.createElement("div");
+
+    overlay.style.position = "fixed";
+    overlay.style.top = 0;
+    overlay.style.left = 0;
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    overlay.style.background = "rgba(0,0,0,0.8)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = "9999";
+
+    overlay.innerHTML = `<img src="${src}" style="max-width: 90%; max-height: 90%;">`;
+
+    overlay.onclick = () => overlay.remove();
+
+    document.body.appendChild(overlay);
+  }
+});
 // ======================== END FEATURES ========================
