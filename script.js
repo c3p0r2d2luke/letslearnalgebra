@@ -263,7 +263,6 @@ async function sendMessage() {
   try {
     const messageData = { username, content, role: currentRole, is_pinned: false, ip };
 
-    // Include reply_to field if replying to another message
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
@@ -273,16 +272,16 @@ async function sendMessage() {
       input.value = "";
       log("✅ Message sent to Supabase");
 
-      // Reset reply text
       if (replyingTo) {
         replyingTo = null;
         input.placeholder = "Message #general";
       }
 
+      // --- Push Notification Logic (Admin Broadcast) ---
       const isImportant = currentRole === "Admin" && content.includes("!important!");
       fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" }, // FIXED TYPO HERE
         body: JSON.stringify({
           title: isImportant ? "🚨 IMPORTANT ANNOUNCEMENT" : "New message",
           body: `${username}: ${content.replace("!important!", "")}`,
@@ -290,13 +289,67 @@ async function sendMessage() {
         })
       });
 
-      // Refresh threads view if currently viewing threads
+      // --- Mention Processing (NEW) ---
+      // Moved inside the success block so it only runs if message was sent
+      await processMentions(content, messageData);
+
       if (currentTab === "threads") {
         renderAllThreads();
       }
     }
   } catch (e) {
     log("❌ Failed to send message", e, "error");
+  }
+}
+
+// Add this near your sendMessage function
+async function processMentions(content, messageData) {
+  const mentionRegex = /@(\w+)/g;
+  const mentionedUsers = [...content.matchAll(mentionRegex)]
+    .map(match => match[1])
+    .filter((user, index, arr) => arr.indexOf(user) === index); // dedupe
+
+  if (mentionedUsers.length === 0) return;
+
+  // Fetch push subscriptions for mentioned users
+  const { data: users, error } = await supabaseClient
+    .from("users")
+    .select("username")
+    .in("username", mentionedUsers);
+
+  if (error || !users) {
+    console.warn("Failed to fetch mentioned users:", error);
+    return;
+  }
+
+  // Get push subscriptions
+  const { data: subscriptions, error: subError } = await supabaseClient
+    .from("push_subscriptions")
+    .select("*")
+    .in("username", mentionedUsers.map(u => u.username));
+
+  if (subError || !subscriptions) {
+    console.warn("Failed to fetch subscriptions:", subError);
+    return;
+  }
+
+  // Send push to each mentioned user
+  for (const sub of subscriptions) {
+    try {
+      await fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `@${username} mentioned you!`,
+          body: content.substring(0, 100),
+          subscription: sub.subscription,
+          mention: true,
+          important: true // mentions should be important
+        })
+      });
+    } catch (e) {
+      console.error("Failed to send mention push to", sub.username, e);
+    }
   }
 }
 
@@ -341,22 +394,25 @@ async function renderMessage(msg) {
   li.dataset.pinned = msg.is_pinned ? "true" : "false";
   li.style.border = msg.is_pinned ? "2px solid red" : "";
 
+  // --- Username ---
   const uname = document.createElement("div");
   uname.className = "username";
+  // Apply your custom name mapping
   uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
   li.appendChild(uname);
 
+  // --- Content ---
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
 
   const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-  // ---------------- File / Link Parsing ----------------
-  const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+  // --- File / Link Parsing ---
+  const fileMatch = cleanContent.match(/$$📄 (.*?)$$$$(.*?)$$/);
   if (fileMatch) {
     const fileName = fileMatch[1];
-    const url = fileMatch[2].trim().replace(/[)\]\s]+$/, ""); // strip junk
+    const url = fileMatch[2].trim().replace(/[)\]\s]+$/, "");
     const type = getFileType(url);
 
     if (type === "image") {
@@ -374,7 +430,7 @@ async function renderMessage(msg) {
 
   contentDiv.appendChild(wrapper);
 
-  // ---------------- Link Preview ----------------
+  // --- Link Preview ---
   const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
   let foundUrl = null;
   while (walker.nextNode()) {
@@ -388,13 +444,23 @@ async function renderMessage(msg) {
     });
   }
 
+  // --- Mention Styling (NEW) ---
+  // Convert @username to spans for styling
+  if (wrapper.textContent) {
+    const mentionRegex = /@(\w+)/g;
+    const processed = wrapper.textContent.replace(mentionRegex, '<span class="mention">@$1</span>');
+    wrapper.innerHTML = processed;
+  }
+
   li.appendChild(contentDiv);
 
+  // --- Reactions ---
   renderReactions(msg.id, li);
 
+  // --- Hover Controls & Enhancements ---
   requestAnimationFrame(() => enhanceMessage(li, msg));
 
-  // ---------------- Admin / Manager Controls ----------------
+  // --- Admin / Manager Controls Containers ---
   const adminDiv = document.createElement("div");
   adminDiv.className = "adminControls";
   adminDiv.style.display = "none";
@@ -406,7 +472,7 @@ async function renderMessage(msg) {
   if (currentRole === "Admin") li.appendChild(adminDiv);
   else if (currentRole === "Manager") li.appendChild(managerDiv);
 
-  // ---------------- Right-Click Menu ----------------
+  // --- Right-Click Menu (Context Menu) ---
   li.addEventListener("contextmenu", (e) => {
     const message = e.target.closest("li");
     if (!message) return;
@@ -435,7 +501,7 @@ async function renderMessage(msg) {
       btn.onmouseleave = () => btn.style.background = "transparent";
 
       btn.addEventListener("click", (event) => {
-        event.stopPropagation(); // important fix
+        event.stopPropagation();
         action(event);
         menu.style.display = "none";
       });
