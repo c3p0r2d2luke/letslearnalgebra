@@ -394,10 +394,9 @@ async function renderMessage(msg) {
   li.dataset.pinned = msg.is_pinned ? "true" : "false";
   li.style.border = msg.is_pinned ? "2px solid red" : "";
 
-  // --- Username ---
+   // --- Username ---
   const uname = document.createElement("div");
   uname.className = "username";
-  // Apply your custom name mapping
   uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
   li.appendChild(uname);
 
@@ -408,9 +407,56 @@ async function renderMessage(msg) {
   const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-  // --- File / Link Parsing ---
+  // --- 1. HANDLE REPLY PREVIEW (DISCORD STYLE) ---
+  if (msg.reply_to) {
+    // Fetch the parent message data
+    // Note: In a high-performance app, you'd cache this, but for now we fetch it.
+    // Optimization: If the parent is already in messagesMap, use that!
+    let parentMsg = messagesMap.get(msg.reply_to);
+    
+    // If parent isn't rendered yet (rare edge case), we might need a fetch, 
+    // but usually, it's already there. If not, we skip the preview to avoid lag.
+    if (parentMsg) {
+      const replyPreview = document.createElement("div");
+      replyPreview.className = "replyPreview";
+      
+      // Get parent username and content
+      const parentUsername = parentMsg.username === "Frenchwizz" ? "Takeo" : parentMsg.username;
+      const parentContent = parentMsg.content.replaceAll(NO_EMBED_PHRASE, "");
+      
+      // Truncate content for preview
+      const truncatedContent = parentContent.length > 100 
+        ? parentContent.substring(0, 100) + "..." 
+        : parentContent;
+
+      // Create the clickable preview element
+      replyPreview.innerHTML = `
+        <div class="replyContext">
+          <span class="replyContextAuthor">${parentUsername}</span>
+          <span class="replyContextContent">${truncatedContent}</span>
+        </div>
+      `;
+      
+      // Make the preview clickable to jump to the parent message
+      replyPreview.style.cursor = "pointer";
+      replyPreview.onclick = () => {
+        // Scroll to the parent message
+        const parentLi = messagesMap.get(msg.reply_to);
+        if (parentLi) {
+          parentLi.scrollIntoView({ behavior: "smooth", block: "center" });
+          parentLi.classList.add("highlighted");
+          setTimeout(() => parentLi.classList.remove("highlighted"), 2000);
+        }
+      };
+
+      contentDiv.appendChild(replyPreview);
+    }
+  }
+
+  // --- 2. FILE / LINK PARSING (Existing Logic) ---
   const fileMatch = cleanContent.match(/$$📄 (.*?)$$$$(.*?)$$/);
   if (fileMatch) {
+    // ... (Keep your existing file parsing logic here) ...
     const fileName = fileMatch[1];
     const url = fileMatch[2].trim().replace(/[)\]\s]+$/, "");
     const type = getFileType(url);
@@ -429,20 +475,6 @@ async function renderMessage(msg) {
   }
 
   contentDiv.appendChild(wrapper);
-
-  // --- Link Preview ---
-  const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
-  let foundUrl = null;
-  while (walker.nextNode()) {
-    const text = walker.currentNode.nodeValue;
-    const match = text.match(/\bhttps?:\/\/[^\s<]+/);
-    if (match) { foundUrl = match[0]; break; }
-  }
-  if (foundUrl && !msg.content.includes(NO_EMBED_PHRASE)) {
-    buildLinkPreview(foundUrl).then(preview => {
-      if (preview) contentDiv.appendChild(document.createRange().createContextualFragment(preview));
-    });
-  }
 
   // --- Mention Styling (NEW) ---
   // Convert @username to spans for styling
@@ -1302,29 +1334,58 @@ function attachHoverControls(li, msg) {
   controls.style.right = "10px";
   controls.style.top = "5px";
   controls.style.display = "none";
-  controls.style.zIndex = "1";
+  controls.style.zIndex = "1000"; // Ensure it's on top
 
   // React Button (Triggers Picker)
   const reactBtn = document.createElement("button");
-  reactBtn.textContent = "😀"; // Icon for the button itself
-  reactBtn.className = "emoji-trigger"; // Tag to prevent closing when clicking it
+  reactBtn.textContent = "😀";
+  reactBtn.className = "emoji-trigger";
   reactBtn.style.background = "transparent";
   reactBtn.style.border = "none";
   reactBtn.style.cursor = "pointer";
   reactBtn.style.fontSize = "18px";
 
   reactBtn.onclick = (e) => {
-    e.stopPropagation(); // Prevent immediate closure
+    e.stopPropagation();
     const picker = document.getElementById("emojiPicker");
+    if (!picker) return;
 
-    // Position picker near the button
+    // Get button position relative to viewport
     const rect = reactBtn.getBoundingClientRect();
-    picker.style.top = (rect.bottom + 5) + "px";
-    picker.style.left = rect.left + "px";
-    picker.style.display = "block";
+    
+    // Define picker dimensions (approximate based on CSS grid)
+    const pickerWidth = 200; // Adjust if your CSS changes
+    const pickerHeight = 120; // Adjust if your CSS changes
+    
+    // Calculate desired position (below button by default)
+    let top = rect.bottom + 5;
+    let left = rect.left;
 
-    // Store the message ID on the picker for the selection handler
+    // --- SMART POSITIONING LOGIC ---
+    
+    // 1. Check vertical space (flip to top if too close to bottom)
+    if (top + pickerHeight > window.innerHeight) {
+      top = rect.top - pickerHeight - 5;
+    }
+
+    // 2. Check horizontal space (adjust left if too close to right edge)
+    if (left + pickerWidth > window.innerWidth) {
+      left = window.innerWidth - pickerWidth - 10;
+    }
+    
+    // 3. Ensure it doesn't go off the left edge
+    if (left < 0) {
+      left = 10;
+    }
+
+    // Apply calculated position
+    picker.style.position = "fixed"; // Use fixed for viewport-relative positioning
+    picker.style.top = `${top}px`;
+    picker.style.left = `${left}px`;
+    
+    // Store the message ID
     picker.dataset.targetMessageId = msg.id;
+    picker.style.display = "block";
   };
 
   const replyBtn = document.createElement("button");
