@@ -1,4 +1,30 @@
-/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, NodeFilter, Date, Blob, URL, Notification, emailjs */
+/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
+// 🔐 SHA-256 hash function
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// 🔑 CHANGE THIS to your hashed password
+const CORRECT_HASH = "22c932242295554614d1b3f90e13aee6efc317c3e044999664d8157d8ea53ca0";
+
+// Handle login
+document.getElementById("passwordBtn").addEventListener("click", async () => {
+  const input = document.getElementById("passwordInput").value;
+  const hashed = await hashPassword(input);
+
+  if (hashed === CORRECT_HASH) {
+    document.getElementById("passwordGate").style.display = "none";
+    document.getElementById("appContent").style.display = "block";
+  } else {
+    alert("❌ Wrong password");
+  }
+});
+
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
