@@ -82,12 +82,12 @@ export async function handler(event) {
 
   const rewriteUrl = (link) => {
     if (link.startsWith("http://") || link.startsWith("https://")) {
-      return `/proxy?url=${encodeURIComponent(link)}`;
+      return `/hello?url=${encodeURIComponent(link)}`;
     }
     if (link.startsWith("/")) {
-      return `/proxy?url=${encodeURIComponent(origin + link)}`;
+      return `/hello?url=${encodeURIComponent(origin + link)}`;
     }
-    return `/proxy?url=${encodeURIComponent(pathBase + link)}`;
+    return `/hello?url=${encodeURIComponent(pathBase + link)}`;
   };
 
   // 7. Rewrite HTML
@@ -121,7 +121,7 @@ export async function handler(event) {
     statusCode: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "x-powered-by": "netlify-html-proxy"
+      "x-powered-by": "netlify-html-hello"
     },
     body: html
   };
