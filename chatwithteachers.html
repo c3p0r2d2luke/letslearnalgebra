@@ -1,20 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script type="text/javascript"
-        src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js">
-</script>
-<script type="text/javascript">
-   (function(){
-      emailjs.init({
-        publicKey: "nohRtKASS4R_i2HtZ",
-      });
-   })();
-</script>
-<meta charset="utf-8">
-<title>Chat With Teachers</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat With Teachers</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script>
+    (function(){
+      emailjs.init({ publicKey: "nohRtKASS4R_i2HtZ" });
+    })();
+  </script>
 </head>
 <body>
   <h1 style="margin:12px 16px;">Chat Room</h1>
@@ -26,7 +23,7 @@
 
   <!-- NEW WRAPPER FOR SIDEBAR + CHAT -->
   <div class="app-layout">
-    
+
     <!-- SERVER SIDEBAR -->
     <aside class="server-sidebar">
       <div class="server-icon active" title="General Chat">
@@ -38,9 +35,9 @@
       <div class="server-icon" title="Science Lab">
         <img src="https://placehold.co/48x48/000000/FFFF00" alt="Science">
       </div>
-      
+
       <div class="divider"></div>
-      
+
       <div class="server-icon add-server" title="Add Server">
         <span>+</span>
       </div>
@@ -74,7 +71,7 @@
   <div id="logBox"></div>
   <div id="adminMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; border-radius:6px; z-index:9999; min-width:140px;"></div>
   <div id="typingIndicator"></div>
-  
+
   <!-- Emoji Picker (keep as is) -->
   <div id="emojiPicker" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:8px; border-radius:8px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
     <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:4px;">
@@ -92,7 +89,7 @@
       <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">✨</span>
     </div>
   </div>
-  
+
   <script src="./script.js"></script>
 </body>
 </html>

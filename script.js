@@ -1,4 +1,4 @@
-/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, NodeFilter, Date, Blob, URL */
+/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, NodeFilter, Date, Blob, URL, Notification, emailjs */
 const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
@@ -14,15 +14,15 @@ document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
     const tabName = tab.dataset.tab;
     currentTab = tabName;
-    
+
     // Update active tab styling
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
     tab.classList.add("active");
-    
+
     // Update panes
     document.querySelectorAll(".tab-pane").forEach(pane => pane.classList.remove("active"));
     document.getElementById(`${tabName}-pane`).classList.add("active");
-    
+
     // Refresh threads view if switching to threads
     if (tabName === "threads") {
       renderAllThreads();
@@ -43,6 +43,8 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 let username = localStorage.getItem("chatUsername") || "";
 let currentRole = "User";
 const messagesMap = new Map();
+const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
+let typingTimeout = null;
 
 // ------------------------ Name Lock ------------------------
 function updateMessageLock() {
@@ -74,6 +76,31 @@ function initRealtime() {
       log(`Channel status: ${status}`);
     });
 }
+
+supabaseClient
+  .channel("reactions-channel")
+  .on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "reactions" },
+    payload => {
+      // Keep the local map up-to-date for future DELETE lookups
+      if (payload.new?.id && payload.new?.message_id) {
+        reactionMessageMap.set(payload.new.id, payload.new.message_id);
+      }
+
+      // INSERT/UPDATE: payload.new has full row including message_id
+      // DELETE: payload.old only has the primary key (id) by default —
+      //         look up the message_id from our local map instead.
+      let msgId = payload.new?.message_id ?? payload.old?.message_id;
+      if (!msgId && payload.old?.id) {
+        msgId = reactionMessageMap.get(payload.old.id);
+        reactionMessageMap.delete(payload.old.id);
+      }
+      const li = messagesMap.get(Number(msgId));
+      if (li) renderReactions(msgId, li);
+    }
+  )
+  .subscribe();
 
 // ------------------------ Load Messages ------------------------
 async function loadMessages() {
@@ -125,6 +152,7 @@ try {
 
   loadMessages();
   initRealtime();
+  watchForceLogout(storedName);
 }
 
 loadUser().then(() => {
@@ -234,17 +262,17 @@ async function sendMessage() {
 
   try {
     const messageData = { username, content, role: currentRole, is_pinned: false, ip };
-    
+
     // Include reply_to field if replying to another message
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
-    
+
     const { error } = await supabaseClient.from("messages").insert([messageData]);
     if (!error) {
       input.value = "";
       log("✅ Message sent to Supabase");
-      
+
       // Reset reply text
       if (replyingTo) {
         replyingTo = null;
@@ -261,7 +289,7 @@ async function sendMessage() {
           important: isImportant
         })
       });
-      
+
       // Refresh threads view if currently viewing threads
       if (currentTab === "threads") {
         renderAllThreads();
@@ -298,8 +326,6 @@ async function buildLinkPreview(url) {
 // ------------------------ Render Message ------------------------
 async function renderMessage(msg) {
   let li = messagesMap.get(msg.id);
-  const viewerRole = currentRole;
-
   if (!li) {
     li = document.createElement("li");
     messagesMap.set(msg.id, li);
@@ -322,149 +348,51 @@ async function renderMessage(msg) {
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
-  if (msg.role === "Admin") {
-const wrapper = document.createElement("div");
-const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-// Match: [📄 filename](url)
-const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+  const wrapper = document.createElement("div");
+  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-if (fileMatch) {
-  let fileName = fileMatch[1];
-  let url = fileMatch[2].trim();
+  // ---------------- File / Link Parsing ----------------
+  const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+  if (fileMatch) {
+    const fileName = fileMatch[1];
+    const url = fileMatch[2].trim().replace(/[)\]\s]+$/, ""); // strip junk
+    const type = getFileType(url);
 
-  // 🔧 Fix your broken URLs (this was your original bug)
-  url = url.replace(/[)\]\s]+$/, "");
-
-  const type = getFileType(url);
-
-  console.log("Fixed URL:", url);
-  console.log("Type:", type);
-
-  // 💥 FULL REPLACEMENT — no text, no preview, JUST media
-  if (type === "image") {
-    wrapper.innerHTML = `
-      <img src="${url}" style="max-width: 300px; border-radius: 8px; cursor: pointer;">
-    `;
-  } 
-  else if (type === "video") {
-    wrapper.innerHTML = `
-      <video controls style="max-width: 300px; border-radius: 8px;">
-        <source src="${url}">
-      </video>
-    `;
-  } 
-  else if (type === "audio") {
-    wrapper.innerHTML = `
-      <audio controls>
-        <source src="${url}">
-      </audio>
-    `;
-  } 
-  else {
-    wrapper.innerHTML = `
-      <a href="${url}" target="_blank">📄 ${fileName}</a>
-    `;
-  }
-
-} else {
-  // Normal text message
-  wrapper.textContent = cleanContent;
-}
-
-contentDiv.appendChild(wrapper);
-
-    const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
-    let foundUrl = null;
-    while (walker.nextNode()) {
-      const text = walker.currentNode.nodeValue;
-      const match = text.match(/\bhttps?:\/\/[^\s<]+/);
-      if (match) { foundUrl = match[0]; break; }
-    }
-
-    const skipEmbed = msg.content.includes(NO_EMBED_PHRASE);
-    if (foundUrl && !skipEmbed) {
-      buildLinkPreview(foundUrl).then(preview => {
-        if (preview) contentDiv.appendChild(document.createRange().createContextualFragment(preview));
-      });
+    if (type === "image") {
+      wrapper.innerHTML = `<img src="${url}" style="max-width:300px;border-radius:8px;cursor:pointer;">`;
+    } else if (type === "video") {
+      wrapper.innerHTML = `<video controls style="max-width:300px;border-radius:8px;"><source src="${url}"></video>`;
+    } else if (type === "audio") {
+      wrapper.innerHTML = `<audio controls><source src="${url}"></audio>`;
+    } else {
+      wrapper.innerHTML = `<a href="${url}" target="_blank">📄 ${fileName}</a>`;
     }
   } else {
-    const wrapper = document.createElement("div");
-    const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
-
-let url = fileMatch[2].trim();
-
-// Remove trailing ) or weird characters
-url = url.replace(/[)\]\s]+$/, "");
-
-if (fileMatch) {
-  const fileName = fileMatch[1];
-  const url = fileMatch[2];
-
-  const type = getFileType(url);
-
-console.log("URL:", url);
-console.log("Detected type:", type);
-
-  if (type === "image") {
-    wrapper.innerHTML = `
-      <img src="${url}" style="max-width: 300px; border-radius: 8px; cursor: pointer;">
-    `;
-  } 
-  else if (type === "video") {
-    wrapper.innerHTML = `
-      <video controls style="max-width: 300px; border-radius: 8px;">
-        <source src="${url}">
-      </video>
-    `;
-  } 
-  else if (type === "audio") {
-    wrapper.innerHTML = `
-      <audio controls>
-        <source src="${url}">
-      </audio>
-    `;
-  } 
-  else {
-    wrapper.innerHTML = `
-      <a href="${url}" target="_blank">📄 ${fileName}</a>
-    `;
+    wrapper.textContent = cleanContent;
   }
 
-} else {
-  wrapper.textContent = cleanContent;
-}    contentDiv.appendChild(wrapper);
+  contentDiv.appendChild(wrapper);
+
+  // ---------------- Link Preview ----------------
+  const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
+  let foundUrl = null;
+  while (walker.nextNode()) {
+    const text = walker.currentNode.nodeValue;
+    const match = text.match(/\bhttps?:\/\/[^\s<]+/);
+    if (match) { foundUrl = match[0]; break; }
   }
+  if (foundUrl && !msg.content.includes(NO_EMBED_PHRASE)) {
+    buildLinkPreview(foundUrl).then(preview => {
+      if (preview) contentDiv.appendChild(document.createRange().createContextualFragment(preview));
+    });
+  }
+
   li.appendChild(contentDiv);
 
-  // Add reply context if this message is a reply
-  if (msg.reply_to) {
-    supabaseClient
-      .from("messages")
-      .select("username, content")
-      .eq("id", msg.reply_to)
-      .single()
-      .then(({ data: parentMsg }) => {
-        if (parentMsg) {
-          const replyContext = document.createElement("div");
-          replyContext.className = "replyContext";
-          
-          const author = parentMsg.username === "Frenchwizz" ? "Takeo" : parentMsg.username;
-          const content = parentMsg.content.substring(0, 50);
-          
-          replyContext.innerHTML = `
-            <div class="replyContextContent">
-              <div class="replyContextAuthor">${author}</div>
-              <div>$${content}$${parentMsg.content.length > 50 ? "..." : ""}</div>
-            </div>
-          `;
-          
-          li.style.position = "relative";
-          li.appendChild(replyContext);
-        }
-      });
-  }
+  renderReactions(msg.id, li);
+
+  requestAnimationFrame(() => enhanceMessage(li, msg));
 
   // ---------------- Admin / Manager Controls ----------------
   const adminDiv = document.createElement("div");
@@ -475,372 +403,130 @@ console.log("Detected type:", type);
   managerDiv.className = "managerControls";
   managerDiv.style.display = "none";
 
-async function forceLogout(user) {
+  if (currentRole === "Admin") li.appendChild(adminDiv);
+  else if (currentRole === "Manager") li.appendChild(managerDiv);
 
-  if (!confirm(`Force logout ${user}?`)) return;
-
-  try {
-
-    await supabaseClient
-      .from("users")
-      .update({ forceLogout: true })
-      .eq("username", user);
-
-    alert(`${user} will be logged out.`);
-
-  } catch (err) {
-    console.error("Force logout failed", err);
-  }
-
-}
-
-async function changeName(user) {
-  const newName = prompt(`Enter a new name for ${user}:`);
-  if (!newName || newName === user) return;
-
-  try {
-    // 1️⃣ Update the username in the users table
-    await supabaseClient
-      .from("users")
-      .update({ username: newName })
-      .eq("username", user);
-
-    // 2️⃣ Update all messages by that user
-    await supabaseClient
-      .from("messages")
-      .update({ username: newName })
-      .eq("username", user);
-
-    // 3️⃣ Update messagesMap locally for live view
-    messagesMap.forEach((el) => {
-      if (el.dataset.user === user) {
-        el.dataset.user = newName;
-        const unameDiv = el.querySelector(".username");
-        if (unameDiv) unameDiv.textContent = newName;
-      }
-    });
-
-    // 4️⃣ Update localStorage if the admin is renaming themselves
-    if (user === username) {
-      username = newName;
-      localStorage.setItem("chatUsername", newName);
-    }
-
-    alert(`Username changed from "${user}" to "${newName}"`);
-  } catch (err) {
-    console.error("Change name failed", err);
-    alert("❌ Failed to change name.");
-  }
-}
-
-async function exportChat() {
-
-  try {
-
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("*");
-
-    if (error) throw error;
-
-    const blob = new Blob(
-      [JSON.stringify(data, null, 2)],
-      { type: "application/json" }
-    );
-
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "chat_export.json";
-    a.click();
-
-    URL.revokeObjectURL(url);
-
-  } catch (err) {
-    console.error("Export failed", err);
-  }
-
-}
-
-async function deleteKeyword() {
-  const keyword = prompt("Enter keyword to delete:");
-  if (!keyword) return;
-
-  try {
-    // Use ilike for case-insensitive partial matching
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("id")
-      .ilike("content", `%${keyword}%`); // ✅ Partial match
-
-    if (error) throw error;
-
-    if (!data.length) {
-      alert("No messages found.");
-      return;
-    }
-
-    if (!confirm(`Delete ${data.length} messages containing "${keyword}"?`)) return;
-
-    // Delete each message individually with proper ID filter
-    const ids = data.map(msg => msg.id);
-
-const { error: deleteError } = await supabaseClient
-  .from("messages")
-  .delete()
-  .in("id", ids);
-
-if (deleteError) throw deleteError;
-
-    // Remove from local cache
-    data.forEach(msg => {
-      const li = messagesMap.get(msg.id);
-      if (li) li.remove();
-    });
-
-    alert(`✅ Deleted ${data.length} messages.`);
-  } catch (err) {
-    console.error("Delete keyword failed", err);
-    alert("❌ Failed to delete messages.");
-  }
-}
-
-async function deleteUser(user) {
-
-  if (!confirm(`Delete ${user} and all their messages?`)) return;
-
-  try {
-
-    await supabaseClient
-      .from("messages")
-      .delete()
-      .eq("username", user);
-
-    await supabaseClient
-      .from("users")
-      .delete()
-      .eq("username", user);
-
-    messagesMap.forEach((el) => {
-      if (el.dataset.user === user) el.remove();
-    });
-
-  } catch (err) {
-    console.error("Delete user failed", err);
-  }
-
-}
-
-async function promote(user) {
-
-  const role = prompt("Set role (User / Manager / Admin):", "User");
-
-  if (!role || !["User","Manager","Admin"].includes(role)) {
-    alert("Invalid role.");
-    return;
-  }
-
-  try {
-
-    await supabaseClient
-      .from("users")
-      .update({ role })
-      .eq("username", user);
-
-    alert(`${user} is now ${role}`);
-
-  } catch (err) {
-    console.error("Role change failed", err);
-  }
-
-}
-
-async function userInfo(user) {
-
-  try {
-
-    const { data } = await supabaseClient
-  .from("users")
-  .select("role")
-  .eq("username", user)
-  .single();
-
-    if (!data) return alert("User not found.");
-
-    alert(
-      `User: ${user}
-Role: ${data.role || "User"}
-Blocked: ${data.blocked || false}
-Muted Until: ${data.muted_until || "None"}`
-    );
-
-  } catch (err) {
-    console.error("User info failed", err);
-  }
-
-}
-
-  if(viewerRole === "Admin") li.appendChild(adminDiv);
-  else if(viewerRole === "Manager") li.appendChild(managerDiv);
-
-  // Right-click menu for Discord-style
+  // ---------------- Right-Click Menu ----------------
   li.addEventListener("contextmenu", (e) => {
-  const message = e.target.closest("li");
-  if (!message) return;
+    const message = e.target.closest("li");
+    if (!message) return;
+    e.preventDefault();
 
-  e.preventDefault();
+    const menu = document.getElementById("adminMenu");
+    if (!menu) return;
+    menu.innerHTML = "";
 
-  const menu = document.getElementById("adminMenu");
-  if (!menu) return;
+    const messageId = message.dataset.id;
+    const author = message.dataset.user;
+    let currentSection = menu;
 
-  menu.innerHTML = "";
+    const addButton = (label, action) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.style.display = "block";
+      btn.style.width = "100%";
+      btn.style.padding = "6px";
+      btn.style.border = "none";
+      btn.style.background = "transparent";
+      btn.style.cursor = "pointer";
+      btn.style.color = "white";
+      btn.style.textAlign = "left";
+      btn.onmouseenter = () => btn.style.background = "#40444b";
+      btn.onmouseleave = () => btn.style.background = "transparent";
 
-  const messageId = message.dataset.id;
-  const author = message.dataset.user;
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation(); // important fix
+        action(event);
+        menu.style.display = "none";
+      });
 
-  let currentSection = menu;
-
-  const addButton = (label, action) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "6px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = "white";
-    btn.style.textAlign = "left";
-
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
-
-    btn.onclick = () => {
-      action();
-      menu.style.display = "none";
+      currentSection.appendChild(btn);
     };
 
-    currentSection.appendChild(btn);
-  };
+    const addSection = (title) => {
+      const wrapper = document.createElement("div");
+      wrapper.style.position = "relative";
 
-  const addSection = (title) => {
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
+      const header = document.createElement("div");
+      header.textContent = title + " ▶";
+      header.style.fontSize = "12px";
+      header.style.padding = "6px";
+      header.style.cursor = "pointer";
+      header.style.color = "white";
+      header.style.background = "transparent";
 
-    const header = document.createElement("div");
-    header.textContent = title + " ▶";
-    header.style.fontSize = "12px";
-    header.style.padding = "6px";
-    header.style.cursor = "pointer";
-    header.style.color = "white";
-    header.style.background = "transparent";
+      header.onmouseenter = () => header.style.background = "#40444b";
+      header.onmouseleave = () => header.style.background = "transparent";
 
-    header.onmouseenter = () => header.style.background = "#40444b";
-    header.onmouseleave = () => header.style.background = "transparent";
+      const sub = document.createElement("div");
+      sub.style.position = "absolute";
+      sub.style.left = "100%";
+      sub.style.top = "0";
+      sub.style.background = "#2f3136";
+      sub.style.border = "1px solid #444";
+      sub.style.display = "none";
+      sub.style.minWidth = "180px";
 
-    const sub = document.createElement("div");
-    sub.style.position = "absolute";
-    sub.style.left = "100%";
-    sub.style.top = "0";
-    sub.style.background = "#2f3136";
-    sub.style.border = "1px solid #444";
-    sub.style.display = "none";
-    sub.style.minWidth = "180px";
+      wrapper.onmouseenter = () => sub.style.display = "block";
+      wrapper.onmouseleave = () => sub.style.display = "none";
 
-    wrapper.onmouseenter = () => sub.style.display = "block";
-    wrapper.onmouseleave = () => sub.style.display = "none";
+      wrapper.appendChild(header);
+      wrapper.appendChild(sub);
+      menu.appendChild(wrapper);
 
-    wrapper.appendChild(header);
-    wrapper.appendChild(sub);
-    menu.appendChild(wrapper);
+      currentSection = sub;
+    };
 
-    currentSection = sub;
-  };
+    // Everyone
+    addButton("Reply", () => startReply(messageId));
 
-// Inside the contextmenu event listener, find this section:
+    addButton("React", (event) => {
+      const picker = document.getElementById("emojiPicker");
+      if (!picker) return;
+      const x = event.clientX + 10;
+      const y = event.clientY + 10;
+      picker.style.position = "fixed";
+      picker.style.top = y + "px";
+      picker.style.left = x + "px";
+      picker.dataset.targetMessageId = messageId;
+      picker.style.display = "block";
+    });
 
-// Basic actions (everyone)
-addButton("Reply", () => startReply(messageId));
+    addButton("Report", () => reportMessage(messageId));
 
-// ✅ Fixed React button - captures event coordinates properly
-addButton("React", () => {
-  const picker = document.getElementById("emojiPicker");
-  if (!picker) {
-    console.error("Emoji picker not found!");
-    return;
-  }
+    // Manager and Admin actions...
+    if (currentRole === "Manager" && author === username) {
+      addSection("Manager");
+      addButton("Delete My Message", () => deleteMessage(messageId));
+    }
+    if (currentRole === "Admin") {
+      addSection("Delete");
+      addButton("Delete", () => deleteMessage(messageId));
+      addButton("Delete By Keyword", () => deleteKeyword());
+      addButton("Delete User + Messages", () => deleteUser(author));
 
-  // Use the original contextmenu event coordinates
-  const x = e.clientX + 10;
-  const y = e.clientY + 10;
-  
-  // Ensure picker stays within viewport bounds
-  const pickerRect = picker.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  
-  // Adjust if picker would go off-screen
-  const adjustedX = x + pickerRect.width > viewportWidth ? x - pickerRect.width : x;
-  const adjustedY = y + pickerRect.height > viewportHeight ? y - pickerRect.height : y;
-  
-  picker.style.position = "fixed";
-  picker.style.top = adjustedY + "px";
-  picker.style.left = adjustedX + "px";
-  picker.style.zIndex = "9999"; // Make sure it's on top
-  
-  // Store the message ID on the picker
-  picker.dataset.targetMessageId = messageId;
-  
-  picker.style.display = "block";
-  
-  // Focus the picker so keyboard navigation works
-  picker.focus();
-});
+      addSection("Info");
+      addButton("User Info", () => userInfo(author));
+      addButton("Export Chat", () => exportChat());
 
-addButton("Report", () => reportMessage(messageId));
+      addSection("Edit");
+      addButton("Edit Message", () => editMessage(messageId));
+      addButton("Pin / Unpin", () => pinMessage(messageId));
+      addButton("Change Name", () => changeName(author));
+      addButton("Promote / Demote", () => promote(author));
+      addButton("Mute User", () => muteUser(author));
+      addButton("Block User", () => blockUser(author));
+      addButton("Unblock User", () => unblockUser(author));
+      addButton("Force Logout", () => forceLogout(author));
+    }
 
-// Manager actions (only for managers on their own messages)
-if (currentRole === "Manager" && author === username) {
-  addSection("Manager");
-  addButton("Delete My Message", () => deleteMessage(messageId));
-}
-
-  // Admin actions
-  if (currentRole === "Admin") {
-
-    addSection("Delete");
-    addButton("Delete", () => deleteMessage(messageId));
-    addButton("Delete By Keyword", () => deleteKeyword(message));
-    addButton("Delete User + Messages", () => deleteUser(author));
-
-    addSection("Info");
-    addButton("User Info", () => userInfo(author));
-    addButton("Export Chat", () => exportChat(message));
-
-    addSection("Edit");
-    addButton("Edit Message", () => editMessage(messageId));
-    addButton("Change Name", () => changeName(author));
-    addButton("Promote / Demote", () => promote(author));
-    addButton("Mute User", () => muteUser(author));
-    addButton("Block User", () => blockUser(author));
-    addButton("Force Logout", () => forceLogout(author));
-  }
-
-  enhanceMessage(li, msg);
-
-  menu.style.position = "fixed";
-  menu.style.left = e.clientX + "px";
-  menu.style.top = e.clientY + "px";
-  menu.style.background = "#2f3136";
-  menu.style.border = "1px solid #444";
-  menu.style.padding = "4px";
-  menu.style.display = "block";
-});
-
-  // Use requestAnimationFrame to ensure DOM is stable before enhancing
-  requestAnimationFrame(() => {
-    enhanceMessage(li, msg);
+    menu.style.position = "fixed";
+    menu.style.left = e.clientX + "px";
+    menu.style.top = e.clientY + "px";
+    menu.style.background = "#2f3136";
+    menu.style.border = "1px solid #444";
+    menu.style.padding = "4px";
+    menu.style.display = "block";
   });
 }
 
@@ -960,11 +646,11 @@ async function reportMessage(messageId) {
       "YOUR_TEMPLATE_ID",    // replace
       {
         reporter: reportData.reporter,
-        offender: reportData.offender,
-        message: reportData.message,
+        offender: reportData.reported_user,
+        message: reportData.content,
         reason: reportData.reason,
         message_id: reportData.message_id,
-        time: reportData.time
+        time: new Date().toLocaleString()
       },
       "YOUR_PUBLIC_KEY"      // replace
     );
@@ -1003,9 +689,11 @@ async function pinMessage(messageId) {
 async function deleteMessage(messageId) {
   if (!confirm("Delete this message?")) return;
 
-  // 1. STRICT ROLE CHECK (Client Side)
-  if (currentRole !== "Admin") {
-    alert("❌ Access Denied: Only Admins can delete messages.");
+  // 1. ROLE CHECK — Admins can delete any message; Managers can only delete their own
+  const li = messagesMap.get(Number(messageId));
+  const author = li ? li.dataset.user : null;
+  if (currentRole !== "Admin" && !(currentRole === "Manager" && author === username)) {
+    alert("❌ Access Denied: You can only delete your own messages.");
     return;
   }
 
@@ -1094,6 +782,218 @@ async function unblockUser(user) {
   }
 }
 
+// Delete all messages containing a keyword
+async function deleteKeyword() {
+  const keyword = prompt("Delete all messages containing keyword:");
+  if (!keyword) return;
+  if (!confirm(`Delete ALL messages containing "${keyword}"?`)) return;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("id, content");
+
+    if (error) throw error;
+
+    const matches = data.filter(m => m.content.toLowerCase().includes(keyword.toLowerCase()));
+    if (matches.length === 0) {
+      alert("No messages found with that keyword.");
+      return;
+    }
+
+    const ids = matches.map(m => m.id);
+    const { error: delError } = await supabaseClient
+      .from("messages")
+      .delete()
+      .in("id", ids);
+
+    if (delError) throw delError;
+
+    ids.forEach(id => {
+      const li = messagesMap.get(Number(id));
+      if (li) { li.remove(); messagesMap.delete(Number(id)); }
+    });
+
+    alert(`✅ Deleted ${ids.length} message(s) containing "${keyword}".`);
+  } catch (err) {
+    console.error("deleteKeyword failed", err);
+    alert("❌ Failed: " + err.message);
+  }
+}
+
+// Delete a user and all their messages
+async function deleteUser(author) {
+  if (!confirm(`Delete user "${author}" and ALL their messages? This cannot be undone.`)) return;
+
+  try {
+    const { error: msgError } = await supabaseClient
+      .from("messages")
+      .delete()
+      .eq("username", author);
+
+    if (msgError) throw msgError;
+
+    const { error: userError } = await supabaseClient
+      .from("users")
+      .delete()
+      .eq("username", author);
+
+    if (userError) throw userError;
+
+    messagesMap.forEach((li, id) => {
+      if (li.dataset.user === author) { li.remove(); messagesMap.delete(id); }
+    });
+
+    alert(`✅ User "${author}" and their messages have been deleted.`);
+  } catch (err) {
+    console.error("deleteUser failed", err);
+    alert("❌ Failed: " + err.message);
+  }
+}
+
+// Show info about a user
+async function userInfo(author) {
+  try {
+    const { data, error } = await supabaseClient
+      .from("users")
+      .select("*")
+      .eq("username", author)
+      .single();
+
+    if (error) throw error;
+
+    const { data: msgData } = await supabaseClient
+      .from("messages")
+      .select("id")
+      .eq("username", author);
+
+    const msgCount = msgData ? msgData.length : "?";
+
+    alert(
+      `👤 User: ${author}\n` +
+      `🎭 Role: ${data.role || "User"}\n` +
+      `🚫 Blocked: ${data.blocked ? "Yes" : "No"}\n` +
+      `🔇 Muted Until: ${data.muted_until || "Not muted"}\n` +
+      `🌐 Last IP: ${data.ip || "Unknown"}\n` +
+      `💬 Messages: ${msgCount}`
+    );
+  } catch (err) {
+    console.error("userInfo failed", err);
+    alert("❌ Could not fetch user info: " + err.message);
+  }
+}
+
+// Export chat as a text file
+async function exportChat() {
+  try {
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("*")
+      .order("inserted_at", { ascending: true });
+
+    if (error) throw error;
+
+    const lines = data.map(m =>
+      `[${new Date(m.inserted_at).toLocaleString()}] ${m.username} (${m.role}): ${m.content}`
+    );
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-export-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("exportChat failed", err);
+    alert("❌ Export failed: " + err.message);
+  }
+}
+
+// Change a user's display name
+async function changeName(author) {
+  const newName = prompt(`Change name for "${author}" to:`);
+  if (!newName || newName.trim() === author) return;
+  const trimmed = newName.trim();
+
+  if (!confirm(`Rename "${author}" to "${trimmed}"?`)) return;
+
+  try {
+    const { error: userError } = await supabaseClient
+      .from("users")
+      .update({ username: trimmed })
+      .eq("username", author);
+
+    if (userError) throw userError;
+
+    const { error: msgError } = await supabaseClient
+      .from("messages")
+      .update({ username: trimmed })
+      .eq("username", author);
+
+    if (msgError) throw msgError;
+
+    alert(`✅ Renamed "${author}" to "${trimmed}".`);
+  } catch (err) {
+    console.error("changeName failed", err);
+    alert("❌ Failed: " + err.message);
+  }
+}
+
+// Promote or demote a user
+async function promote(author) {
+  try {
+    const { data, error } = await supabaseClient
+      .from("users")
+      .select("role")
+      .eq("username", author)
+      .single();
+
+    if (error) throw error;
+
+    const currentUserRole = data?.role || "User";
+    const newRole = prompt(`Current role for "${author}": ${currentUserRole}\n\nEnter new role (User / Manager / Admin):`);
+    if (!newRole) return;
+
+    const trimmedRole = newRole.trim();
+    if (!["User", "Manager", "Admin"].includes(trimmedRole)) {
+      alert('❌ Invalid role. Must be "User", "Manager", or "Admin".');
+      return;
+    }
+
+    const { error: updateError } = await supabaseClient
+      .from("users")
+      .update({ role: trimmedRole })
+      .eq("username", author);
+
+    if (updateError) throw updateError;
+
+    alert(`✅ "${author}" is now a ${trimmedRole}.`);
+  } catch (err) {
+    console.error("promote failed", err);
+    alert("❌ Failed: " + err.message);
+  }
+}
+
+// Force logout a user
+async function forceLogout(author) {
+  if (!confirm(`Force logout "${author}"?`)) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from("users")
+      .update({ forceLogout: true })
+      .eq("username", author);
+
+    if (error) throw error;
+
+    alert(`✅ Force logout triggered for "${author}".`);
+  } catch (err) {
+    console.error("forceLogout failed", err);
+    alert("❌ Failed: " + err.message);
+  }
+}
+
 // ======================== DISCORD STYLE FEATURES ========================
 
 
@@ -1127,97 +1027,107 @@ async function editMessage(messageId) {
 
 
 // ---------------- REACTION BUBBLES ----------------
-
 async function addReaction(messageId, emoji) {
-
   try {
-
-    const { data } = await supabaseClient
+    // 1️⃣ Get ALL matching reactions (not maybeSingle)
+    const { data: existing, error } = await supabaseClient
       .from("reactions")
-      .select("*")
+      .select("id")
       .eq("message_id", messageId)
       .eq("username", username)
-      .eq("emoji", emoji)
-      .single();
+      .eq("emoji", emoji);
 
-    if (data) {
-      await supabaseClient
+    if (error) throw error;
+
+    if (existing && existing.length > 0) {
+      // ❌ REMOVE ALL matching reactions (fixes duplicates too)
+      const ids = existing.map(r => r.id);
+
+      const { error: deleteError } = await supabaseClient
         .from("reactions")
         .delete()
-        .eq("id", data.id);
-      return;
-    }
+        .in("id", ids);
 
-    await supabaseClient
-      .from("reactions")
-      .insert({
-        message_id: messageId,
-        username: username,
-        emoji: emoji
-      });
+      if (deleteError) {
+        console.error("❌ Delete reaction failed:", deleteError);
+        alert(`Could not remove reaction: ${deleteError.message}`);
+        return;
+      }
+
+    } else {
+      // ✅ ADD reaction
+      await supabaseClient
+        .from("reactions")
+        .insert({
+          message_id: messageId,
+          username: username,
+          emoji: emoji
+        });
+    }
 
   } catch (err) {
     console.error("Reaction error", err);
   }
-
 }
 
-
-
-async function renderReactions(messageId, container) {
-  // 1. Clear existing reactions to prevent duplicates on re-render
-  const existingBar = container.querySelector(".reactionBar");
-  if (existingBar) {
-    existingBar.remove();
+// ------------------------ Reactions ------------------------
+async function renderReactions(messageId, li) {
+  let reactionsContainer = li.querySelector(".reactionBar");
+  if (!reactionsContainer) {
+    reactionsContainer = document.createElement("div");
+    reactionsContainer.className = "reactionBar";
+    li.appendChild(reactionsContainer);
   }
 
+  reactionsContainer.innerHTML = "";
+
   try {
-    const { data, error } = await supabaseClient
+    const { data: reactions, error } = await supabaseClient
       .from("reactions")
       .select("*")
       .eq("message_id", messageId);
 
     if (error) {
-      console.error("Error fetching reactions:", error);
+      console.error("❌ Error fetching reactions:", error);
       return;
     }
 
-    if (!data || data.length === 0) return;
+    if (!reactions || reactions.length === 0) return;
 
-    const reactionsMap = {};
-    data.forEach(r => {
-      if (!reactionsMap[r.emoji]) reactionsMap[r.emoji] = [];
-      reactionsMap[r.emoji].push(r.username);
+    const grouped = {};
+    reactions.forEach(r => {
+      // Keep a local map so DELETE realtime events (which carry only the reaction id) can
+      // still find the right message to re-render.
+      reactionMessageMap.set(r.id, r.message_id);
+
+      if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, myId: null, users: [] };
+      grouped[r.emoji].count++;
+      grouped[r.emoji].users.push(r.username);
+      if (r.username === username) grouped[r.emoji].myId = r.id;
     });
 
-    const wrap = document.createElement("div");
-    wrap.className = "reactionBar";
-    wrap.style.marginTop = "8px"; // Add some spacing
-    wrap.style.display = "flex";
-    wrap.style.gap = "8px";
-
-    Object.entries(reactionsMap).forEach(([emoji, users]) => {
+    Object.entries(grouped).forEach(([emoji, info]) => {
+      const iMine = info.myId !== null;
       const bubble = document.createElement("span");
-      bubble.textContent = `${emoji} ${users.length}`;
       bubble.className = "reactionBubble";
-      bubble.style.cursor = "pointer";
-      bubble.style.padding = "4px 8px";
-      bubble.style.borderRadius = "12px";
-      bubble.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
-      bubble.style.fontSize = "14px";
-      
-      // Toggle reaction on click
-      bubble.onclick = () => addReaction(messageId, emoji);
+      bubble.textContent = `${emoji} ${info.count}`;
+      bubble.title = info.users.join(", ");
+      if (iMine) bubble.classList.add("mine");
 
-      wrap.appendChild(bubble);
+      bubble.onclick = async (e) => {
+        e.stopPropagation();
+        bubble.style.opacity = "0.5";
+        bubble.style.pointerEvents = "none";
+        await addReaction(messageId, emoji);
+        // Re-render is handled by the realtime subscription — no manual call needed
+      };
+
+      reactionsContainer.appendChild(bubble);
     });
-
-    container.appendChild(wrap);
   } catch (err) {
-    console.error("Render reactions error", err);
+    console.error("Failed to load reactions:", err);
   }
 }
-
 
 
 // ---------------- THREAD REPLIES ----------------
@@ -1297,10 +1207,10 @@ const typingChannel = supabaseClient.channel('typing-indicator')
 // Simplified input handler
 input.addEventListener("input", async () => {
   if (!username) return;
-  
+
   // Debounce locally before sending to DB
   clearTimeout(typingTimeout);
-  
+
   // Send "typing" status
   await supabaseClient.from("typing").upsert({
     username: username,
@@ -1326,7 +1236,7 @@ function attachHoverControls(li, msg) {
   controls.style.right = "10px";
   controls.style.top = "5px";
   controls.style.display = "none";
-  controls.style.zIndex = "1000";
+  controls.style.zIndex = "1";
 
   // React Button (Triggers Picker)
   const reactBtn = document.createElement("button");
@@ -1336,17 +1246,17 @@ function attachHoverControls(li, msg) {
   reactBtn.style.border = "none";
   reactBtn.style.cursor = "pointer";
   reactBtn.style.fontSize = "18px";
-  
+
   reactBtn.onclick = (e) => {
     e.stopPropagation(); // Prevent immediate closure
     const picker = document.getElementById("emojiPicker");
-    
+
     // Position picker near the button
     const rect = reactBtn.getBoundingClientRect();
     picker.style.top = (rect.bottom + 5) + "px";
     picker.style.left = rect.left + "px";
     picker.style.display = "block";
-    
+
     // Store the message ID on the picker for the selection handler
     picker.dataset.targetMessageId = msg.id;
   };
@@ -1398,8 +1308,6 @@ function enhanceMessage(li, msg) {
 
   // renderReply is now handled in renderMessage with replyContext for Discord-style
   // renderReply(msg, li);
-
-  renderReactions(msg.id, li);
 
 }
 
@@ -1607,7 +1515,7 @@ fileInput.addEventListener("change", async (e) => {
 function updateTypingUI() {
   const box = document.getElementById("typingIndicator");
   if (!box) return;
-  
+
   supabaseClient
     .from("typing")
     .select("username")
@@ -1617,18 +1525,16 @@ function updateTypingUI() {
         box.textContent = "";
         return;
       }
-      
+
       const typingUsers = data
         .filter(u => u.username !== username)
         .map(u => u.username);
-      
+
       box.textContent = typingUsers.length > 0 
         ? `${typingUsers.join(", ")} typing...` 
         : "";
     });
 }
-
-let typingTimeout = null;
 
 function getFileType(url) {
   try {
@@ -1673,4 +1579,15 @@ document.addEventListener("click", (e) => {
     document.body.appendChild(overlay);
   }
 });
+
+function handleReaction(messageId, emoji) {
+  const li = messagesMap.get(Number(messageId));
+  if (!li) return;
+
+  // Trigger the database update
+  addReaction(messageId, emoji);
+
+  // Immediately re-render to show the change
+  renderReactions(messageId, li);
+}
 // ======================== END FEATURES ========================
