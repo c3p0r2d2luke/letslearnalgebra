@@ -3,6 +3,6 @@
   functions = "netlify/functions"
 
 [[redirects]]
-  from = "/proxy"
-  to = "/.netlify/functions/proxy"
+  from = "/hello"
+  to = "/.netlify/functions/hello"
   status = 200
