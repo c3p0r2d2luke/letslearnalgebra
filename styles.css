@@ -667,3 +667,48 @@ li[data-pinned="true"] {
   text-decoration: underline;
 }
 
+/* Reply indentation */
+#messages li.is-reply {
+  margin-left: 40px;
+  position: relative;
+}
+
+/* Vertical connector line */
+#messages li.is-reply::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--bg-tertiary);
+}
+
+/* Little curved hook (Discord vibe) */
+#messages li.is-reply::after {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  border-left: 2px solid var(--bg-tertiary);
+  border-bottom: 2px solid var(--bg-tertiary);
+  border-bottom-left-radius: 8px;
+}
+
+.code-block {
+  background: #1e1f22;
+  padding: 10px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  overflow-x: auto;
+  border: 1px solid #444;
+  margin-top: 6px;
+}
+
+.code-block code {
+  color: #00ffcc;
+  white-space: pre;
+}

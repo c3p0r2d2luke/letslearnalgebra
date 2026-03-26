@@ -1,4 +1,5 @@
 /* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, NodeFilter, Date, Blob, URL, Notification, emailjs */
+const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
@@ -6,6 +7,13 @@ const messagesList = document.getElementById("messages");
 const logBox = document.getElementById("logBox");
 const threadsContainer = document.getElementById("threadsContainer");
 logBox.style.display = "none";
+
+function escapeHTML(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 // ======================== TAB SYSTEM ========================
 let currentTab = "messages";
@@ -378,11 +386,23 @@ async function buildLinkPreview(url) {
 
 // ------------------------ Render Message ------------------------
 async function renderMessage(msg) {
+  messageDataMap.set(msg.id, msg);
   let li = messagesMap.get(msg.id);
   if (!li) {
     li = document.createElement("li");
     messagesMap.set(msg.id, li);
+    if (msg.reply_to) {
+  const parentLi = messagesMap.get(msg.reply_to);
+
+  if (parentLi && parentLi.parentNode === messagesList) {
+    // Insert directly after parent
+    parentLi.insertAdjacentElement("afterend", li);
+  } else {
     messagesList.appendChild(li);
+  }
+} else {
+  messagesList.appendChild(li);
+}
   }
 
   li.innerHTML = "";
@@ -408,81 +428,78 @@ async function renderMessage(msg) {
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
   // --- 1. HANDLE REPLY PREVIEW (DISCORD STYLE) ---
-  if (msg.reply_to) {
-    // Fetch the parent message data
-    // Note: In a high-performance app, you'd cache this, but for now we fetch it.
-    // Optimization: If the parent is already in messagesMap, use that!
-    let parentMsg = messagesMap.get(msg.reply_to);
-    
-    // If parent isn't rendered yet (rare edge case), we might need a fetch, 
-    // but usually, it's already there. If not, we skip the preview to avoid lag.
-    if (parentMsg) {
-      const replyPreview = document.createElement("div");
-      replyPreview.className = "replyPreview";
-      
-      // Get parent username and content
-      const parentUsername = parentMsg.username === "Frenchwizz" ? "Takeo" : parentMsg.username;
-      const parentContent = parentMsg.content.replaceAll(NO_EMBED_PHRASE, "");
-      
-      // Truncate content for preview
-      const truncatedContent = parentContent.length > 100 
-        ? parentContent.substring(0, 100) + "..." 
-        : parentContent;
+if (msg.reply_to) {
+  const parentLi = messagesMap.get(msg.reply_to);
 
-      // Create the clickable preview element
-      replyPreview.innerHTML = `
-        <div class="replyContext">
-          <span class="replyContextAuthor">${parentUsername}</span>
-          <span class="replyContextContent">${truncatedContent}</span>
-        </div>
-      `;
-      
-      // Make the preview clickable to jump to the parent message
-      replyPreview.style.cursor = "pointer";
-      replyPreview.onclick = () => {
-        // Scroll to the parent message
-        const parentLi = messagesMap.get(msg.reply_to);
-        if (parentLi) {
-          parentLi.scrollIntoView({ behavior: "smooth", block: "center" });
-          parentLi.classList.add("highlighted");
-          setTimeout(() => parentLi.classList.remove("highlighted"), 2000);
-        }
-      };
+  if (parentLi) {
+    let next = parentLi.nextElementSibling;
 
-      contentDiv.appendChild(replyPreview);
+    // Find last reply in chain
+    while (next && next.classList.contains("is-reply")) {
+      next = next.nextElementSibling;
     }
-  }
 
-  // --- 2. FILE / LINK PARSING (Existing Logic) ---
-  const fileMatch = cleanContent.match(/$$📄 (.*?)$$$$(.*?)$$/);
-  if (fileMatch) {
-    // ... (Keep your existing file parsing logic here) ...
-    const fileName = fileMatch[1];
-    const url = fileMatch[2].trim().replace(/[)\]\s]+$/, "");
-    const type = getFileType(url);
-
-    if (type === "image") {
-      wrapper.innerHTML = `<img src="${url}" style="max-width:300px;border-radius:8px;cursor:pointer;">`;
-    } else if (type === "video") {
-      wrapper.innerHTML = `<video controls style="max-width:300px;border-radius:8px;"><source src="${url}"></video>`;
-    } else if (type === "audio") {
-      wrapper.innerHTML = `<audio controls><source src="${url}"></audio>`;
+    if (next) {
+      messagesList.insertBefore(li, next);
     } else {
-      wrapper.innerHTML = `<a href="${url}" target="_blank">📄 ${fileName}</a>`;
+      messagesList.appendChild(li);
     }
   } else {
-    wrapper.textContent = cleanContent;
+    messagesList.appendChild(li);
   }
+} else {
+  messagesList.appendChild(li);
+}
+  // --- 2. FILE / LINK PARSING (Existing Logic) ---
+  const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+if (fileMatch) {
+  const fileName = fileMatch[1];
+  const url = fileMatch[2].trim();
+  const type = getFileType(url);
+
+  if (type === "image") {
+    wrapper.innerHTML = `
+      <img src="${url}" 
+           style="max-width:300px;border-radius:8px;cursor:pointer;">
+    `;
+  } else if (type === "video") {
+    wrapper.innerHTML = `
+      <video controls style="max-width:300px;border-radius:8px;">
+        <source src="${url}">
+      </video>
+    `;
+  } else if (type === "audio") {
+    wrapper.innerHTML = `
+      <audio controls>
+        <source src="${url}">
+      </audio>
+    `;
+  } else {
+    wrapper.innerHTML = `
+      <a href="${url}" target="_blank">📄 ${fileName}</a>
+    `;
+  }
+} else {
+  wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
+  if (msg.role === "Admin") {
+  executeScripts(wrapper);
+}
+}
 
   contentDiv.appendChild(wrapper);
 
   // --- Mention Styling (NEW) ---
   // Convert @username to spans for styling
-  if (wrapper.textContent) {
+  if (!fileMatch && wrapper.textContent) {
     const mentionRegex = /@(\w+)/g;
     const processed = wrapper.textContent.replace(mentionRegex, '<span class="mention">@$1</span>');
-    wrapper.innerHTML = processed;
-  }
+if (msg.role !== "Admin") {
+  const mentionRegex = /@(\w+)/g;
+  wrapper.innerHTML = wrapper.innerHTML.replace(
+    mentionRegex,
+    '<span class="mention">@$1</span>'
+  );
+}  }
 
   li.appendChild(contentDiv);
 
@@ -626,6 +643,9 @@ async function renderMessage(msg) {
     menu.style.padding = "4px";
     menu.style.display = "block";
   });
+  if (msg.reply_to) {
+  li.classList.add("is-reply");
+}
 }
 
 // ------------------------ Realtime Handler ------------------------
@@ -1716,5 +1736,45 @@ function handleReaction(messageId, emoji) {
 
   // Immediately re-render to show the change
   renderReactions(messageId, li);
+}
+
+function formatMessageContent(content, role) {
+  // Detect triple backtick code block
+  const codeBlockMatch = content.match(/```([\s\S]*?)```/);
+
+  if (codeBlockMatch) {
+    const code = codeBlockMatch[1];
+
+    return `<pre class="code-block"><code>${
+      escapeHTML(code)
+    }</code></pre>`;
+  }
+
+  // If admin → allow raw HTML
+  if (role === "Admin") {
+    return content;
+  }
+
+  // If user → escape everything
+  return escapeHTML(content);
+}
+
+function executeScripts(container) {
+  const scripts = container.querySelectorAll("script");
+
+  scripts.forEach(oldScript => {
+    const newScript = document.createElement("script");
+
+    // Copy attributes (like src)
+    for (let attr of oldScript.attributes) {
+      newScript.setAttribute(attr.name, attr.value);
+    }
+
+    // Copy inline script content
+    newScript.textContent = oldScript.textContent;
+
+    // Replace old script with new one (this executes it)
+    oldScript.parentNode.replaceChild(newScript, oldScript);
+  });
 }
 // ======================== END FEATURES ========================
