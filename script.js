@@ -758,10 +758,47 @@ Muted Until: ${data.muted_until || "None"}`
     currentSection = sub;
   };
 
-  // Basic actions (everyone)
-  addButton("Reply", () => startReply(messageId));
-  addButton("React 👍", () => addReaction(messageId, "👍"));
-  addButton("Report", () => reportMessage(messageId));
+// Inside the contextmenu event listener, find this section:
+
+// Basic actions (everyone)
+addButton("Reply", () => startReply(messageId));
+
+// ✅ Fixed React button - captures event coordinates properly
+addButton("React", () => {
+  const picker = document.getElementById("emojiPicker");
+  if (!picker) {
+    console.error("Emoji picker not found!");
+    return;
+  }
+
+  // Use the original contextmenu event coordinates
+  const x = e.clientX + 10;
+  const y = e.clientY + 10;
+  
+  // Ensure picker stays within viewport bounds
+  const pickerRect = picker.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  // Adjust if picker would go off-screen
+  const adjustedX = x + pickerRect.width > viewportWidth ? x - pickerRect.width : x;
+  const adjustedY = y + pickerRect.height > viewportHeight ? y - pickerRect.height : y;
+  
+  picker.style.position = "fixed";
+  picker.style.top = adjustedY + "px";
+  picker.style.left = adjustedX + "px";
+  picker.style.zIndex = "9999"; // Make sure it's on top
+  
+  // Store the message ID on the picker
+  picker.dataset.targetMessageId = messageId;
+  
+  picker.style.display = "block";
+  
+  // Focus the picker so keyboard navigation works
+  picker.focus();
+});
+
+addButton("Report", () => reportMessage(messageId));
 
 // Manager actions (only for managers on their own messages)
 if (currentRole === "Manager" && author === username) {

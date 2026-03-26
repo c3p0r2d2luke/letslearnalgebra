@@ -17,67 +17,82 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<h1 style="margin:12px 16px;">Chat Room</h1>
+  <h1 style="margin:12px 16px;">Chat Room</h1>
 
-<div id="namePrompt">
-  <input id="nameInput" placeholder="Enter your real name, or you will be banned..." />
-  <button id="saveNameButton">Save Name</button>
-</div>
-
-<div class="chat-app">
-  <div class="tab-container">
-    <div class="tab active" data-tab="messages">Messages</div>
-    <div class="tab" data-tab="threads">Threads</div>
+  <div id="namePrompt">
+    <input id="nameInput" placeholder="Enter your real name, or you will be banned..." />
+    <button id="saveNameButton">Save Name</button>
   </div>
 
-  <div class="tabs-content">
-    <div class="tab-pane active" id="messages-pane">
-      <ul id="messages"></ul>
+  <!-- NEW WRAPPER FOR SIDEBAR + CHAT -->
+  <div class="app-layout">
+    
+    <!-- SERVER SIDEBAR -->
+    <aside class="server-sidebar">
+      <div class="server-icon active" title="General Chat">
+        <img src="https://placehold.co/48x48/000000/FFFFFF" alt="General">
+      </div>
+      <div class="server-icon" title="Math Class">
+        <img src="https://placehold.co/48x48/000000/FFFFF0" alt="Math">
+      </div>
+      <div class="server-icon" title="Science Lab">
+        <img src="https://placehold.co/48x48/000000/FFFF00" alt="Science">
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="server-icon add-server" title="Add Server">
+        <span>+</span>
+      </div>
+    </aside>
+
+    <!-- MAIN CHAT AREA (Your existing chat-app) -->
+    <div class="chat-app">
+      <div class="tab-container">
+        <div class="tab active" data-tab="messages">Messages</div>
+        <div class="tab" data-tab="threads">Threads</div>
+      </div>
+
+      <div class="tabs-content">
+        <div class="tab-pane active" id="messages-pane">
+          <ul id="messages"></ul>
+        </div>
+        <div class="tab-pane" id="threads-pane">
+          <div id="threadsContainer"></div>
+        </div>
+      </div>
+
+      <div id="controls">
+        <input type="file" id="fileInput" style="display:none;" accept="image/*,.pdf,.jpeg,.jpg,.png" />
+        <button id="uploadBtn" title="Upload file">📎</button>
+        <textarea id="messageInput" placeholder="Message #general" disabled></textarea>
+        <button id="sendButton" disabled>Send</button>
+      </div>
     </div>
-    <div class="tab-pane" id="threads-pane">
-      <div id="threadsContainer"></div>
+  </div>
+
+  <div id="logBox"></div>
+  <div id="adminMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; border-radius:6px; z-index:9999; min-width:140px;"></div>
+  <div id="typingIndicator"></div>
+  
+  <!-- Emoji Picker (keep as is) -->
+  <div id="emojiPicker" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:8px; border-radius:8px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+    <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:4px;">
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👍</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">❤️</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😂</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😮</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😢</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😡</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🎉</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🔥</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👀</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🤔</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👎</span>
+      <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">✨</span>
     </div>
   </div>
-
-  <div id="controls">
-<input type="file" id="fileInput" style="display:none;" accept="image/*,.pdf,.jpeg,.jpg,.png" />
-<button id="uploadBtn" title="Upload file">📎</button>
-    <textarea id="messageInput" placeholder="Message #general" disabled></textarea>
-    <button id="sendButton" disabled>Send</button>
-  </div>
-</div>
-
-<div id="logBox"></div>
-
-<div id="adminMenu" style="
-  display:none;
-  position:fixed;
-  background:#2f3136;
-  border:1px solid #444;
-  padding:4px;
-  border-radius:6px;
-  z-index:9999;
-  min-width:140px;
-"></div>
-<div id="typingIndicator"></div>
-<!-- Emoji Picker Popup -->
-<div id="emojiPicker" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:8px; border-radius:8px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-  <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:4px;">
-    <!-- Common Emojis -->
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👍</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">❤️</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😂</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😮</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😢</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">😡</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🎉</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🔥</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👀</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">🤔</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">👎</span>
-    <span class="emoji-option" style="cursor:pointer; font-size:20px; padding:4px;">✨</span>
-  </div>
-</div>
-<script src="./script.js"></script>
+  
+  <script src="./script.js"></script>
 </body>
 </html>
