@@ -807,38 +807,75 @@ async function pinMessage(messageId) {
 async function deleteMessage(messageId) {
   if (!confirm("Delete this message?")) return;
 
-  // 1. ROLE CHECK — Admins can delete any message; Managers can only delete their own
   const li = messagesMap.get(Number(messageId));
   const author = li ? li.dataset.user : null;
+
   if (currentRole !== "Admin" && !(currentRole === "Manager" && author === username)) {
     alert("❌ Access Denied: You can only delete your own messages.");
     return;
   }
 
-  // 2. Perform the delete
-  const { data, error } = await supabaseClient
-    .from("messages")
-    .delete()
-    .eq("id", messageId)
-    .select(); // Select to confirm deletion
+  try {
+    // 🧠 1. Get message FIRST (so we know if it has a file)
+    const { data: msg, error: fetchError } = await supabaseClient
+      .from("messages")
+      .select("content")
+      .eq("id", messageId)
+      .single();
 
-  if (error) {
-    console.error("Delete error:", error);
-    alert(`❌ Delete failed: ${error.message}`);
-  } else {
-    // 3. Verify rows were actually deleted
+    if (fetchError) throw fetchError;
+
+    const content = msg.content;
+
+    // 📦 2. Check if it's a file message
+    const fileMatch = content.match(/\[📄 (.*?)\]\((.*?)\)/);
+
+    if (fileMatch) {
+      const fileUrl = fileMatch[2];
+
+      // 🔍 3. Extract file path from URL
+      const urlParts = fileUrl.split("/chat-files/");
+      if (urlParts.length > 1) {
+        const filePath = urlParts[1].split("?")[0];
+
+        console.log("Deleting file:", filePath);
+
+        // 🗑️ 4. Delete from Supabase Storage
+        const { error: storageError } = await supabaseClient.storage
+          .from("chat-files")
+          .remove([filePath]);
+
+        if (storageError) {
+          console.warn("⚠️ File delete failed:", storageError.message);
+        } else {
+          console.log("✅ File deleted from storage");
+        }
+      }
+    }
+
+    // 🧨 5. Delete message from DB
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .delete()
+      .eq("id", messageId)
+      .select();
+
+    if (error) throw error;
+
     if (data && data.length > 0) {
-      alert(`✅ Success! Deleted 1 message.`);
-      // Remove from local cache
-      const li = messagesMap.get(Number(messageId));
+      alert("✅ Message + file deleted");
+
       if (li) {
         li.remove();
         messagesMap.delete(Number(messageId));
       }
     } else {
-      // This happens if RLS blocks it (0 rows affected)
-      alert("⚠️ Delete command sent, but 0 rows were affected. \nThis usually means RLS is blocking the delete.\n\nCheck your Supabase Policies.");
+      alert("⚠️ Delete blocked (RLS probably)");
     }
+
+  } catch (err) {
+    console.error("Delete failed:", err);
+    alert("❌ Delete failed: " + err.message);
   }
 }
 
