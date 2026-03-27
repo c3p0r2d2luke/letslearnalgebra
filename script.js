@@ -36,6 +36,7 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
   }
 });
 
+const threadMap = new Map(); // parentId → { parent, replies }
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
@@ -70,7 +71,7 @@ document.querySelectorAll(".tab").forEach(tab => {
 
     // Refresh threads view if switching to threads
     if (tabName === "threads") {
-      renderAllThreads();
+      
     }
   });
 });
@@ -157,6 +158,22 @@ async function loadMessages() {
   if (error) return log("❌ Failed to load messages", error, "error");
   data.forEach(msg => renderMessage(msg));
   log("✅ Messages loaded");
+}
+
+function buildInitialThreads() {
+  messageDataMap.forEach(msg => {
+    if (msg.is_thread && msg.reply_to) {
+      if (!threadMap.has(msg.reply_to)) {
+        threadMap.set(msg.reply_to, { parent: null, replies: [] });
+      }
+      threadMap.get(msg.reply_to).replies.push(msg);
+    } else {
+      // parent message
+      if (threadMap.has(msg.id)) {
+        threadMap.get(msg.id).parent = msg;
+      }
+    }
+  });
 }
 
 // ------------------------ Auto-load saved name ------------------------
@@ -325,12 +342,16 @@ async function sendMessage() {
       log("✅ Message sent to Supabase");
 
       if (threadReplyingTo) {
-        clearThreadReply();
-        if (currentTab === "threads") renderAllThreads();
-      } else if (replyingTo) {
-        clearReply();
-      }
+  clearThreadReply();
 
+  if (currentTab === "threads") {
+    renderSingleThread(threadReplyingTo);
+  }
+
+} else if (replyingTo) {
+  clearReply();
+}
+    
       // --- Push Notification Logic (Admin Broadcast) ---
       const isImportant = currentRole === "Admin" && content.includes("!important!");
       fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
@@ -345,10 +366,10 @@ async function sendMessage() {
 
       // --- Mention Processing (NEW) ---
       // Moved inside the success block so it only runs if message was sent
-      await processMentions(content, messageData);
+      await processMentions(content);
 
       if (currentTab === "threads") {
-        renderAllThreads();
+        
       }
     }
   } catch (e) {
@@ -357,52 +378,49 @@ async function sendMessage() {
 }
 
 // Add this near your sendMessage function
-async function processMentions(content, messageData) {
+async function processMentions(content) {
   const mentionRegex = /@(\w+)/g;
+
   const mentionedUsers = [...content.matchAll(mentionRegex)]
-    .map(match => match[1])
-    .filter((user, index, arr) => arr.indexOf(user) === index); // dedupe
+    .map(m => m[1].toLowerCase())
+    .filter((u, i, arr) => arr.indexOf(u) === i);
 
   if (mentionedUsers.length === 0) return;
 
-  // Fetch push subscriptions for mentioned users
-  const { data: users, error } = await supabaseClient
+  // Get valid users
+  const { data: users } = await supabaseClient
     .from("users")
     .select("username")
     .in("username", mentionedUsers);
 
-  if (error || !users) {
-    console.warn("Failed to fetch mentioned users:", error);
-    return;
-  }
+  if (!users) return;
 
-  // Get push subscriptions
-  const { data: subscriptions, error: subError } = await supabaseClient
+  const validUsers = users.map(u => u.username);
+
+  // Get subscriptions
+  const { data: subs } = await supabaseClient
     .from("push_subscriptions")
     .select("*")
-    .in("username", mentionedUsers.map(u => u.username));
+    .in("username", validUsers);
 
-  if (subError || !subscriptions) {
-    console.warn("Failed to fetch subscriptions:", subError);
-    return;
-  }
+  if (!subs) return;
 
-  // Send push to each mentioned user
-  for (const sub of subscriptions) {
+  // Send push
+  for (const sub of subs) {
     try {
       await fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `@${username} mentioned you!`,
+          title: `@${username} mentioned you`,
           body: content.substring(0, 100),
           subscription: sub.subscription,
           mention: true,
-          important: true // mentions should be important
+          important: true
         })
       });
     } catch (e) {
-      console.error("Failed to send mention push to", sub.username, e);
+      console.error("Push failed:", e);
     }
   }
 }
@@ -545,128 +563,133 @@ if (fileMatch) {
   else if (currentRole === "Manager") li.appendChild(managerDiv);
 
   // --- Right-Click Menu (Context Menu) ---
-  li.addEventListener("contextmenu", (e) => {
-    const message = e.target.closest("li");
-    if (!message) return;
-    e.preventDefault();
+// ================= GLOBAL RIGHT-CLICK MENU =================
+document.addEventListener("contextmenu", (e) => {
+  const message = e.target.closest("[data-id]");
+  if (!message) return; // Only trigger on messages
 
-    const menu = document.getElementById("adminMenu");
-    if (!menu) return;
-    menu.innerHTML = "";
+  e.preventDefault();
 
-    const messageId = message.dataset.id;
-    const author = message.dataset.user;
-    let currentSection = menu;
+  const menu = document.getElementById("adminMenu");
+  if (!menu) return;
 
-    const addButton = (label, action) => {
-      const btn = document.createElement("button");
-      btn.textContent = label;
-      btn.style.display = "block";
-      btn.style.width = "100%";
-      btn.style.padding = "6px";
-      btn.style.border = "none";
-      btn.style.background = "transparent";
-      btn.style.cursor = "pointer";
-      btn.style.color = "white";
-      btn.style.textAlign = "left";
-      btn.onmouseenter = () => btn.style.background = "#40444b";
-      btn.onmouseleave = () => btn.style.background = "transparent";
+  menu.innerHTML = "";
 
-      btn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        action(event);
-        menu.style.display = "none";
-      });
+  const messageId = message.dataset.id;
+  const author = message.dataset.user;
 
-      currentSection.appendChild(btn);
+  let currentSection = menu;
+
+  const addButton = (label, action) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.padding = "6px";
+    btn.style.border = "none";
+    btn.style.background = "transparent";
+    btn.style.cursor = "pointer";
+    btn.style.color = "white";
+    btn.style.textAlign = "left";
+
+    btn.onmouseenter = () => btn.style.background = "#40444b";
+    btn.onmouseleave = () => btn.style.background = "transparent";
+
+    btn.onclick = (event) => {
+      event.stopPropagation();
+      action();
+      menu.style.display = "none";
     };
 
-    const addSection = (title) => {
-      const wrapper = document.createElement("div");
-      wrapper.style.position = "relative";
+    currentSection.appendChild(btn);
+  };
 
-      const header = document.createElement("div");
-      header.textContent = title + " ▶";
-      header.style.fontSize = "12px";
-      header.style.padding = "6px";
-      header.style.cursor = "pointer";
-      header.style.color = "white";
-      header.style.background = "transparent";
+  const addSection = (title) => {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
 
-      header.onmouseenter = () => header.style.background = "#40444b";
-      header.onmouseleave = () => header.style.background = "transparent";
+    const header = document.createElement("div");
+    header.textContent = title + " ▶";
+    header.style.fontSize = "12px";
+    header.style.padding = "6px";
+    header.style.cursor = "pointer";
+    header.style.color = "white";
 
-      const sub = document.createElement("div");
-      sub.style.position = "absolute";
-      sub.style.left = "100%";
-      sub.style.top = "0";
-      sub.style.background = "#2f3136";
-      sub.style.border = "1px solid #444";
-      sub.style.display = "none";
-      sub.style.minWidth = "180px";
+    header.onmouseenter = () => header.style.background = "#40444b";
+    header.onmouseleave = () => header.style.background = "transparent";
 
-      wrapper.onmouseenter = () => sub.style.display = "block";
-      wrapper.onmouseleave = () => sub.style.display = "none";
+    const sub = document.createElement("div");
+    sub.style.position = "absolute";
+    sub.style.left = "100%";
+    sub.style.top = "0";
+    sub.style.background = "#2f3136";
+    sub.style.border = "1px solid #444";
+    sub.style.display = "none";
+    sub.style.minWidth = "180px";
 
-      wrapper.appendChild(header);
-      wrapper.appendChild(sub);
-      menu.appendChild(wrapper);
+    wrapper.onmouseenter = () => sub.style.display = "block";
+    wrapper.onmouseleave = () => sub.style.display = "none";
 
-      currentSection = sub;
-    };
+    wrapper.appendChild(header);
+    wrapper.appendChild(sub);
+    menu.appendChild(wrapper);
 
-    // Everyone
-    addButton("Reply", () => startReply(messageId));
-    addButton("Reply in Thread", () => startThread(messageId));
+    currentSection = sub;
+  };
 
-    addButton("React", (event) => {
-      const picker = document.getElementById("emojiPicker");
-      if (!picker) return;
-      const x = event.clientX + 10;
-      const y = event.clientY + 10;
-      picker.style.position = "fixed";
-      picker.style.top = y + "px";
-      picker.style.left = x + "px";
-      picker.dataset.targetMessageId = messageId;
-      picker.style.display = "block";
-    });
+  // ================= BASE ACTIONS =================
+  addButton("Reply", () => startReply(messageId));
+  addButton("Reply in Thread", () => startThread(messageId));
 
-    addButton("Report", () => reportMessage(messageId));
+  addButton("React", () => {
+    const picker = document.getElementById("emojiPicker");
+    if (!picker) return;
 
-    // Manager and Admin actions...
-    if (currentRole === "Manager" && author === username) {
-      addSection("Manager");
-      addButton("Delete My Message", () => deleteMessage(messageId));
-    }
-    if (currentRole === "Admin") {
-      addSection("Delete");
-      addButton("Delete", () => deleteMessage(messageId));
-      addButton("Delete By Keyword", () => deleteKeyword());
-      addButton("Delete User + Messages", () => deleteUser(author));
-
-      addSection("Info");
-      addButton("User Info", () => userInfo(author));
-      addButton("Export Chat", () => exportChat());
-
-      addSection("Edit");
-      addButton("Edit Message", () => editMessage(messageId));
-      addButton("Pin / Unpin", () => pinMessage(messageId));
-      addButton("Change Name", () => changeName(author));
-      addButton("Promote / Demote", () => promote(author));
-      addButton("Mute User", () => muteUser(author));
-      addButton("Block User", () => blockUser(author));
-      addButton("Unblock User", () => unblockUser(author));
-      addButton("Force Logout", () => forceLogout(author));
-    }
-
-    menu.style.position = "fixed";
-    menu.style.left = e.clientX + "px";
-    menu.style.top = e.clientY + "px";
-    menu.style.background = "#2f3136";
-    menu.style.border = "1px solid #444";
-    menu.style.padding = "4px";
-    menu.style.display = "block";
+    picker.style.position = "fixed";
+    picker.style.top = e.clientY + 10 + "px";
+    picker.style.left = e.clientX + 10 + "px";
+    picker.dataset.targetMessageId = messageId;
+    picker.style.display = "block";
   });
+
+  addButton("Report", () => reportMessage(messageId));
+
+  // ================= ROLE-BASED =================
+  if (currentRole === "Manager" && author === username) {
+    addSection("Manager");
+    addButton("Delete My Message", () => deleteMessage(messageId));
+  }
+
+  if (currentRole === "Admin") {
+    addSection("Delete");
+    addButton("Delete", () => deleteMessage(messageId));
+    addButton("Delete By Keyword", () => deleteKeyword());
+    addButton("Delete User + Messages", () => deleteUser(author));
+
+    addSection("Info");
+    addButton("User Info", () => userInfo(author));
+    addButton("Export Chat", () => exportChat());
+
+    addSection("Edit");
+    addButton("Edit Message", () => editMessage(messageId));
+    addButton("Pin / Unpin", () => pinMessage(messageId));
+    addButton("Change Name", () => changeName(author));
+    addButton("Promote / Demote", () => promote(author));
+    addButton("Mute User", () => muteUser(author));
+    addButton("Block User", () => blockUser(author));
+    addButton("Unblock User", () => unblockUser(author));
+    addButton("Force Logout", () => forceLogout(author));
+  }
+
+  // ================= SHOW MENU =================
+  menu.style.position = "fixed";
+  menu.style.left = e.clientX + "px";
+  menu.style.top = e.clientY + "px";
+  menu.style.background = "#2f3136";
+  menu.style.border = "1px solid #444";
+  menu.style.padding = "4px";
+  menu.style.display = "block";
+});
   if (msg.reply_to) {
   li.classList.add("is-reply");
 }
@@ -677,31 +700,45 @@ function handleRealtimeMessage(newMsg, eventType) {
   if (!newMsg) return;
 
   if (eventType === "INSERT") {
-    renderMessage(newMsg); // is_thread messages return early inside renderMessage
-    if (newMsg.is_thread && currentTab === "threads") renderAllThreads();
-  }
-  else if (eventType === "UPDATE") {
+    messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
+    updateThreadForMessage(newMsg);
+    if (newMsg.content.includes(`@${username}`)) {
+  showMentionToast(newMsg);
+
+  const el = messagesMap.get(newMsg.id);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.background = "#3a3d44";
+  }
+}
+  }
+
+  else if (eventType === "UPDATE") {
+    messageDataMap.set(newMsg.id, newMsg);
+    renderMessage(newMsg);
+    updateThreadForMessage(newMsg);
+    if (newMsg.content.includes(`@${username}`)) {
+  showMentionToast(newMsg);
+
+  const el = messagesMap.get(newMsg.id);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.background = "#3a3d44";
+  }
+}
+  }
+
+  else if (eventType === "DELETE") {
+    messageDataMap.delete(newMsg.id);
+
     const li = messagesMap.get(newMsg.id);
     if (li) {
-      const blockBtn = li.querySelector(".blockBtn");
-      if (blockBtn) blockBtn.textContent = newMsg.blocked ? "Unblock" : "Block";
+      li.remove();
+      messagesMap.delete(newMsg.id);
     }
-    if(newMsg.username === username && typeof newMsg.blocked !== "undefined") {
-      input.disabled = newMsg.blocked;
-      button.disabled = newMsg.blocked;
-      if(newMsg.blocked) alert("❌ You have been blocked by an admin!");
-    }
-  }
-  else if (eventType === "DELETE") {
-    const existing = messagesMap.get(newMsg.id);
-    if (existing) { existing.remove(); messagesMap.delete(newMsg.id); }
-    if (newMsg.username === username && newMsg.forceLogout) {
-      alert("⚠️ You have been forcefully logged out!");
-      localStorage.removeItem("chatUsername");
-      localStorage.removeItem("chatRole");
-      supabaseClient.from("users").update({ forceLogout: false }).eq("username", username).then(() => location.reload());
-    }
+
+    removeThreadMessage(newMsg.id);
   }
 }
 
@@ -1615,7 +1652,11 @@ async function renderAllThreads() {
 
     thread.replies.forEach(reply => {
       const replyEl = document.createElement("div");
-      replyEl.className = "thread-reply";
+replyEl.className = "thread-reply";
+
+// 🔥 ADD THIS
+replyEl.dataset.id = reply.id;
+replyEl.dataset.user = reply.username;
       replyEl.innerHTML = `
         <div class="reply-author">${escapeHTML(displayName(reply.username))}</div>
         <div>${escapeHTML(reply.content)}</div>
@@ -1881,5 +1922,120 @@ function executeScripts(container) {
     // Replace old script with new one (this executes it)
     oldScript.parentNode.replaceChild(newScript, oldScript);
   });
+}
+
+function refreshUI() {
+  if (currentTab === "threads") {
+    
+  } else {
+    // main chat already updates incrementally
+    // but you *can* force consistency if needed:
+    // messagesList.innerHTML = "";
+    // messagesMap.clear();
+    // loadMessages();
+  }
+}
+
+function updateThreadForMessage(msg) {
+  if (!msg.reply_to && !msg.is_thread) {
+    // this is a parent message
+    if (!threadMap.has(msg.id)) {
+      threadMap.set(msg.id, { parent: msg, replies: [] });
+    } else {
+      threadMap.get(msg.id).parent = msg;
+    }
+    return;
+  }
+
+  if (!msg.reply_to) return;
+
+  if (!threadMap.has(msg.reply_to)) {
+    threadMap.set(msg.reply_to, { parent: null, replies: [] });
+  }
+
+  const thread = threadMap.get(msg.reply_to);
+
+  if (msg.is_thread) {
+    const existingIndex = thread.replies.findIndex(r => r.id === msg.id);
+
+    if (existingIndex !== -1) {
+      thread.replies[existingIndex] = msg;
+    } else {
+      thread.replies.push(msg);
+    }
+
+    if (currentTab === "threads") {
+      renderSingleThread(msg.reply_to);
+    }
+  }
+}
+
+function removeThreadMessage(messageId) {
+  threadMap.forEach((thread, parentId) => {
+    thread.replies = thread.replies.filter(r => r.id !== messageId);
+
+    if (thread.parent?.id === messageId) {
+      threadMap.delete(parentId);
+      removeThreadFromUI(parentId);
+    } else {
+      if (currentTab === "threads") {
+        renderSingleThread(parentId);
+      }
+    }
+  });
+}
+
+function renderSingleThread(parentId) {
+  const thread = threadMap.get(parentId);
+  if (!thread || !thread.parent) return;
+
+  let existing = document.querySelector(`[data-thread-id="${parentId}"]`);
+
+  if (!existing) {
+    existing = document.createElement("div");
+    existing.className = "thread-item";
+    existing.dataset.threadId = parentId;
+    threadsContainer.appendChild(existing);
+  }
+
+  existing.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "thread-header";
+  header.textContent = `${thread.parent.username}: ${thread.parent.content}`;
+
+  existing.appendChild(header);
+
+  thread.replies.forEach(reply => {
+    const replyEl = document.createElement("div");
+    replyEl.className = "thread-reply";
+    replyEl.dataset.id = reply.id;
+    replyEl.dataset.user = reply.username;
+    replyEl.textContent = reply.content;
+
+    existing.appendChild(replyEl);
+  });
+}
+
+function removeThreadFromUI(parentId) {
+  const el = document.querySelector(`[data-thread-id="${parentId}"]`);
+  if (el) el.remove();
+}
+function showMentionToast(msg) {
+  const toast = document.createElement("div");
+  toast.textContent = `📣 ${msg.username} mentioned you`;
+
+  toast.style.position = "fixed";
+  toast.style.bottom = "20px";
+  toast.style.right = "20px";
+  toast.style.background = "#5865f2";
+  toast.style.color = "white";
+  toast.style.padding = "10px 15px";
+  toast.style.borderRadius = "8px";
+  toast.style.zIndex = "9999";
+
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 4000);
 }
 // ======================== END FEATURES ========================
