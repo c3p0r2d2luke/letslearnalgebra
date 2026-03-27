@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <script>
     (function(){
       emailjs.init({ publicKey: "nohRtKASS4R_i2HtZ" });
@@ -76,6 +77,15 @@
         </div>
       </div>
 
+      <div id="replyBanner" style="display:none;">
+        <span id="replyBannerText"></span>
+        <button id="cancelReplyBtn" title="Cancel reply">✕</button>
+      </div>
+      <div id="threadBanner" style="display:none;">
+        <span>🧵</span>
+        <span id="threadBannerText"></span>
+        <button id="cancelThreadBtn" title="Cancel thread reply">✕</button>
+      </div>
       <div id="controls">
         <input type="file" id="fileInput" style="display:none;" accept="image/*,.pdf,.jpeg,.jpg,.png" />
         <button id="uploadBtn" title="Upload file">📎</button>

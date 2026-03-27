@@ -12,12 +12,23 @@ async function hashPassword(password) {
 // 🔑 CHANGE THIS to your hashed password
 const CORRECT_HASH = "22c932242295554614d1b3f90e13aee6efc317c3e044999664d8157d8ea53ca0";
 
+// ✅ Check if already logged in (RUN ON PAGE LOAD)
+document.addEventListener("DOMContentLoaded", () => {
+  if (localStorage.getItem("isAuthenticated") === "true") {
+    document.getElementById("passwordGate").style.display = "none";
+    document.getElementById("appContent").style.display = "block";
+  }
+});
+
 // Handle login
 document.getElementById("passwordBtn").addEventListener("click", async () => {
   const input = document.getElementById("passwordInput").value;
   const hashed = await hashPassword(input);
 
   if (hashed === CORRECT_HASH) {
+    // ✅ Save login state
+    localStorage.setItem("isAuthenticated", "true");
+
     document.getElementById("passwordGate").style.display = "none";
     document.getElementById("appContent").style.display = "block";
   } else {
@@ -138,7 +149,11 @@ supabaseClient
 
 // ------------------------ Load Messages ------------------------
 async function loadMessages() {
-  const { data, error } = await supabaseClient.from("messages").select("*").order("inserted_at",{ascending:true});
+  const { data, error } = await supabaseClient
+    .from("messages")
+    .select("*")
+    .or("is_thread.is.null,is_thread.eq.false")
+    .order("inserted_at", { ascending: true });
   if (error) return log("❌ Failed to load messages", error, "error");
   data.forEach(msg => renderMessage(msg));
   log("✅ Messages loaded");
@@ -297,7 +312,10 @@ async function sendMessage() {
   try {
     const messageData = { username, content, role: currentRole, is_pinned: false, ip };
 
-    if (replyingTo) {
+    if (threadReplyingTo) {
+      messageData.reply_to = threadReplyingTo;
+      messageData.is_thread = true;
+    } else if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
 
@@ -306,9 +324,11 @@ async function sendMessage() {
       input.value = "";
       log("✅ Message sent to Supabase");
 
-      if (replyingTo) {
-        replyingTo = null;
-        input.placeholder = "Message #general";
+      if (threadReplyingTo) {
+        clearThreadReply();
+        if (currentTab === "threads") renderAllThreads();
+      } else if (replyingTo) {
+        clearReply();
       }
 
       // --- Push Notification Logic (Admin Broadcast) ---
@@ -413,22 +433,24 @@ async function buildLinkPreview(url) {
 // ------------------------ Render Message ------------------------
 async function renderMessage(msg) {
   messageDataMap.set(msg.id, msg);
+
+  // Thread replies only appear in the Threads tab, not the main channel
+  if (msg.is_thread) return;
+
   let li = messagesMap.get(msg.id);
   if (!li) {
     li = document.createElement("li");
     messagesMap.set(msg.id, li);
     if (msg.reply_to) {
-  const parentLi = messagesMap.get(msg.reply_to);
-
-  if (parentLi && parentLi.parentNode === messagesList) {
-    // Insert directly after parent
-    parentLi.insertAdjacentElement("afterend", li);
-  } else {
-    messagesList.appendChild(li);
-  }
-} else {
-  messagesList.appendChild(li);
-}
+      const parentLi = messagesMap.get(msg.reply_to);
+      if (parentLi && parentLi.parentNode === messagesList) {
+        parentLi.insertAdjacentElement("afterend", li);
+      } else {
+        messagesList.appendChild(li);
+      }
+    } else {
+      messagesList.appendChild(li);
+    }
   }
 
   li.innerHTML = "";
@@ -453,30 +475,7 @@ async function renderMessage(msg) {
   const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-  // --- 1. HANDLE REPLY PREVIEW (DISCORD STYLE) ---
-if (msg.reply_to) {
-  const parentLi = messagesMap.get(msg.reply_to);
-
-  if (parentLi) {
-    let next = parentLi.nextElementSibling;
-
-    // Find last reply in chain
-    while (next && next.classList.contains("is-reply")) {
-      next = next.nextElementSibling;
-    }
-
-    if (next) {
-      messagesList.insertBefore(li, next);
-    } else {
-      messagesList.appendChild(li);
-    }
-  } else {
-    messagesList.appendChild(li);
-  }
-} else {
-  messagesList.appendChild(li);
-}
-  // --- 2. FILE / LINK PARSING (Existing Logic) ---
+  // --- FILE / LINK PARSING ---
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
 if (fileMatch) {
   const fileName = fileMatch[1];
@@ -514,18 +513,16 @@ if (fileMatch) {
 
   contentDiv.appendChild(wrapper);
 
-  // --- Mention Styling (NEW) ---
-  // Convert @username to spans for styling
-  if (!fileMatch && wrapper.textContent) {
-    const mentionRegex = /@(\w+)/g;
-    const processed = wrapper.textContent.replace(mentionRegex, '<span class="mention">@$1</span>');
-if (msg.role !== "Admin") {
-  const mentionRegex = /@(\w+)/g;
-  wrapper.innerHTML = wrapper.innerHTML.replace(
-    mentionRegex,
-    '<span class="mention">@$1</span>'
-  );
-}  }
+  // --- Mention Styling — convert @name to colored pill spans ---
+  if (!fileMatch && msg.role !== "Admin") {
+    wrapper.innerHTML = wrapper.innerHTML.replace(
+      /@(\w+)/g,
+      (match, name) => {
+        const cls = name === username ? "mention mine" : "mention";
+        return `<span class="${cls}">@${name}</span>`;
+      }
+    );
+  }
 
   li.appendChild(contentDiv);
 
@@ -620,6 +617,7 @@ if (msg.role !== "Admin") {
 
     // Everyone
     addButton("Reply", () => startReply(messageId));
+    addButton("Reply in Thread", () => startThread(messageId));
 
     addButton("React", (event) => {
       const picker = document.getElementById("emojiPicker");
@@ -678,7 +676,10 @@ if (msg.role !== "Admin") {
 function handleRealtimeMessage(newMsg, eventType) {
   if (!newMsg) return;
 
-  if (eventType === "INSERT") renderMessage(newMsg);
+  if (eventType === "INSERT") {
+    renderMessage(newMsg); // is_thread messages return early inside renderMessage
+    if (newMsg.is_thread && currentTab === "threads") renderAllThreads();
+  }
   else if (eventType === "UPDATE") {
     renderMessage(newMsg);
     const li = messagesMap.get(newMsg.id);
@@ -1314,20 +1315,63 @@ async function renderReactions(messageId, li) {
 // ---------------- THREAD REPLIES ----------------
 
 let replyingTo = null;
+let threadReplyingTo = null;
+
+function clearReply() {
+  replyingTo = null;
+  document.getElementById("replyBanner").style.display = "none";
+  input.placeholder = "Message #general";
+}
+
+function clearThreadReply() {
+  threadReplyingTo = null;
+  document.getElementById("threadBanner").style.display = "none";
+  input.placeholder = "Message #general";
+}
 
 function startReply(messageId) {
+  clearThreadReply();
   replyingTo = messageId;
 
   const li = messagesMap.get(Number(messageId));
   if (!li) return;
 
-  const author = li.dataset.user;
-  const content = li.querySelector(".content")?.innerHTML || "";
+  const author = li.dataset.user === "Frenchwizz" ? "Takeo" : li.dataset.user;
+  const content = li.querySelector(".content")?.textContent || "";
 
-  input.value = `@${author} `;
-  input.placeholder = `Replying to ${author}: ${content.substring(0, 40)}...`;
+  document.getElementById("replyBannerText").textContent =
+    `Replying to ${author}: ${content.substring(0, 50)}${content.length > 50 ? "…" : ""}`;
+  document.getElementById("replyBanner").style.display = "flex";
+  input.placeholder = `Replying to ${author}…`;
   input.focus();
 }
+
+function startThread(messageId) {
+  clearReply();
+  threadReplyingTo = messageId;
+
+  const li = messagesMap.get(Number(messageId));
+  if (!li) return;
+
+  const author = li.dataset.user === "Frenchwizz" ? "Takeo" : li.dataset.user;
+  const content = li.querySelector(".content")?.textContent || "";
+
+  document.getElementById("threadBannerText").textContent =
+    `${author}: ${content.substring(0, 50)}${content.length > 50 ? "…" : ""}`;
+  document.getElementById("threadBanner").style.display = "flex";
+  input.placeholder = "Reply in thread…";
+  input.focus();
+}
+
+// Cancel buttons and Escape key
+document.getElementById("cancelReplyBtn").addEventListener("click", clearReply);
+document.getElementById("cancelThreadBtn").addEventListener("click", clearThreadReply);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    clearReply();
+    clearThreadReply();
+  }
+});
 
 
 
@@ -1432,41 +1476,10 @@ function attachHoverControls(li, msg) {
     e.stopPropagation();
     const picker = document.getElementById("emojiPicker");
     if (!picker) return;
-
-    // Get button position relative to viewport
-    const rect = reactBtn.getBoundingClientRect();
-    
-    // Define picker dimensions (approximate based on CSS grid)
-    const pickerWidth = 200; // Adjust if your CSS changes
-    const pickerHeight = 120; // Adjust if your CSS changes
-    
-    // Calculate desired position (below button by default)
-    let top = rect.bottom + 5;
-    let left = rect.left;
-
-    // --- SMART POSITIONING LOGIC ---
-    
-    // 1. Check vertical space (flip to top if too close to bottom)
-    if (top + pickerHeight > window.innerHeight) {
-      top = rect.top - pickerHeight - 5;
-    }
-
-    // 2. Check horizontal space (adjust left if too close to right edge)
-    if (left + pickerWidth > window.innerWidth) {
-      left = window.innerWidth - pickerWidth - 10;
-    }
-    
-    // 3. Ensure it doesn't go off the left edge
-    if (left < 0) {
-      left = 10;
-    }
-
-    // Apply calculated position
-    picker.style.position = "fixed"; // Use fixed for viewport-relative positioning
-    picker.style.top = `${top}px`;
-    picker.style.left = `${left}px`;
-    
-    // Store the message ID
+    picker.style.position = "fixed";
+    picker.style.top = "50%";
+    picker.style.left = "50%";
+    picker.style.transform = "translate(-50%, -50%)";
     picker.dataset.targetMessageId = msg.id;
     picker.style.display = "block";
   };
@@ -1524,41 +1537,55 @@ function enhanceMessage(li, msg) {
 
 // ======================== THREAD SYSTEM ========================
 
-// Get all threads (messages with replies)
+function displayName(u) {
+  return u === "Frenchwizz" ? "Takeo" : u;
+}
+
 async function getAllThreads() {
-  const { data: allMessages } = await supabaseClient
+  // Only fetch messages explicitly marked as thread replies
+  const { data: threadReplies } = await supabaseClient
     .from("messages")
     .select("*")
+    .eq("is_thread", true)
     .order("inserted_at", { ascending: true });
 
-  if (!allMessages) return [];
+  if (!threadReplies || threadReplies.length === 0) return [];
 
-  // Group messages by reply_to
+  const parentIds = [...new Set(threadReplies.map(r => r.reply_to))].filter(Boolean);
+  if (parentIds.length === 0) return [];
+
+  const { data: parents } = await supabaseClient
+    .from("messages")
+    .select("*")
+    .in("id", parentIds);
+
+  if (!parents) return [];
+
+  const parentMap = {};
+  parents.forEach(p => { parentMap[p.id] = p; });
+
   const threads = {};
-  allMessages.forEach(msg => {
-    if (msg.reply_to) {
-      if (!threads[msg.reply_to]) threads[msg.reply_to] = { parent: null, replies: [] };
-      threads[msg.reply_to].replies.push(msg);
+  threadReplies.forEach(r => {
+    if (!r.reply_to || !parentMap[r.reply_to]) return;
+    if (!threads[r.reply_to]) {
+      threads[r.reply_to] = { parent: parentMap[r.reply_to], replies: [] };
     }
-  });
-
-  // Get parent messages
-  allMessages.forEach(msg => {
-    if (threads[msg.id]) {
-      threads[msg.id].parent = msg;
-    }
+    threads[r.reply_to].replies.push(r);
   });
 
   return Object.values(threads).filter(t => t.parent);
 }
 
-// Render all threads in the threads tab
 async function renderAllThreads() {
   threadsContainer.innerHTML = "";
   const threads = await getAllThreads();
 
   if (threads.length === 0) {
-    threadsContainer.innerHTML = "<p style='color: var(--text-muted); padding: 16px;'>No threads yet. Start a thread by replying to a message!</p>";
+    threadsContainer.innerHTML = `
+      <p style="color: var(--text-muted); padding: 16px; text-align: center;">
+        No threads yet.<br>
+        Right-click any message and choose <strong>Reply in Thread</strong> to start one.
+      </p>`;
     return;
   }
 
@@ -1566,31 +1593,46 @@ async function renderAllThreads() {
     const threadEl = document.createElement("div");
     threadEl.className = "thread-item";
 
-    // Parent message
-    const parentDiv = document.createElement("div");
-    parentDiv.className = "thread-header";
-    parentDiv.innerHTML = `
-      <div>
-        <strong>${thread.parent.username === "Frenchwizz" ? "Takeo" : thread.parent.username}</strong>: ${thread.parent.content.substring(0, 100)}${thread.parent.content.length > 100 ? "..." : ""}
-      </div>
-      <div class="thread-reply-count">${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}</div>
-    `;
-    threadEl.appendChild(parentDiv);
+    const count = thread.replies.length;
+    const parentText = thread.parent.content.substring(0, 80) +
+      (thread.parent.content.length > 80 ? "…" : "");
 
-    // Replies
+    // Clickable header — expands/collapses replies
+    const headerDiv = document.createElement("div");
+    headerDiv.className = "thread-header";
+    headerDiv.innerHTML = `
+      <div style="flex:1; min-width:0;">
+        <span class="reply-author">${escapeHTML(displayName(thread.parent.username))}</span>
+        <span style="color:var(--text-muted); font-weight:400;"> — ${escapeHTML(parentText)}</span>
+      </div>
+      <div class="thread-reply-count">${count} ${count === 1 ? "reply" : "replies"} ▾</div>
+    `;
+
+    // Replies panel (hidden by default)
     const repliesDiv = document.createElement("div");
     repliesDiv.className = "thread-replies";
+    repliesDiv.style.display = "none";
 
     thread.replies.forEach(reply => {
       const replyEl = document.createElement("div");
       replyEl.className = "thread-reply";
       replyEl.innerHTML = `
-        <div class="reply-author">${reply.username === "Frenchwizz" ? "Takeo" : reply.username}</div>
-        <div>${reply.content}</div>
+        <div class="reply-author">${escapeHTML(displayName(reply.username))}</div>
+        <div>${escapeHTML(reply.content)}</div>
       `;
       repliesDiv.appendChild(replyEl);
     });
 
+    // Toggle on click
+    headerDiv.style.cursor = "pointer";
+    headerDiv.addEventListener("click", () => {
+      const isOpen = repliesDiv.style.display !== "none";
+      repliesDiv.style.display = isOpen ? "none" : "block";
+      headerDiv.querySelector(".thread-reply-count").textContent =
+        `${count} ${count === 1 ? "reply" : "replies"} ${isOpen ? "▾" : "▴"}`;
+    });
+
+    threadEl.appendChild(headerDiv);
     threadEl.appendChild(repliesDiv);
     threadsContainer.appendChild(threadEl);
   });

@@ -656,15 +656,79 @@ li[data-pinned="true"] {
   background: rgba(0,0,0,0.05);
 }
 
-/* Add to styles.css */
-.content .mention {
-  color: var(--accent);
-  font-weight: 600;
+/* ===============================
+   MENTIONS (Discord-style)
+   =============================== */
+
+.mention {
+  background: rgba(88, 101, 242, 0.3);
+  color: #c9cdfb;
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.1s;
 }
 
-.content .mention:hover {
-  text-decoration: underline;
+.mention:hover {
+  background: rgba(88, 101, 242, 0.6);
+  color: #fff;
+}
+
+.mention.mine {
+  background: rgba(250, 168, 26, 0.3);
+  color: #faa81a;
+}
+
+.mention.mine:hover {
+  background: rgba(250, 168, 26, 0.5);
+}
+
+/* ===============================
+   REPLY / THREAD BANNERS
+   =============================== */
+
+#replyBanner,
+#threadBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--bg-tertiary);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+#threadBanner {
+  color: var(--accent);
+}
+
+#replyBanner span,
+#threadBanner span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#cancelReplyBtn,
+#cancelThreadBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+#cancelReplyBtn:hover,
+#cancelThreadBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
 }
 
 /* Reply indentation */
