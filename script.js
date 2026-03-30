@@ -36,6 +36,9 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
   }
 });
 
+let isBlocked = false;
+let mutedUntil = null;
+let muteInterval = null;
 const threadMap = new Map(); // parentId → { parent, replies }
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
@@ -196,9 +199,12 @@ async function loadUser() {
 try {
   const { data, error } = await supabaseClient
     .from("users")
-    .select("role, blocked")
+    .select("role, blocked, muted_until")
     .eq("username", storedName)
     .single();
+
+isBlocked = data?.blocked || false;
+mutedUntil = data?.muted_until || null;
 
   if (error) {
     console.error("Failed to fetch user role:", error);
@@ -219,7 +225,8 @@ try {
   loadMessages();
   initRealtime();
   watchForceLogout(storedName);
-  await startMuteCountdown();
+  subscribeToUserStatus();
+applyMuteBlockUI();
 }
 
 loadUser().then(() => {
@@ -304,19 +311,11 @@ function containsPlainTextUrl(text) {
   return urlRegex.test(textOnly);
 }
 
-async function isUserBlockedOrMuted() {
-  const { data } = await supabaseClient
-    .from("users")
-    .select("blocked, muted_until")
-    .eq("username", username)
-    .single();
+function isUserBlockedOrMutedSync() {
+  if (isBlocked) return true;
 
-  if (!data) return false;
-
-  if (data.blocked) return true;
-
-  if (data.muted_until && new Date(data.muted_until) > new Date()) {
-    return true;
+  if (mutedUntil) {
+    return new Date(mutedUntil) > new Date();
   }
 
   return false;
@@ -327,7 +326,7 @@ async function sendMessage() {
   let content = input.value.trim();
   if (!content || !username) return;
 
-  if (await isUserBlockedOrMuted()) {
+if (isUserBlockedOrMutedSync()) {
   alert("❌ You cannot send messages.");
   return;
 }
@@ -850,23 +849,23 @@ async function deleteMessage(messageId) {
 
 // Mute user
 async function muteUser(user) {
-  const minutes = prompt("Mute user for how many minutes?");
-  if (!minutes) return;
+  const minutes = parseInt(prompt("Mute user for how many minutes?"));
+  if (!minutes || minutes <= 0) return;
 
-  try {
+  const muteUntil = new Date(Date.now() + minutes * 60000).toISOString();
 
-    const muteUntil = new Date(Date.now() + minutes * 60000);
+  const { error } = await supabaseClient
+    .from("users")
+    .update({ muted_until: muteUntil })
+    .eq("username", user);
 
-    await supabaseClient
-      .from("users")
-      .update({ muted_until: muteUntil })
-      .eq("username", user);
-
-    alert(`${user} muted for ${minutes} minutes.`);
-
-  } catch (err) {
-    console.error("Mute failed", err);
+  if (error) {
+    console.error("Mute failed:", error);
+    alert("❌ Mute failed: " + error.message);
+    return;
   }
+
+  alert(`${user} muted for ${minutes} minutes.`);
 }
 
 
@@ -1122,7 +1121,7 @@ async function forceLogout(author) {
 
 // ---------------- EDIT MESSAGE ----------------
 async function editMessage(messageId) {
-  if (await isUserBlockedOrMuted()) {
+  if (isUserBlockedOrMutedSync()) {
   alert("❌ You cannot edit messages.");
   return;
 }
@@ -1146,7 +1145,7 @@ async function editMessage(messageId) {
 
 // ---------------- REACTION BUBBLES ----------------
 async function addReaction(messageId, emoji) {
-  if (await isUserBlockedOrMuted()) {
+  if (isUserBlockedOrMutedSync()) {
   alert("❌ You are muted.");
   return;
 }
@@ -1270,7 +1269,7 @@ function clearThreadReply() {
 }
 
 async function startReply(messageId) {
-  if (await isUserBlockedOrMuted()) {
+  if (isUserBlockedOrMutedSync()) {
   alert("❌ You are muted.");
   return;
 }
@@ -1291,7 +1290,7 @@ async function startReply(messageId) {
 }
 
 async function startThread(messageId) {
-  if (await isUserBlockedOrMuted()) {
+  if (isUserBlockedOrMutedSync()) {
   alert("❌ You are muted.");
   return;
 }
@@ -1643,7 +1642,7 @@ uploadBtn.addEventListener("click", () => fileInput.click());
 
 // Handle file selection
 fileInput.addEventListener("change", async (e) => {
-  if (await isUserBlockedOrMuted()) {
+  if (isUserBlockedOrMutedSync()) {
   alert("❌ You cannot upload files.");
   return;
 }
@@ -2071,43 +2070,144 @@ document.addEventListener("contextmenu", (e) => {
     addButton("Force Logout", () => forceLogout(author));
   }
 
+  // ================= SCREEN BOUNDARY DETECTION =================
+  const menuWidth = 200; // Approximate width including padding
+  const menuHeight = 300; // Approximate height - adjust based on actual content
+  const submenuWidth = 180;
+  
+  let leftPos = e.clientX + 10;
+  let topPos = e.clientY + 10;
+  
+  // Check if menu would go off right edge
+  if (leftPos + menuWidth > window.innerWidth) {
+    leftPos = e.clientX - menuWidth - 10;
+  }
+  
+  // Check if menu would go off bottom edge
+  if (topPos + menuHeight > window.innerHeight) {
+    topPos = e.clientY - menuHeight - 10;
+  }
+  
+  // Ensure we don't go off left/top edges either
+  if (leftPos < 0) leftPos = 10;
+  if (topPos < 0) topPos = 10;
+
   // ================= SHOW MENU =================
   menu.style.position = "fixed";
-  menu.style.left = e.clientX + "px";
-  menu.style.top = e.clientY + "px";
+  menu.style.left = leftPos + "px";
+  menu.style.top = topPos + "px";
   menu.style.background = "#2f3136";
   menu.style.border = "1px solid #444";
   menu.style.padding = "4px";
   menu.style.display = "block";
 });
 
-let muteInterval = null;
+function startMuteCountdownUI() {
+  const input = document.getElementById("messageInput");
 
-async function startMuteCountdown() {
+  if (muteInterval) return;
+
+  muteInterval = setInterval(() => {
+    const diff = new Date(mutedUntil) - new Date();
+
+    if (diff <= 0) {
+      clearInterval(muteInterval);
+      muteInterval = null;
+
+      mutedUntil = null;
+      applyMuteBlockUI();
+      return;
+    }
+
+    const seconds = Math.ceil(diff / 1000);
+    input.placeholder = `🔇 Muted (${seconds}s)`;
+  }, 1000);
+}
+
+function stopMuteCountdownUI() {
+  if (muteInterval) {
+    clearInterval(muteInterval);
+    muteInterval = null;
+  }
+}
+
+async function updateMuteUI() {
+  const el = document.getElementById("muteTimer");
+
   const { data } = await supabaseClient
     .from("users")
     .select("muted_until")
     .eq("username", username)
     .single();
 
-  if (!data || !data.muted_until) return;
+  if (!data || !data.muted_until) {
+    el.style.display = "none";
+    return;
+  }
 
-  const muteEnd = new Date(data.muted_until);
-  const timerDiv = document.getElementById("muteTimer");
-
-  if (muteInterval) clearInterval(muteInterval);
-
-  muteInterval = setInterval(() => {
+  const interval = setInterval(() => {
     const now = new Date();
-    const diff = Math.ceil((muteEnd - now) / 1000);
+    const end = new Date(data.muted_until);
+    const diff = end - now;
 
     if (diff <= 0) {
-      clearInterval(muteInterval);
-      timerDiv.textContent = "";
+      el.style.display = "none";
+      clearInterval(interval);
       return;
     }
 
-    timerDiv.textContent = `⏳ You are muted for ${diff}s`;
+    const seconds = Math.floor(diff / 1000);
+    el.style.display = "block";
+    el.textContent = `🔇 Muted for ${seconds}s`;
   }, 1000);
+}
+
+function subscribeToUserStatus() {
+  supabaseClient
+    .channel("user-status-" + username)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "users",
+        filter: `username=eq.${username}`
+      },
+      (payload) => {
+        const data = payload.new;
+
+        isBlocked = data.blocked;
+        mutedUntil = data.muted_until;
+
+        applyMuteBlockUI();
+      }
+    )
+    .subscribe();
+}
+
+function applyMuteBlockUI() {
+  const input = document.getElementById("messageInput");
+  const sendBtn = document.getElementById("sendBtn");
+
+  const muted = mutedUntil && new Date(mutedUntil) > new Date();
+
+  if (isBlocked) {
+    input.disabled = true;
+    sendBtn.disabled = true;
+    input.placeholder = "🚫 You are blocked";
+    return;
+  }
+
+  if (muted) {
+    input.disabled = true;
+    sendBtn.disabled = true;
+    startMuteCountdownUI();
+    return;
+  }
+
+  input.disabled = false;
+  sendBtn.disabled = false;
+  input.placeholder = "Type a message...";
+  stopMuteCountdownUI();
 }
 // ======================== END FEATURES ========================
