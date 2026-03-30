@@ -303,19 +303,36 @@ function containsPlainTextUrl(text) {
   return urlRegex.test(textOnly);
 }
 
+async function isUserBlockedOrMuted() {
+  const { data } = await supabaseClient
+    .from("users")
+    .select("blocked, muted_until")
+    .eq("username", username)
+    .single();
+
+  if (!data) return false;
+
+  if (data.blocked) return true;
+
+  if (data.muted_until && new Date(data.muted_until) > new Date()) {
+    return true;
+  }
+
+  return false;
+}
+
 // ------------------------ Send Message ------------------------
 async function sendMessage() {
   let content = input.value.trim();
   if (!content || !username) return;
 
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You cannot send messages.");
+  return;
+}
+
   if (currentRole !== "Admin" && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
-    return;
-  }
-
-  const { data: user } = await supabaseClient.from("users").select("blocked").eq("username", username).single();
-  if (user?.blocked) {
-    alert("❌ You are blocked from sending messages.");
     return;
   }
 
@@ -523,11 +540,25 @@ if (fileMatch) {
     `;
   }
 } else {
-  wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
-  if (msg.role === "Admin") {
+wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
+
+const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
+
+if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
+  const preview = await buildLinkPreview(urlMatch[0]);
+  if (preview) {
+    const previewDiv = document.createElement("div");
+    previewDiv.innerHTML = preview;
+    wrapper.appendChild(previewDiv);
+  }
+}
+
+// Admin-only script execution stays separate
+if (msg.role === "Admin") {
   executeScripts(wrapper);
 }
 }
+
 
   contentDiv.appendChild(wrapper);
 
@@ -562,134 +593,6 @@ if (fileMatch) {
   if (currentRole === "Admin") li.appendChild(adminDiv);
   else if (currentRole === "Manager") li.appendChild(managerDiv);
 
-  // --- Right-Click Menu (Context Menu) ---
-// ================= GLOBAL RIGHT-CLICK MENU =================
-document.addEventListener("contextmenu", (e) => {
-  const message = e.target.closest("[data-id]");
-  if (!message) return; // Only trigger on messages
-
-  e.preventDefault();
-
-  const menu = document.getElementById("adminMenu");
-  if (!menu) return;
-
-  menu.innerHTML = "";
-
-  const messageId = message.dataset.id;
-  const author = message.dataset.user;
-
-  let currentSection = menu;
-
-  const addButton = (label, action) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "6px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = "white";
-    btn.style.textAlign = "left";
-
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
-
-    btn.onclick = (event) => {
-      event.stopPropagation();
-      action();
-      menu.style.display = "none";
-    };
-
-    currentSection.appendChild(btn);
-  };
-
-  const addSection = (title) => {
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
-
-    const header = document.createElement("div");
-    header.textContent = title + " ▶";
-    header.style.fontSize = "12px";
-    header.style.padding = "6px";
-    header.style.cursor = "pointer";
-    header.style.color = "white";
-
-    header.onmouseenter = () => header.style.background = "#40444b";
-    header.onmouseleave = () => header.style.background = "transparent";
-
-    const sub = document.createElement("div");
-    sub.style.position = "absolute";
-    sub.style.left = "100%";
-    sub.style.top = "0";
-    sub.style.background = "#2f3136";
-    sub.style.border = "1px solid #444";
-    sub.style.display = "none";
-    sub.style.minWidth = "180px";
-
-    wrapper.onmouseenter = () => sub.style.display = "block";
-    wrapper.onmouseleave = () => sub.style.display = "none";
-
-    wrapper.appendChild(header);
-    wrapper.appendChild(sub);
-    menu.appendChild(wrapper);
-
-    currentSection = sub;
-  };
-
-  // ================= BASE ACTIONS =================
-  addButton("Reply", () => startReply(messageId));
-  addButton("Reply in Thread", () => startThread(messageId));
-
-  addButton("React", () => {
-    const picker = document.getElementById("emojiPicker");
-    if (!picker) return;
-
-    picker.style.position = "fixed";
-    picker.style.top = e.clientY + 10 + "px";
-    picker.style.left = e.clientX + 10 + "px";
-    picker.dataset.targetMessageId = messageId;
-    picker.style.display = "block";
-  });
-
-  addButton("Report", () => reportMessage(messageId));
-
-  // ================= ROLE-BASED =================
-  if (currentRole === "Manager" && author === username) {
-    addSection("Manager");
-    addButton("Delete My Message", () => deleteMessage(messageId));
-  }
-
-  if (currentRole === "Admin") {
-    addSection("Delete");
-    addButton("Delete", () => deleteMessage(messageId));
-    addButton("Delete By Keyword", () => deleteKeyword());
-    addButton("Delete User + Messages", () => deleteUser(author));
-
-    addSection("Info");
-    addButton("User Info", () => userInfo(author));
-    addButton("Export Chat", () => exportChat());
-
-    addSection("Edit");
-    addButton("Edit Message", () => editMessage(messageId));
-    addButton("Pin / Unpin", () => pinMessage(messageId));
-    addButton("Change Name", () => changeName(author));
-    addButton("Promote / Demote", () => promote(author));
-    addButton("Mute User", () => muteUser(author));
-    addButton("Block User", () => blockUser(author));
-    addButton("Unblock User", () => unblockUser(author));
-    addButton("Force Logout", () => forceLogout(author));
-  }
-
-  // ================= SHOW MENU =================
-  menu.style.position = "fixed";
-  menu.style.left = e.clientX + "px";
-  menu.style.top = e.clientY + "px";
-  menu.style.background = "#2f3136";
-  menu.style.border = "1px solid #444";
-  menu.style.padding = "4px";
-  menu.style.display = "block";
-});
   if (msg.reply_to) {
   li.classList.add("is-reply");
 }
@@ -1218,35 +1121,34 @@ async function forceLogout(author) {
 
 // ---------------- EDIT MESSAGE ----------------
 async function editMessage(messageId) {
-
-  const li = messagesMap.get(Number(messageId));
-  if (!li) return;
-
-  const contentEl = li.querySelector(".content");
-  const oldText = contentEl.innerHTML;
-
-  const newText = prompt("Edit message:", oldText);
-  if (!newText || newText === oldText) return;
-
-  try {
-
-    const { error } = await supabaseClient
-      .from("messages")
-      .update({ content: newText })
-      .eq("id", messageId);
-
-    if (error) throw error;
-
-  } catch (err) {
-    console.error("Edit failed", err);
-  }
-
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You cannot edit messages.");
+  return;
 }
+  const msg = messageDataMap.get(Number(messageId));
+  if (!msg) return;
 
+  const newText = prompt("Edit message:", msg.content);
+  if (!newText || newText === msg.content) return;
 
+  const { error } = await supabaseClient
+    .from("messages")
+    .update({ content: newText })
+    .eq("id", messageId)
+    .select(); // 🔥 IMPORTANT
+
+  if (error) {
+    console.error("Edit failed", error);
+    alert("❌ Edit failed: " + error.message);
+  }
+}
 
 // ---------------- REACTION BUBBLES ----------------
 async function addReaction(messageId, emoji) {
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You are muted.");
+  return;
+}
   try {
     // 1️⃣ Get ALL matching reactions (not maybeSingle)
     const { data: existing, error } = await supabaseClient
@@ -1366,7 +1268,11 @@ function clearThreadReply() {
   input.placeholder = "Message #general";
 }
 
-function startReply(messageId) {
+async function startReply(messageId) {
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You are muted.");
+  return;
+}
   clearThreadReply();
   replyingTo = messageId;
 
@@ -1383,7 +1289,11 @@ function startReply(messageId) {
   input.focus();
 }
 
-function startThread(messageId) {
+async function startThread(messageId) {
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You are muted.");
+  return;
+}
   clearReply();
   threadReplyingTo = messageId;
 
@@ -1732,6 +1642,10 @@ uploadBtn.addEventListener("click", () => fileInput.click());
 
 // Handle file selection
 fileInput.addEventListener("change", async (e) => {
+  if (await isUserBlockedOrMuted()) {
+  alert("❌ You cannot upload files.");
+  return;
+}
   const file = e.target.files[0];
   if (!file) return;
 
@@ -2037,5 +1951,162 @@ function showMentionToast(msg) {
   document.body.appendChild(toast);
 
   setTimeout(() => toast.remove(), 4000);
+}
+
+document.addEventListener("contextmenu", (e) => {
+  const message = e.target.closest("[data-id]");
+  if (!message) return; // Only trigger on messages
+
+  e.preventDefault();
+
+  const menu = document.getElementById("adminMenu");
+  if (!menu) return;
+
+  menu.innerHTML = "";
+
+  const messageId = message.dataset.id;
+  const author = message.dataset.user;
+
+  let currentSection = menu;
+
+  const addButton = (label, action) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.padding = "6px";
+    btn.style.border = "none";
+    btn.style.background = "transparent";
+    btn.style.cursor = "pointer";
+    btn.style.color = "white";
+    btn.style.textAlign = "left";
+
+    btn.onmouseenter = () => btn.style.background = "#40444b";
+    btn.onmouseleave = () => btn.style.background = "transparent";
+
+    btn.onclick = (event) => {
+      event.stopPropagation();
+      action();
+      menu.style.display = "none";
+    };
+
+    currentSection.appendChild(btn);
+  };
+
+  const addSection = (title) => {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    const header = document.createElement("div");
+    header.textContent = title + " ▶";
+    header.style.fontSize = "12px";
+    header.style.padding = "6px";
+    header.style.cursor = "pointer";
+    header.style.color = "white";
+
+    header.onmouseenter = () => header.style.background = "#40444b";
+    header.onmouseleave = () => header.style.background = "transparent";
+
+    const sub = document.createElement("div");
+    sub.style.position = "absolute";
+    sub.style.left = "100%";
+    sub.style.top = "0";
+    sub.style.background = "#2f3136";
+    sub.style.border = "1px solid #444";
+    sub.style.display = "none";
+    sub.style.minWidth = "180px";
+
+    wrapper.onmouseenter = () => sub.style.display = "block";
+    wrapper.onmouseleave = () => sub.style.display = "none";
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(sub);
+    menu.appendChild(wrapper);
+
+    currentSection = sub;
+  };
+
+  // ================= BASE ACTIONS =================
+  addButton("Reply", () => startReply(messageId));
+  addButton("Reply in Thread", () => startThread(messageId));
+
+  addButton("React", () => {
+    const picker = document.getElementById("emojiPicker");
+    if (!picker) return;
+
+    picker.style.position = "fixed";
+    picker.style.top = e.clientY + 10 + "px";
+    picker.style.left = e.clientX + 10 + "px";
+    picker.dataset.targetMessageId = messageId;
+    picker.style.display = "block";
+  });
+
+  addButton("Report", () => reportMessage(messageId));
+
+  // ================= ROLE-BASED =================
+  if (currentRole === "Manager" && author === username) {
+    addSection("Manager");
+    addButton("Delete My Message", () => deleteMessage(messageId));
+  }
+
+  if (currentRole === "Admin") {
+    addSection("Delete");
+    addButton("Delete", () => deleteMessage(messageId));
+    addButton("Delete By Keyword", () => deleteKeyword());
+    addButton("Delete User + Messages", () => deleteUser(author));
+
+    addSection("Info");
+    addButton("User Info", () => userInfo(author));
+    addButton("Export Chat", () => exportChat());
+
+    addSection("Edit");
+    addButton("Edit Message", () => editMessage(messageId));
+    addButton("Pin / Unpin", () => pinMessage(messageId));
+    addButton("Change Name", () => changeName(author));
+    addButton("Promote / Demote", () => promote(author));
+    addButton("Mute User", () => muteUser(author));
+    addButton("Block User", () => blockUser(author));
+    addButton("Unblock User", () => unblockUser(author));
+    addButton("Force Logout", () => forceLogout(author));
+  }
+
+  // ================= SHOW MENU =================
+  menu.style.position = "fixed";
+  menu.style.left = e.clientX + "px";
+  menu.style.top = e.clientY + "px";
+  menu.style.background = "#2f3136";
+  menu.style.border = "1px solid #444";
+  menu.style.padding = "4px";
+  menu.style.display = "block";
+});
+
+let muteInterval = null;
+
+async function startMuteCountdown() {
+  const { data } = await supabaseClient
+    .from("users")
+    .select("muted_until")
+    .eq("username", username)
+    .single();
+
+  if (!data || !data.muted_until) return;
+
+  const muteEnd = new Date(data.muted_until);
+  const timerDiv = document.getElementById("muteTimer");
+
+  if (muteInterval) clearInterval(muteInterval);
+
+  muteInterval = setInterval(() => {
+    const now = new Date();
+    const diff = Math.ceil((muteEnd - now) / 1000);
+
+    if (diff <= 0) {
+      clearInterval(muteInterval);
+      timerDiv.textContent = "";
+      return;
+    }
+
+    timerDiv.textContent = `⏳ You are muted for ${diff}s`;
+  }, 1000);
 }
 // ======================== END FEATURES ========================
