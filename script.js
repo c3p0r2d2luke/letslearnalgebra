@@ -219,6 +219,7 @@ try {
   loadMessages();
   initRealtime();
   watchForceLogout(storedName);
+  await startMuteCountdown();
 }
 
 loadUser().then(() => {
