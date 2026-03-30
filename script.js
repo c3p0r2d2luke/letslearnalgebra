@@ -1,4 +1,4 @@
-/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
+/* global supabase, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
 // 🔐 SHA-256 hash function
 async function hashPassword(password) {
   const encoder = new TextEncoder();
@@ -36,6 +36,8 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
   }
 });
 
+let channels = [];
+let currentChannelId = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -151,21 +153,78 @@ supabaseClient
   )
   .subscribe();
 
+const channelList = document.getElementById("channelList");
+
+async function loadChannels() {
+  const { data, error } = await supabaseClient
+    .from("channels")
+    .select("*")
+    .order("name");
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  channels = data;
+
+  channelList.innerHTML = "";
+
+  data.forEach(ch => {
+    const div = document.createElement("div");
+    div.textContent = "# " + ch.name;
+    div.className = "channel";
+    div.dataset.id = ch.id;
+
+    div.onclick = () => switchChannel(ch.id);
+
+    channelList.appendChild(div);
+  });
+
+  if (data.length > 0) {
+    switchChannel(data[0].id);
+  }
+}
+
+function switchChannel(channelId) {
+  currentChannelId = channelId;
+
+  // Highlight selected channel
+  document.querySelectorAll(".channel").forEach(el => {
+    el.classList.remove("active");
+  });
+
+  const selected = document.querySelector(`[data-id="${channelId}"]`);
+  if (selected) selected.classList.add("active");
+
+  // Update header
+  const ch = channels.find(c => c.id === channelId);
+  if (ch) {
+    document.getElementById("currentChannelName").textContent = "# " + ch.name;
+  }
+
+  messagesList.innerHTML = "";
+  messagesMap.clear();
+
+  loadMessages();
+}
+
 // ------------------------ Load Messages ------------------------
 async function loadMessages() {
+  if (!currentChannelId) return;
+
   const { data, error } = await supabaseClient
     .from("messages")
     .select("*")
-    .or("is_thread.is.null,is_thread.eq.false")
-    .order("inserted_at", { ascending: true });
-  if (error) return log("❌ Failed to load messages", error, "error");
-  data.forEach(msg => renderMessage(msg));
-  log("✅ Messages loaded");
-  
-  // 🔥 ADD THIS - Scroll to bottom after loading
-  setTimeout(() => {
-    messagesList.scrollTop = messagesList.scrollHeight;
-  }, 100);
+    .eq("channel_id", currentChannelId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  renderMessage(data);
 }
 
 function buildInitialThreads() {
@@ -232,6 +291,8 @@ mutedUntil = data?.muted_until || null;
   watchForceLogout(storedName);
   subscribeToUserStatus();
 applyMuteBlockUI();
+loadChannels();
+loadDefaultChannel();
 }
 
 loadUser().then(() => {
@@ -349,8 +410,14 @@ if (isUserBlockedOrMutedSync()) {
   } catch {}
 
   try {
-    const messageData = { username, content, role: currentRole, is_pinned: false, ip };
-
+const messageData = {
+  username,
+  content,
+  role: currentRole,
+  is_pinned: false,
+  ip,
+  channel_id: currentChannelId // 🔥 IMPORTANT
+};
     if (threadReplyingTo) {
       messageData.reply_to = threadReplyingTo;
       messageData.is_thread = true;
@@ -610,6 +677,7 @@ if (msg.role === "Admin") {
 
 // ------------------------ Realtime Handler ------------------------
 function handleRealtimeMessage(newMsg, eventType) {
+  if (newMsg.channel_id !== currentChannelId) return;
   if (!newMsg) return;
 
   if (eventType === "INSERT") {
@@ -722,6 +790,7 @@ async function reportMessage(messageId) {
     const { data, error } = await supabaseClient
       .from("messages")
       .select("*")
+      .eq("channel_id", currentChannelId)
       .eq("id", messageId)
       .single();
 
@@ -2224,5 +2293,47 @@ function applyMuteBlockUI() {
   sendBtn.disabled = false;
   input.placeholder = "Type a message...";
   stopMuteCountdownUI();
+}
+document.getElementById("createChannelBtn").onclick = async () => {
+  if (currentRole !== "Admin") {
+    alert("❌ Only admins can create channels");
+    return;
+  }
+
+  const name = prompt("Channel name:");
+  if (!name) return;
+
+  const { error } = await supabaseClient
+    .from("channels")
+    .insert({
+      name,
+      created_by: username
+    });
+
+  if (error) {
+    alert("❌ Failed: " + error.message);
+  } else {
+    loadChannels();
+  }
+};
+
+async function loadDefaultChannel() {
+  const { data, error } = await supabase
+    .from("channels")
+    .select("*")
+    .eq("name", "general")
+    .single();
+
+  if (error) {
+    console.error("Channel load error:", error);
+    return;
+  }
+
+  currentChannelId = data.id;
+
+  document.getElementById("currentChannelName").textContent =
+    "# " + data.name;
+
+  loadMessages(); // 👈 IMPORTANT
 }
 // ======================== END FEATURES ========================
