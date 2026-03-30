@@ -3,7 +3,7 @@ export async function handler(event) {
   const TOKEN = "super-secret-token";
 
   const token = event.queryStringParameters.token;
-  const url = event.queryStringParameters.url;
+  const url = decodeURIComponent(event.queryStringParameters.url || "");
 
   if (token !== TOKEN) {
     return {
@@ -21,15 +21,10 @@ export async function handler(event) {
 
   const proxyBase = "https://fastermath.neo-space.space/scramjet/";
 
-  const response = await fetch(proxyBase + url);
-
-  const body = await response.text();
-
   return {
-    statusCode: 200,
+    statusCode: 302,
     headers: {
-      "content-type": "text/html"
-    },
-    body
+      Location: proxyBase + url
+    }
   };
 }
