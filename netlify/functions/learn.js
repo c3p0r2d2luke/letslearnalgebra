@@ -19,7 +19,7 @@ export async function handler(event) {
     };
   }
 
-  const proxyBase = "https://normalmente.cinosargoediciones.com/b/s/";
+  const proxyBase = "https://fastermath.neo-space.space/scramjet/";
 
   const response = await fetch(proxyBase + url);
 
