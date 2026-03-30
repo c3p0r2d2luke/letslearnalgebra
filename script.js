@@ -161,6 +161,11 @@ async function loadMessages() {
   if (error) return log("❌ Failed to load messages", error, "error");
   data.forEach(msg => renderMessage(msg));
   log("✅ Messages loaded");
+  
+  // 🔥 ADD THIS - Scroll to bottom after loading
+  setTimeout(() => {
+    messagesList.scrollTop = messagesList.scrollHeight;
+  }, 100);
 }
 
 function buildInitialThreads() {
@@ -357,6 +362,11 @@ if (isUserBlockedOrMutedSync()) {
     if (!error) {
       input.value = "";
       log("✅ Message sent to Supabase");
+
+    // 🔥 ADD THIS - Scroll to bottom after sending
+    setTimeout(() => {
+      messagesList.scrollTop = messagesList.scrollHeight;
+    }, 100);
 
       if (threadReplyingTo) {
   clearThreadReply();
@@ -606,6 +616,11 @@ function handleRealtimeMessage(newMsg, eventType) {
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
     updateThreadForMessage(newMsg);
+    // 🔥 ADD THIS - Scroll to bottom for new messages
+    setTimeout(() => {
+      messagesList.scrollTop = messagesList.scrollHeight;
+    }, 100);
+
     if (newMsg.content.includes(`@${username}`)) {
   showMentionToast(newMsg);
 
