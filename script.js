@@ -3,7 +3,7 @@
 document.addEventListener("contextmenu", (e) => {
   // 🔥 FIX: Look for the closest LI with data-id, even if clicked on a child
   const message = e.target.closest("li[data-id]"); 
-  
+
   if (!message) return; // Only trigger on messages
 
   e.preventDefault();
@@ -84,14 +84,7 @@ document.addEventListener("contextmenu", (e) => {
   addButton("Reply in Thread", () => startThread(messageId));
 
   addButton("React", () => {
-    const picker = document.getElementById("emojiPicker");
-    if (!picker) return;
-
-    picker.style.position = "fixed";
-    picker.style.top = e.clientY + 10 + "px";
-    picker.style.left = e.clientX + 10 + "px";
-    picker.dataset.targetMessageId = messageId;
-    picker.style.display = "block";
+    openEmojiPicker(messageId, e.clientX + 10, e.clientY + 10);
   });
 
   addButton("Report", () => reportMessage(messageId));
@@ -126,10 +119,10 @@ document.addEventListener("contextmenu", (e) => {
   // ================= SCREEN BOUNDARY DETECTION =================
   const menuWidth = 200; 
   const menuHeight = 300; 
-  
+
   let leftPos = e.clientX + 10;
   let topPos = e.clientY + 10;
-  
+
   if (leftPos + menuWidth > window.innerWidth) leftPos = e.clientX - menuWidth - 10;
   if (topPos + menuHeight > window.innerHeight) topPos = e.clientY - menuHeight - 10;
   if (leftPos < 0) leftPos = 10;
@@ -143,7 +136,7 @@ document.addEventListener("contextmenu", (e) => {
   menu.style.border = "1px solid #444";
   menu.style.padding = "4px";
   menu.style.display = "block";
-  
+
   // 🔥 DEBUG: Log if we got here
   console.log("✅ Context menu opened for message:", messageId);
 });
@@ -198,9 +191,7 @@ const NO_EMBED_PHRASE = "potatoheadman";
 const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
-const logBox = document.getElementById("logBox");
 const threadsContainer = document.getElementById("threadsContainer");
-logBox.style.display = "none";
 
 function escapeHTML(str) {
   return str
@@ -227,7 +218,7 @@ document.querySelectorAll(".tab").forEach(tab => {
 
     // Refresh threads view if switching to threads
     if (tabName === "threads") {
-      
+
     }
   });
 });
@@ -259,11 +250,8 @@ updateMessageLock();
 
 // ------------------------ Logging ------------------------
 function log(msg, obj = null, type = "info") {
-  const el = document.createElement("div");
-  el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  logBox.appendChild(el);
-  logBox.scrollTop = logBox.scrollHeight;
   if (obj) console[type === "error" ? "error" : "log"](msg, obj);
+  else console.log(msg);
 }
 
 // ------------------------ Realtime ------------------------
@@ -344,8 +332,6 @@ supabaseClient
 const channelList = document.getElementById("channelList");
 
 async function loadChannels() {
-  console.log("📂 loadChannels() STARTED");
-  
   const { data, error } = await supabaseClient
     .from("channels")
     .select("*")
@@ -357,22 +343,213 @@ async function loadChannels() {
   }
 
   channels = data;
-  console.log("✅ Channels fetched:", channels);
 
+  // Apply saved order from localStorage if available
+  const savedOrder = getSavedChannelOrder();
+  if (savedOrder.length > 0) {
+    channels.sort((a, b) => {
+      const ai = savedOrder.indexOf(a.id);
+      const bi = savedOrder.indexOf(b.id);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }
+
+  renderChannelList();
+  console.log("📋 Channels loaded. Total:", channels.length);
+}
+
+function renderChannelList() {
   channelList.innerHTML = "";
-
-  data.forEach(ch => {
+  channels.forEach(ch => {
     const div = document.createElement("div");
     div.textContent = "# " + ch.name;
     div.className = "channel";
     div.dataset.id = ch.id;
+    if (ch.id === currentChannelId) div.classList.add("active");
 
-    div.onclick = () => switchChannel(ch.id);
+    div.addEventListener("click", () => switchChannel(ch.id));
+
+    if (currentRole === "Admin") {
+      div.draggable = true;
+      div.classList.add("draggable-channel");
+
+      div.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", ch.id);
+        div.classList.add("dragging");
+      });
+
+      div.addEventListener("dragend", () => {
+        div.classList.remove("dragging");
+        document.querySelectorAll(".channel").forEach(el => el.classList.remove("drag-over"));
+      });
+
+      div.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        document.querySelectorAll(".channel").forEach(el => el.classList.remove("drag-over"));
+        div.classList.add("drag-over");
+      });
+
+      div.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const draggedId = parseInt(e.dataTransfer.getData("text/plain"), 10);
+        const targetId = ch.id;
+        if (draggedId === targetId) return;
+
+        const draggedIndex = channels.findIndex(c => c.id === draggedId);
+        const targetIndex = channels.findIndex(c => c.id === targetId);
+        if (draggedIndex === -1 || targetIndex === -1) return;
+
+        const [removed] = channels.splice(draggedIndex, 1);
+        channels.splice(targetIndex, 0, removed);
+
+        saveChannelOrder(channels.map(c => c.id));
+        renderChannelList();
+      });
+    }
 
     channelList.appendChild(div);
   });
-  
-  console.log("📋 Channels rendered. Total:", channels.length);
+}
+
+// ======================== CHANNEL ORDER PERSISTENCE ========================
+function saveChannelOrder(idArray) {
+  localStorage.setItem("channelOrder", JSON.stringify(idArray));
+}
+
+function getSavedChannelOrder() {
+  try {
+    return JSON.parse(localStorage.getItem("channelOrder") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+// ======================== CHANNEL RIGHT-CLICK MENU ========================
+channelList.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+
+  if (currentRole !== "Admin") return;
+
+  const channelEl = e.target.closest(".channel");
+  if (!channelEl) return;
+
+  const channelId = parseInt(channelEl.dataset.id, 10);
+  const ch = channels.find(c => c.id === channelId);
+  if (!ch) return;
+
+  const menu = document.getElementById("channelMenu");
+  menu.innerHTML = "";
+
+  const addOption = (label, color, action) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.padding = "7px 10px";
+    btn.style.border = "none";
+    btn.style.background = "transparent";
+    btn.style.cursor = "pointer";
+    btn.style.color = color || "white";
+    btn.style.textAlign = "left";
+    btn.style.fontSize = "13px";
+    btn.style.borderRadius = "3px";
+
+    btn.onmouseenter = () => btn.style.background = "#40444b";
+    btn.onmouseleave = () => btn.style.background = "transparent";
+
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      menu.style.display = "none";
+      action();
+    };
+
+    menu.appendChild(btn);
+  };
+
+  addOption("Rename Channel", "white", () => renameChannel(channelId, ch.name));
+  addOption("Delete Channel", "#ed4245", () => deleteChannel(channelId, ch.name));
+
+  const menuWidth = 160;
+  const menuHeight = 70;
+  let left = e.clientX + 4;
+  let top = e.clientY + 4;
+
+  if (left + menuWidth > window.innerWidth) left = e.clientX - menuWidth;
+  if (top + menuHeight > window.innerHeight) top = e.clientY - menuHeight;
+
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
+  menu.style.display = "block";
+});
+
+// Close channel menu on any click
+document.addEventListener("click", () => {
+  const menu = document.getElementById("channelMenu");
+  if (menu) menu.style.display = "none";
+});
+
+// ======================== CHANNEL ADMIN ACTIONS ========================
+async function renameChannel(channelId, currentName) {
+  const newName = prompt(`Rename channel "${currentName}" to:`, currentName);
+  if (!newName || newName.trim() === currentName) return;
+
+  const trimmed = newName.trim();
+
+  const { error } = await supabaseClient
+    .from("channels")
+    .update({ name: trimmed })
+    .eq("id", channelId);
+
+  if (error) {
+    alert("❌ Rename failed: " + error.message);
+    return;
+  }
+
+  // Update local array
+  const ch = channels.find(c => c.id === channelId);
+  if (ch) ch.name = trimmed;
+
+  renderChannelList();
+
+  // Update header if this is the current channel
+  if (currentChannelId === channelId) {
+    document.getElementById("currentChannelName").textContent = "# " + trimmed;
+  }
+}
+
+async function deleteChannel(channelId, channelName) {
+  if (!confirm(`Delete channel "${channelName}" and all its messages? This cannot be undone.`)) return;
+
+  // Delete all messages in the channel first
+  await supabaseClient.from("messages").delete().eq("channel_id", channelId);
+
+  const { error } = await supabaseClient
+    .from("channels")
+    .delete()
+    .eq("id", channelId);
+
+  if (error) {
+    alert("❌ Delete failed: " + error.message);
+    return;
+  }
+
+  channels = channels.filter(c => c.id !== channelId);
+  saveChannelOrder(channels.map(c => c.id));
+  renderChannelList();
+
+  // Switch to first available channel if we deleted the current one
+  if (currentChannelId === channelId) {
+    if (channels.length > 0) {
+      switchChannel(channels[0].id);
+    } else {
+      currentChannelId = null;
+      messagesList.innerHTML = "";
+      document.getElementById("currentChannelName").textContent = "No channels";
+    }
+  }
 }
 
 function switchChannel(channelId) {
@@ -397,13 +574,13 @@ function switchChannel(channelId) {
   // 🔥 CLEAR AND LOAD MESSAGES
   messagesList.innerHTML = "";
   messagesMap.clear();
-  
+
   // 🔥 Call loadMessages
   loadMessages();
-  
+
   // 🔥 CRITICAL: Subscribe to realtime for THIS specific channel
   subscribeToCurrentChannel();
-  
+
   // 🔥 Force scroll to bottom
   setTimeout(() => {
     messagesList.scrollTop = messagesList.scrollHeight;
@@ -436,7 +613,7 @@ async function loadMessages() {
   // Clear loading and show messages
   messagesList.innerHTML = "";
   data.forEach(msg => renderMessage(msg));
-  
+
   // Force reflow
   void messagesList.offsetWidth;
 
@@ -465,17 +642,17 @@ function buildInitialThreads() {
 // ======================== FULL FIXED loadUser FUNCTION ========================
 async function loadUser() {
   console.log("🚀 loadUser() STARTED");
-  
+
   const storedName = localStorage.getItem("chatUsername");
   console.log("📝 Stored name:", storedName);
-  
+
   // 1. Handle Name Prompt if no name is saved
   if (!storedName) {
     console.log("⚠️ No stored name - showing name prompt");
     namePrompt.style.display = "block";
     input.disabled = true;
     button.disabled = true;
-    
+
     // 🔥 CRITICAL FIX: Even if no name, we MUST load channels so the UI doesn't break
     // We do this asynchronously so it doesn't block the name prompt
     loadChannels().then(() => {
@@ -491,7 +668,7 @@ async function loadUser() {
         if(firstChannelEl) firstChannelEl.classList.add("active");
       }
     });
-    
+
     return Promise.resolve(); // Return early, but channels are loading in background
   }
 
@@ -531,8 +708,9 @@ async function loadUser() {
     localStorage.setItem("chatRole", "User");
   }
 
-  // Show log box for admins
-  logBox.style.display = currentRole === "Admin" ? "block" : "none";
+  // Show create-channel button for admins only
+  const createChannelBtn = document.getElementById("createChannelBtn");
+  if (createChannelBtn) createChannelBtn.style.display = currentRole === "Admin" ? "inline-block" : "none";
 
   // 4. CRITICAL SEQUENCE: Load Channels FIRST
   console.log("📂 Loading channels...");
@@ -566,7 +744,8 @@ async function loadUser() {
   watchForceLogout(storedName);
   subscribeToUserStatus();
   applyMuteBlockUI();
-  
+  loadCustomEmojis();
+
   console.log("🎉 loadUser() completed successfully.");
   return Promise.resolve();
 }
@@ -579,48 +758,37 @@ async function saveName() {
   username = name;
   localStorage.setItem("chatUsername", name);
 
-  alert(`📝 Starting save for: ${name}`);
-
   try {
-    // First check if user exists
     const { data: existingUser, error: checkError } = await supabaseClient
       .from("users")
       .select("role")
       .eq("username", name)
       .single();
 
-    if (checkError && checkError.code !== 'PGRST116') {
-      alert(`⚠️ Check error: ${checkError.message}`);
+    if (checkError && checkError.code !== "PGRST116") {
       console.error("Check error:", checkError);
     }
 
-    alert(`🔍 User exists: ${existingUser ? 'YES' : 'NO'}`);
-
-    // If user exists, update role; if not, insert with default role
     const { data, error } = await supabaseClient
       .from("users")
       .upsert({ 
         username: name,
         role: existingUser?.role || "User"
       }, { 
-        onConflict: ['username']
+        onConflict: ["username"]
       })
       .select("role");
 
     if (error) {
-      alert(`❌ UPSERT FAILED!\n\nError: ${error.message}\n\nCheck your Supabase RLS policies!`);
       console.error("Failed to save user:", error);
       currentRole = "User";
     } else {
-      alert(`✅ UPSERT SUCCESS!\n\nRole: ${data?.[0]?.role || "User"}`);
       currentRole = data?.[0]?.role || "User";
     }
 
     localStorage.setItem("chatRole", currentRole);
-    alert(`💾 Saved to localStorage - Role: ${currentRole}`);
 
   } catch (err) {
-    alert(`💥 EXCEPTION CAUGHT!\n\n${err.message}`);
     console.error("Exception saving user:", err);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
@@ -635,10 +803,9 @@ async function saveName() {
   loadMessages();
   initRealtime();
 
-  logBox.style.display = currentRole === "Admin" ? "block" : "none";
-
+  const createBtn = document.getElementById("createChannelBtn");
+  if (createBtn) createBtn.style.display = currentRole === "Admin" ? "inline-block" : "none";
   updateMessageLock();
-  alert(`🎉 Welcome, ${name}! You are a ${currentRole}.`);
 }
 
 //URL Blocker
@@ -716,7 +883,7 @@ const messageData = {
 } else if (replyingTo) {
   clearReply();
 }
-    
+
       // --- Push Notification Logic (Admin Broadcast) ---
       const isImportant = currentRole === "Admin" && content.includes("!important!");
       fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
@@ -734,7 +901,7 @@ const messageData = {
       await processMentions(content);
 
       if (currentTab === "threads") {
-        
+
       }
     }
   } catch (e) {
@@ -1016,7 +1183,8 @@ document.addEventListener("keydown", e => {
     button.disabled = true;
     nameInput.value = "";
     currentRole = null;
-    if (logBox) logBox.style.display = "none";
+    const cb = document.getElementById("createChannelBtn");
+    if (cb) cb.style.display = "none";
     updateMessageLock();
     saveNameBtn.onclick = saveName;
   }
@@ -1043,10 +1211,329 @@ document.addEventListener("click", () => {
 // Close emoji picker when clicking outside
 document.addEventListener("click", (e) => {
   const picker = document.getElementById("emojiPicker");
-  if (picker && !picker.contains(e.target) && !e.target.classList.contains("emoji-trigger")) {
+  if (picker && picker.style.display !== "none" &&
+      !picker.contains(e.target) && !e.target.classList.contains("emoji-trigger")) {
     picker.style.display = "none";
   }
 });
+
+// ======================== EMOJI PICKER ========================
+
+const EMOJI_CATEGORIES = [
+  { name: "Recent",      icon: "🕐", emojis: [] },
+  { name: "Smileys",     icon: "😀", emojis: ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚","😙","🥲","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🤫","🤔","🤐","🤨","😐","😑","😶","😏","😒","🙄","😬","🤥","😌","😔","😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳","🥸","😎","🤓","🧐","😕","😟","🙁","☹️","😮","😯","😲","😳","🥺","😦","😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡","😠","🤬","😈","👿","💀","☠️","💩","🤡","👹","👺","👻","👽","👾","🤖"] },
+  { name: "People",      icon: "👋", emojis: ["👋","🤚","🖐️","✋","🖖","👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙","👈","👉","👆","🖕","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏","🙌","👐","🤲","🤝","🙏","✍️","💅","🤳","💪","🫶","🫀","🫁","🦷","🦴","👀","👁️","👅","👄","💋","🫦","👶","🧒","👦","👧","🧑","👱","👨","🧔","👩","🧓","👴","👵","🙍","🙎","🙅","🙆","💁","🙋","🧏","🙇","🤦","🤷","👮","🕵️","💂","🥷","👷","🤴","👸","👰","🤵","🤰","🤱","👼","🎅","🤶","🦸","🦹","🧙","🧚","🧛","🧜","🧝","🧞","🧟","💆","💇","🚶","🧍","🧎","🏃","💃","🕺"] },
+  { name: "Animals",     icon: "🐶", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐔","🐧","🐦","🐤","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🪱","🐛","🦋","🐌","🐞","🐜","🦟","🦗","🕷️","🦂","🐢","🐍","🦎","🦖","🦕","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🦧","🦣","🐘","🦛","🦏","🐪","🐫","🦒","🦘","🦬","🐃","🐂","🐄","🐎","🐖","🐏","🐑","🦙","🐐","🦌","🐕","🐩","🦮","🐕‍🦺","🐈","🐈‍⬛","🐓","🦃","🦤","🦚","🦜","🦢","🦩","🕊️","🐇","🦝","🦨","🦡","🦫","🦦","🦥","🐁","🐀","🐿️","🦔","🐾","🐉","🐲"] },
+  { name: "Nature",      icon: "🌿", emojis: ["🌵","🎄","🌲","🌳","🌴","🌱","🌿","☘️","🍀","🎍","🎋","🍃","🍂","🍁","🍄","🐚","🪨","🌾","💐","🌷","🌹","🥀","🌺","🌸","🌼","🌻","🌞","🌝","🌛","🌜","🌚","🌕","🌖","🌗","🌘","🌑","🌒","🌓","🌔","🌙","🌟","⭐","🌠","🌌","☁️","⛅","🌤️","⛈️","🌧️","🌨️","❄️","☃️","⛄","🌬️","💨","💧","💦","🌊","🌈","🌫️","🌀","🌪️","🌩️","⚡","🔥","💥","🌍","🌎","🌏","🗺️","🏔️","⛰️","🌋","🏕️","🏖️","🏜️","🏝️","🏞️"] },
+  { name: "Food",        icon: "🍔", emojis: ["🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍈","🍒","🍑","🥭","🍍","🥥","🥝","🍅","🫒","🥑","🍆","🥔","🥕","🌽","🌶️","🫑","🥒","🥬","🥦","🧄","🧅","🍄","🥜","🌰","🍞","🥐","🥖","🫓","🥨","🥯","🧀","🥚","🍳","🧈","🥞","🧇","🥓","🥩","🍗","🍖","🌭","🍔","🍟","🍕","🫔","🌮","🌯","🥙","🧆","🥘","🍲","🫕","🥣","🥗","🍿","🧂","🥫","🍱","🍙","🍚","🍛","🍜","🍝","🍠","🍣","🍤","🍥","🥮","🍡","🥟","🥠","🥡","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🥧","🍫","🍬","🍭","🍯","🍼","🥛","☕","🫖","🍵","🧃","🥤","🧋","🍶","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾"] },
+  { name: "Travel",      icon: "✈️", emojis: ["🚗","🚕","🚙","🚌","🏎️","🚓","🚑","🚒","🚐","🛻","🚚","🚛","🚜","🏍️","🛵","🛺","🚲","🛴","🛹","🚏","⛽","🚨","🚥","🚦","🛑","⚓","⛵","🛶","🚤","🛳️","⛴️","🚢","✈️","🛩️","🛫","🛬","💺","🚁","🚀","🛸","🏔️","⛰️","🌋","🏕️","🏖️","🏜️","🏝️","🏞️","🏟️","🏛️","🏗️","🏘️","🏚️","🏠","🏡","🏢","🏣","🏤","🏥","🏦","🏨","🏩","🏪","🏫","🏬","🏭","🏯","🏰","💒","🗼","🗽","⛪","🕌","🛕","🕍","⛩️","🕋","⛲","🎠","🎡","🎢","🎪","🌁","🌃","🏙️","🌄","🌅","🌆","🌇","🌉","🗺️"] },
+  { name: "Activities",  icon: "⚽", emojis: ["⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🏓","🏸","🏒","🥅","⛳","🎣","🤿","🥊","🥋","🎽","🛹","🛷","⛸️","🥌","🎿","⛷️","🏂","🏋️","🤸","⛹️","🤺","🏇","🧘","🧗","🚵","🚴","🏆","🥇","🥈","🥉","🏅","🎖️","🏵️","🎗️","🎫","🎟️","🎪","🤹","🎭","🩰","🎨","🎬","🎤","🎧","🎼","🎵","🎶","🥁","🎷","🎺","🎸","🪕","🎻","🎲","♟️","🎯","🎳","🎮","🎰","🧩"] },
+  { name: "Objects",     icon: "💡", emojis: ["📱","💻","⌨️","🖥️","🖨️","🖱️","💽","💾","💿","📀","📺","📷","📸","📹","🎥","📽️","🎞️","📞","☎️","📟","📡","🔋","🔌","💡","🔦","🕯️","💰","💳","🪙","✉️","📧","📨","📩","📦","📫","📬","📭","📮","✏️","✒️","🖊️","📝","📁","📂","🗂️","📅","📆","📇","📈","📉","📊","📋","📌","📍","📎","✂️","🗃️","🗄️","🗑️","🔒","🔓","🔑","🗝️","🔨","⚒️","🛠️","⚔️","🔫","🛡️","🔧","🔩","⚙️","⚖️","🔗","🧲","🪜","🧪","🧫","🧬","🔬","🔭","💊","💉","🩸","🩹","🩺","🪞","🛏️","🛋️","🚪","🧴","🧹","🧺","🧻","🧼","🧽","🛒","🚬","🪦","🧿","📿","🪬"] },
+  { name: "Symbols",     icon: "❤️", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❤️‍🔥","❤️‍🩹","❣️","💕","💞","💓","💗","💖","💘","💝","💟","☮️","✝️","☪️","🕉️","☸️","✡️","☯️","☦️","🛐","♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓","🆔","⚛️","☢️","☣️","📴","📳","✴️","🆚","💮","㊙️","㊗️","🅰️","🅱️","🆎","🆑","🅾️","🆘","❌","⭕","🛑","⛔","📛","🚫","💯","💢","♨️","🚷","🚯","🚳","🚱","🔞","📵","🚭","❗","❕","❓","❔","‼️","⁉️","🔅","🔆","⚠️","🚸","🔱","⚜️","🔰","♻️","✅","❇️","✳️","❎","🌐","💠","💤","🏧","♿","🅿️","🈳","🚹","🚺","🚼","🚻","⚧️","▶️","⏩","⏭️","⏯️","◀️","⏪","⏮️","⏸️","⏹️","⏺️","⏏️","➕","➖","➗","✖️","💲","💱","™️","©️","®️","✔️","☑️","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","🟤","🔺","🔻","🔷","🔶","🔹","🔸","❤️‍🔥","💬","💭","🗯️","♠️","♣️","♥️","♦️","🃏","🎴","🀄"] },
+  { name: "Custom",      icon: "⭐", emojis: [] }
+];
+
+let customEmojis = []; // { id, name, url }
+let pickerBuilt = false;
+let currentPickerMessageId = null;
+
+async function loadCustomEmojis() {
+  const { data, error } = await supabaseClient
+    .from("custom_emojis")
+    .select("*")
+    .order("name");
+  if (!error && data) {
+    customEmojis = data;
+    const cat = EMOJI_CATEGORIES.find(c => c.name === "Custom");
+    if (cat) cat.emojis = data.map(e => e.url);
+    if (pickerBuilt) rebuildCustomGrid();
+  }
+}
+
+function rebuildCustomGrid() {
+  const picker = document.getElementById("emojiPicker");
+  if (!picker) return;
+  const customGrid = picker.querySelector(".ep-custom-grid");
+  if (customGrid) renderEmojiGrid(customGrid, customEmojis.map(e => e.url), true);
+  const adminBar = picker.querySelector(".ep-admin-bar");
+  if (adminBar) adminBar.style.display = currentRole === "Admin" ? "flex" : "none";
+}
+
+function buildEmojiPicker() {
+  if (pickerBuilt) return;
+  pickerBuilt = true;
+
+  const picker = document.getElementById("emojiPicker");
+  picker.className = "ep-container";
+
+  // Search row
+  const searchRow = document.createElement("div");
+  searchRow.className = "ep-search-row";
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.placeholder = "Search emojis...";
+  searchInput.className = "ep-search";
+  searchInput.addEventListener("input", () => filterEmojis(searchInput.value.trim()));
+  searchRow.appendChild(searchInput);
+  picker.appendChild(searchRow);
+
+  // Category tabs
+  const tabRow = document.createElement("div");
+  tabRow.className = "ep-tabs";
+  EMOJI_CATEGORIES.forEach((cat, i) => {
+    const tab = document.createElement("button");
+    tab.className = "ep-tab" + (i === 1 ? " active" : "");
+    tab.title = cat.name;
+    tab.textContent = cat.icon;
+    tab.dataset.catIndex = i;
+    tab.addEventListener("click", (e) => {
+      e.stopPropagation();
+      picker.querySelectorAll(".ep-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      showCategory(i);
+    });
+    tabRow.appendChild(tab);
+  });
+  picker.appendChild(tabRow);
+
+  // Emoji grid area
+  const gridArea = document.createElement("div");
+  gridArea.className = "ep-grid-area";
+  picker.appendChild(gridArea);
+
+  // Admin bar (add custom emoji)
+  const adminBar = document.createElement("div");
+  adminBar.className = "ep-admin-bar";
+  adminBar.style.display = "none";
+  const addCustomBtn = document.createElement("button");
+  addCustomBtn.className = "ep-add-custom-btn";
+  addCustomBtn.textContent = "+ Add Custom Emoji";
+  addCustomBtn.addEventListener("click", (e) => { e.stopPropagation(); addCustomEmoji(); });
+  adminBar.appendChild(addCustomBtn);
+  picker.appendChild(adminBar);
+
+  showCategory(1); // Start on Smileys
+}
+
+function renderEmojiGrid(container, emojis, isCustom = false) {
+  container.innerHTML = "";
+  emojis.forEach((emoji, idx) => {
+    const btn = document.createElement("button");
+    btn.className = "ep-emoji-btn";
+
+    const isUrl = emoji.startsWith("http") || emoji.startsWith("data:");
+    if (isUrl) {
+      const img = document.createElement("img");
+      img.src = emoji;
+      img.alt = customEmojis[idx]?.name || "custom";
+      img.style.width = "24px";
+      img.style.height = "24px";
+      img.style.objectFit = "contain";
+      btn.appendChild(img);
+      btn.title = customEmojis.find(e => e.url === emoji)?.name || "custom";
+    } else {
+      btn.textContent = emoji;
+      btn.title = emoji;
+    }
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (currentPickerMessageId) {
+        saveRecentEmoji(emoji);
+        addReaction(currentPickerMessageId, emoji);
+        document.getElementById("emojiPicker").style.display = "none";
+      }
+    });
+
+    // Admin delete button for custom emojis
+    if (isCustom && currentRole === "Admin") {
+      btn.style.position = "relative";
+      const del = document.createElement("span");
+      del.textContent = "✕";
+      del.className = "ep-custom-delete";
+      del.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const ce = customEmojis.find(e => e.url === emoji);
+        if (ce && confirm(`Delete custom emoji "${ce.name}"?`)) deleteCustomEmoji(ce.id);
+      });
+      btn.appendChild(del);
+    }
+
+    container.appendChild(btn);
+  });
+}
+
+function showCategory(index) {
+  const picker = document.getElementById("emojiPicker");
+  if (!picker) return;
+
+  const gridArea = picker.querySelector(".ep-grid-area");
+  gridArea.innerHTML = "";
+  picker.querySelector(".ep-search").value = "";
+
+  const cat = EMOJI_CATEGORIES[index];
+
+  const label = document.createElement("div");
+  label.className = "ep-cat-label";
+  label.textContent = cat.name;
+  gridArea.appendChild(label);
+
+  // Recent category pulls from localStorage
+  let emojis = cat.emojis;
+  if (cat.name === "Recent") {
+    emojis = getRecentEmojis();
+    if (emojis.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.padding = "12px";
+      empty.style.color = "#949ba4";
+      empty.style.fontSize = "13px";
+      empty.textContent = "No recently used emojis";
+      gridArea.appendChild(empty);
+      return;
+    }
+  }
+
+  const isCustom = cat.name === "Custom";
+  const grid = document.createElement("div");
+  grid.className = isCustom ? "ep-custom-grid ep-grid" : "ep-grid";
+  renderEmojiGrid(grid, emojis, isCustom);
+  gridArea.appendChild(grid);
+
+  // Show admin bar on Custom tab
+  const adminBar = picker.querySelector(".ep-admin-bar");
+  if (adminBar) adminBar.style.display = (isCustom && currentRole === "Admin") ? "flex" : "none";
+}
+
+function filterEmojis(query) {
+  const picker = document.getElementById("emojiPicker");
+  if (!picker) return;
+  const gridArea = picker.querySelector(".ep-grid-area");
+  gridArea.innerHTML = "";
+
+  if (!query) {
+    const activeTab = picker.querySelector(".ep-tab.active");
+    const idx = activeTab ? parseInt(activeTab.dataset.catIndex) : 1;
+    showCategory(idx);
+    return;
+  }
+
+  const results = [];
+  EMOJI_CATEGORIES.forEach(cat => {
+    if (cat.name === "Recent" || cat.name === "Custom") return;
+    cat.emojis.forEach(emoji => {
+      if (emoji.includes(query)) results.push(emoji);
+    });
+  });
+
+  const label = document.createElement("div");
+  label.className = "ep-cat-label";
+  label.textContent = `Results for "${query}"`;
+  gridArea.appendChild(label);
+
+  const grid = document.createElement("div");
+  grid.className = "ep-grid";
+  renderEmojiGrid(grid, results);
+  gridArea.appendChild(grid);
+}
+
+function openEmojiPicker(messageId, x, y) {
+  currentPickerMessageId = messageId;
+  const picker = document.getElementById("emojiPicker");
+  if (!pickerBuilt) buildEmojiPicker();
+
+  // Update admin bar visibility whenever opened
+  const adminBar = picker.querySelector(".ep-admin-bar");
+  if (adminBar) {
+    const activeTab = picker.querySelector(".ep-tab.active");
+    const isCustom = activeTab && EMOJI_CATEGORIES[parseInt(activeTab.dataset.catIndex)]?.name === "Custom";
+    adminBar.style.display = (isCustom && currentRole === "Admin") ? "flex" : "none";
+  }
+
+  // Position with screen boundary detection
+  picker.style.display = "flex";
+  const pw = 320, ph = 380;
+  let left = x, top = y;
+  if (left + pw > window.innerWidth) left = x - pw;
+  if (top + ph > window.innerHeight) top = y - ph;
+  if (left < 0) left = 4;
+  if (top < 0) top = 4;
+  picker.style.left = left + "px";
+  picker.style.top = top + "px";
+}
+
+// Recent emoji helpers
+function getRecentEmojis() {
+  try { return JSON.parse(localStorage.getItem("recentEmojis") || "[]"); }
+  catch { return []; }
+}
+function saveRecentEmoji(emoji) {
+  let recent = getRecentEmojis().filter(e => e !== emoji);
+  recent.unshift(emoji);
+  recent = recent.slice(0, 36);
+  localStorage.setItem("recentEmojis", JSON.stringify(recent));
+  EMOJI_CATEGORIES[0].emojis = recent;
+}
+
+// ======================== CUSTOM EMOJI MANAGEMENT ========================
+async function addCustomEmoji() {
+  if (currentRole !== "Admin") return;
+  const name = prompt("Custom emoji name (e.g. 'tadacat'):");
+  if (!name || !name.trim()) return;
+
+  const useUrl = confirm("Click OK to paste an image URL, or Cancel to upload a file.");
+  let url = null;
+
+  if (useUrl) {
+    url = prompt("Paste image URL:");
+    if (!url || !url.trim()) return;
+    url = url.trim();
+  } else {
+    url = await uploadCustomEmojiFile();
+    if (!url) return;
+  }
+
+  const { error } = await supabaseClient
+    .from("custom_emojis")
+    .insert({ name: name.trim().toLowerCase(), url, created_by: username });
+
+  if (error) {
+    alert("❌ Failed to add custom emoji: " + error.message);
+  } else {
+    await loadCustomEmojis();
+  }
+}
+
+async function uploadCustomEmojiFile() {
+  return new Promise((resolve) => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.onchange = async () => {
+      const file = fileInput.files[0];
+      if (!file) { resolve(null); return; }
+      const fileName = `emoji_${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
+      const { error } = await supabaseClient.storage.from("emoji-files").upload(fileName, file);
+      if (error) { alert("❌ Upload failed: " + error.message); resolve(null); return; }
+      const { data } = supabaseClient.storage.from("emoji-files").getPublicUrl(fileName);
+      resolve(data.publicUrl);
+    };
+    fileInput.click();
+  });
+}
+
+async function deleteCustomEmoji(id) {
+  const { error } = await supabaseClient.from("custom_emojis").delete().eq("id", id);
+  if (error) { alert("❌ " + error.message); return; }
+  await loadCustomEmojis();
+}
+
+// Subscribe to custom_emojis table for real-time updates
+supabaseClient
+  .channel("custom-emojis-channel")
+  .on("postgres_changes", { event: "*", schema: "public", table: "custom_emojis" }, () => {
+    loadCustomEmojis();
+  })
+  .subscribe();
 
 // ------------------------ ADMIN MENU FUNCTIONS ------------------------
 
@@ -1586,8 +2073,23 @@ async function renderReactions(messageId, li) {
       const iMine = info.myId !== null;
       const bubble = document.createElement("span");
       bubble.className = "reactionBubble";
-      bubble.textContent = `${emoji} ${info.count}`;
-      bubble.title = info.users.join(", ");
+      const isUrl = emoji.startsWith("http") || emoji.startsWith("data:");
+      if (isUrl) {
+        const img = document.createElement("img");
+        img.src = emoji;
+        img.style.width = "18px";
+        img.style.height = "18px";
+        img.style.verticalAlign = "middle";
+        img.style.objectFit = "contain";
+        const ceName = customEmojis.find(e => e.url === emoji)?.name || "custom";
+        img.alt = ceName;
+        bubble.appendChild(img);
+        bubble.appendChild(document.createTextNode(` ${info.count}`));
+        bubble.title = `${ceName} — ${info.users.join(", ")}`;
+      } else {
+        bubble.textContent = `${emoji} ${info.count}`;
+        bubble.title = info.users.join(", ");
+      }
       if (iMine) bubble.classList.add("mine");
 
       bubble.onclick = async (e) => {
@@ -1776,14 +2278,8 @@ function attachHoverControls(li, msg) {
 
   reactBtn.onclick = (e) => {
     e.stopPropagation();
-    const picker = document.getElementById("emojiPicker");
-    if (!picker) return;
-    picker.style.position = "fixed";
-    picker.style.top = "50%";
-    picker.style.left = "50%";
-    picker.style.transform = "translate(-50%, -50%)";
-    picker.dataset.targetMessageId = msg.id;
-    picker.style.display = "block";
+    const rect = reactBtn.getBoundingClientRect();
+    openEmojiPicker(msg.id, rect.left, rect.bottom + 4);
   };
 
   const replyBtn = document.createElement("button");
@@ -1809,24 +2305,6 @@ function attachHoverControls(li, msg) {
   });
 }
 
-// Handle Emoji Selection from Picker
-// Run this AFTER the DOM is loaded to ensure buttons exist
-document.addEventListener("DOMContentLoaded", () => {
-  const options = document.querySelectorAll(".emoji-option");
-  options.forEach(option => {
-    option.addEventListener("click", function() {
-      const picker = document.getElementById("emojiPicker");
-      const messageId = picker.dataset.targetMessageId;
-      const emoji = this.textContent;
-
-      if (messageId && emoji) {
-        console.log("Adding reaction:", emoji, "to message:", messageId);
-        addReaction(messageId, emoji);
-        picker.style.display = "none";
-      }
-    });
-  });
-});
 
 // ---------------- PATCH INTO MESSAGE RENDER ----------------
 
@@ -2201,7 +2679,7 @@ function executeScripts(container) {
 
 function refreshUI() {
   if (currentTab === "threads") {
-    
+
   } else {
     // main chat already updates incrementally
     // but you *can* force consistency if needed:
@@ -2399,120 +2877,36 @@ function subscribeToUserStatus() {
 
 function applyMuteBlockUI() {
   const input = document.getElementById("messageInput");
-  const sendBtn = document.getElementById("sendBtn");
+  const sendBtn = document.getElementById("sendButton");
 
   const muted = mutedUntil && new Date(mutedUntil) > new Date();
 
   if (isBlocked) {
     input.disabled = true;
-    sendBtn.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
     input.placeholder = "🚫 You are blocked";
     return;
   }
 
   if (muted) {
     input.disabled = true;
-    sendBtn.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
     startMuteCountdownUI();
     return;
   }
 
   input.disabled = false;
-  sendBtn.disabled = false;
+  if (sendBtn) sendBtn.disabled = false;
   input.placeholder = "Type a message...";
   stopMuteCountdownUI();
 }
 
-// ======================== CREATE CHANNEL BUTTON FIX ========================
-const createBtn = document.getElementById("createChannelBtn");
-
-if (createBtn) {
-  // Remove any old listeners just in case
-  const newBtn = createBtn.cloneNode(true);
-  createBtn.parentNode.replaceChild(newBtn, createBtn);
-  
-  newBtn.addEventListener("click", async (e) => {
-    e.preventDefault(); // Stop any default form submission
-    e.stopPropagation(); // Stop bubbling
-
-    // 🔥 VISUAL FEEDBACK: Show a loading state immediately
-    const originalText = newBtn.textContent;
-    newBtn.textContent = "⏳";
-    newBtn.disabled = true;
-
-    // 1. Get current role from DB directly (bypassing local variable lag)
-    const storedName = localStorage.getItem("chatUsername");
-    let isAdmin = false;
-
-    if (storedName) {
-      try {
-        const { data, error } = await supabaseClient
-          .from("users")
-          .select("role")
-          .eq("username", storedName)
-          .single();
-
-        if (data && data.role === "Admin") {
-          isAdmin = true;
-        }
-      } catch (err) {
-        console.error("Role check failed", err);
-      }
-    }
-
-    // 2. Check Permission
-    if (!isAdmin) {
-      newBtn.textContent = "❌";
-      setTimeout(() => {
-        newBtn.textContent = originalText;
-        newBtn.disabled = false;
-      }, 1000);
-      
-      alert(`❌ ACCESS DENIED\n\nYou are not an Admin.\nCurrent detected role: ${isAdmin ? 'Admin' : 'User'}`);
-      return;
-    }
-
-    // 3. Ask for Channel Name
-    const name = prompt("Enter new channel name:");
-    if (!name) {
-      newBtn.textContent = originalText;
-      newBtn.disabled = false;
-      return;
-    }
-
-    // 4. Create Channel
-    try {
-      const { error } = await supabaseClient
-        .from("channels")
-        .insert({ name: name, created_by: storedName });
-
-      if (error) {
-        newBtn.textContent = "❌";
-        setTimeout(() => {
-          newBtn.textContent = originalText;
-          newBtn.disabled = false;
-        }, 1000);
-        alert("❌ Failed to create channel:\n" + error.message);
-      } else {
-        newBtn.textContent = "✅";
-        setTimeout(() => {
-          newBtn.textContent = originalText;
-          newBtn.disabled = false;
-        }, 1000);
-        alert("✅ Channel '" + name + "' created!");
-        // Reload channels to show it immediately
-        await loadChannels(); 
-      }
-    } catch (err) {
-      newBtn.textContent = "❌";
-      setTimeout(() => {
-        newBtn.textContent = originalText;
-        newBtn.disabled = false;
-      }, 1000);
-      alert("❌ Unexpected error: " + err.message);
-    }
-  });
-}
+// ======================== CREATE CHANNEL BUTTON ========================
+document.getElementById("createChannelBtn").addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  tryCreateChannel();
+});
 
 async function loadDefaultChannel() {
   console.log("📡 loadDefaultChannel() called. Channels length:", channels.length);
@@ -2541,7 +2935,7 @@ async function loadDefaultChannel() {
 
   // 🔥 Call switchChannel which handles everything
   switchChannel(targetChannelId);
-  
+
   // 🔥 Force scroll to bottom after a slight delay
   setTimeout(() => {
     messagesList.scrollTop = messagesList.scrollHeight;
@@ -2550,106 +2944,93 @@ async function loadDefaultChannel() {
 
 // ======================== INLINE CHANNEL CREATION FUNCTION ========================
 async function tryCreateChannel() {
-  // 1. Visual Feedback: Change button text immediately
+  if (currentRole !== "Admin") return;
+
   const btn = document.getElementById("createChannelBtn");
   if (!btn) return;
-  
-  const originalText = btn.textContent;
+
+  const name = prompt("Enter new channel name:");
+  if (!name || !name.trim()) return;
+
+  const trimmedName = name.trim();
   btn.textContent = "⏳";
   btn.disabled = true;
 
-  // 2. Get Username
-  const storedName = localStorage.getItem("chatUsername");
-  if (!storedName) {
-    alert("❌ Please enter your name first!");
-    btn.textContent = originalText;
-    btn.disabled = false;
-    return;
-  }
-
-  // 3. Check Role DIRECTLY from Database (Bypassing variables)
-  let isAdmin = false;
   try {
     const { data, error } = await supabaseClient
-      .from("users")
-      .select("role")
-      .eq("username", storedName)
+      .from("channels")
+      .insert({ name: trimmedName, created_by: username })
+      .select()
       .single();
 
-    if (data && data.role === "Admin") {
-      isAdmin = true;
-    }
-  } catch (err) {
-    console.error("Role check error", err);
-  }
-
-  // 4. Permission Check
-  if (!isAdmin) {
-    btn.textContent = "❌";
-    setTimeout(() => {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }, 1000);
-    alert("❌ ACCESS DENIED\n\nYou are not an Admin.\nPlease check your role in the database.");
-    return;
-  }
-
-  // 5. Ask for Name
-  const name = prompt("Enter new channel name:");
-  if (!name) {
-    btn.textContent = originalText;
-    btn.disabled = false;
-    return;
-  }
-
-  // 6. Create Channel
-  try {
-    const { error } = await supabaseClient
-      .from("channels")
-      .insert({ name: name, created_by: storedName });
-
     if (error) {
-      btn.textContent = "❌";
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-      }, 1000);
-      alert("❌ Failed to create channel:\n" + error.message);
-    } else {
-      btn.textContent = "✅";
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-      }, 1000);
-      alert("✅ Channel '" + name + "' created!");
-      // Reload channels
-      if (typeof loadChannels === 'function') {
-        await loadChannels();
-      }
+      alert("❌ Failed to create channel: " + error.message);
+    } else if (data) {
+      // Add to local array and switch to it (activates realtime for this channel)
+      channels.push(data);
+      saveChannelOrder(channels.map(c => c.id));
+      renderChannelList();
+      switchChannel(data.id);
     }
   } catch (err) {
-    btn.textContent = "❌";
-    setTimeout(() => {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }, 1000);
     alert("❌ Unexpected error: " + err.message);
+  } finally {
+    btn.textContent = "+";
+    btn.disabled = false;
   }
 }
 
 // ======================== REALTIME FOR CHANNELS ========================
-// This listener watches the 'channels' table for changes
 supabaseClient
   .channel("channels-channel")
   .on(
     "postgres_changes",
-    { event: "*", schema: "public", table: "channels" }, // Listen to INSERT, UPDATE, DELETE
+    { event: "*", schema: "public", table: "channels" },
     (payload) => {
       console.log("📢 Channel change detected:", payload.eventType);
-      
-      // If a channel was added, updated, or deleted, reload the list
-      loadChannels();
+
+      if (payload.eventType === "INSERT" && payload.new) {
+        const newCh = payload.new;
+        // Only add if not already in local list (avoid double-add when we inserted it ourselves)
+        const alreadyExists = channels.some(c => c.id === newCh.id);
+        if (!alreadyExists) {
+          channels.push(newCh);
+          saveChannelOrder(channels.map(c => c.id));
+          renderChannelList();
+          // Auto-switch to the new channel if someone else created it
+          // (if we created it ourselves, switchChannel was already called in tryCreateChannel)
+          if (currentChannelId !== newCh.id) {
+            switchChannel(newCh.id);
+          }
+        }
+      } else if (payload.eventType === "UPDATE" && payload.new) {
+        const updated = payload.new;
+        const idx = channels.findIndex(c => c.id === updated.id);
+        if (idx !== -1) {
+          channels[idx] = { ...channels[idx], ...updated };
+          renderChannelList();
+          if (currentChannelId === updated.id) {
+            document.getElementById("currentChannelName").textContent = "# " + updated.name;
+          }
+        }
+      } else if (payload.eventType === "DELETE" && payload.old) {
+        const deletedId = payload.old.id;
+        channels = channels.filter(c => c.id !== deletedId);
+        saveChannelOrder(channels.map(c => c.id));
+        renderChannelList();
+        if (currentChannelId === deletedId) {
+          if (channels.length > 0) {
+            switchChannel(channels[0].id);
+          } else {
+            currentChannelId = null;
+            messagesList.innerHTML = "";
+            document.getElementById("currentChannelName").textContent = "No channels";
+          }
+        }
+      }
     }
   )
-  .subscribe();
+  .subscribe((status) => {
+    console.log("📡 Channels realtime status:", status);
+  });
 // ======================== END FEATURES ========================
