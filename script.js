@@ -118,7 +118,7 @@ document.addEventListener("contextmenu", (e) => {
 
   // ================= BASE ACTIONS =================
   addButton("Reply", () => startReply(messageId));
-  addButton("Reply in Thread", () => startThread(messageId));
+//  addButton("Reply in Thread", () => startThread(messageId));
 
   addButton("React", () => {
     openEmojiPicker(messageId, e.clientX + 10, e.clientY + 10);
