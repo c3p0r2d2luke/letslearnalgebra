@@ -1,4 +1,153 @@
-/* global supabase, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
+/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
+
+document.addEventListener("contextmenu", (e) => {
+  // 🔥 FIX: Look for the closest LI with data-id, even if clicked on a child
+  const message = e.target.closest("li[data-id]"); 
+  
+  if (!message) return; // Only trigger on messages
+
+  e.preventDefault();
+
+  const menu = document.getElementById("adminMenu");
+  if (!menu) {
+    console.error("❌ #adminMenu not found in DOM!");
+    return;
+  }
+
+  menu.innerHTML = "";
+
+  const messageId = message.dataset.id;
+  const author = message.dataset.user;
+
+  let currentSection = menu;
+
+  const addButton = (label, action) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.padding = "6px";
+    btn.style.border = "none";
+    btn.style.background = "transparent";
+    btn.style.cursor = "pointer";
+    btn.style.color = "white";
+    btn.style.textAlign = "left";
+    btn.style.fontSize = "13px";
+
+    btn.onmouseenter = () => btn.style.background = "#40444b";
+    btn.onmouseleave = () => btn.style.background = "transparent";
+
+    btn.onclick = (event) => {
+      event.stopPropagation();
+      action();
+      menu.style.display = "none";
+    };
+
+    currentSection.appendChild(btn);
+  };
+
+  const addSection = (title) => {
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+
+    const header = document.createElement("div");
+    header.textContent = title + " ▶";
+    header.style.fontSize = "12px";
+    header.style.padding = "6px";
+    header.style.cursor = "pointer";
+    header.style.color = "white";
+
+    header.onmouseenter = () => header.style.background = "#40444b";
+    header.onmouseleave = () => header.style.background = "transparent";
+
+    const sub = document.createElement("div");
+    sub.style.position = "absolute";
+    sub.style.left = "100%";
+    sub.style.top = "0";
+    sub.style.background = "#2f3136";
+    sub.style.border = "1px solid #444";
+    sub.style.display = "none";
+    sub.style.minWidth = "180px";
+
+    wrapper.onmouseenter = () => sub.style.display = "block";
+    wrapper.onmouseleave = () => sub.style.display = "none";
+
+    wrapper.appendChild(header);
+    wrapper.appendChild(sub);
+    menu.appendChild(wrapper);
+
+    currentSection = sub;
+  };
+
+  // ================= BASE ACTIONS =================
+  addButton("Reply", () => startReply(messageId));
+  addButton("Reply in Thread", () => startThread(messageId));
+
+  addButton("React", () => {
+    const picker = document.getElementById("emojiPicker");
+    if (!picker) return;
+
+    picker.style.position = "fixed";
+    picker.style.top = e.clientY + 10 + "px";
+    picker.style.left = e.clientX + 10 + "px";
+    picker.dataset.targetMessageId = messageId;
+    picker.style.display = "block";
+  });
+
+  addButton("Report", () => reportMessage(messageId));
+
+  // ================= ROLE-BASED =================
+  if (currentRole === "Manager" && author === username) {
+    addSection("Manager");
+    addButton("Delete My Message", () => deleteMessage(messageId));
+  }
+
+  if (currentRole === "Admin") {
+    addSection("Delete");
+    addButton("Delete", () => deleteMessage(messageId));
+    addButton("Delete By Keyword", () => deleteKeyword());
+    addButton("Delete User + Messages", () => deleteUser(author));
+
+    addSection("Info");
+    addButton("User Info", () => userInfo(author));
+    addButton("Export Chat", () => exportChat());
+
+    addSection("Edit");
+    addButton("Edit Message", () => editMessage(messageId));
+    addButton("Pin / Unpin", () => pinMessage(messageId));
+    addButton("Change Name", () => changeName(author));
+    addButton("Promote / Demote", () => promote(author));
+    addButton("Mute User", () => muteUser(author));
+    addButton("Block User", () => blockUser(author));
+    addButton("Unblock User", () => unblockUser(author));
+    addButton("Force Logout", () => forceLogout(author));
+  }
+
+  // ================= SCREEN BOUNDARY DETECTION =================
+  const menuWidth = 200; 
+  const menuHeight = 300; 
+  
+  let leftPos = e.clientX + 10;
+  let topPos = e.clientY + 10;
+  
+  if (leftPos + menuWidth > window.innerWidth) leftPos = e.clientX - menuWidth - 10;
+  if (topPos + menuHeight > window.innerHeight) topPos = e.clientY - menuHeight - 10;
+  if (leftPos < 0) leftPos = 10;
+  if (topPos < 0) topPos = 10;
+
+  // ================= SHOW MENU =================
+  menu.style.position = "fixed";
+  menu.style.left = leftPos + "px";
+  menu.style.top = topPos + "px";
+  menu.style.background = "#2f3136";
+  menu.style.border = "1px solid #444";
+  menu.style.padding = "4px";
+  menu.style.display = "block";
+  
+  // 🔥 DEBUG: Log if we got here
+  console.log("✅ Context menu opened for message:", messageId);
+});
+
 // 🔐 SHA-256 hash function
 async function hashPassword(password) {
   const encoder = new TextEncoder();
@@ -17,6 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (localStorage.getItem("isAuthenticated") === "true") {
     document.getElementById("passwordGate").style.display = "none";
     document.getElementById("appContent").style.display = "block";
+    loadUser();
   }
 });
 
@@ -31,6 +181,7 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
 
     document.getElementById("passwordGate").style.display = "none";
     document.getElementById("appContent").style.display = "block";
+    loadUser();
   } else {
     alert("❌ Wrong password");
   }
@@ -117,14 +268,51 @@ function log(msg, obj = null, type = "info") {
 
 // ------------------------ Realtime ------------------------
 let channel = null;
+// ======================== REALTIME MANAGER ========================
+let activeMessageChannel = null; // Tracks the current realtime subscription
+
 function initRealtime() {
-  if (channel) return;
-  channel = supabaseClient.channel("messages-channel")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => handleRealtimeMessage(payload.new, "INSERT"))
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => handleRealtimeMessage(payload.new, "UPDATE"))
-    .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, payload => handleRealtimeMessage(payload.old, "DELETE"))
-    .subscribe(status => {
-      log(`Channel status: ${status}`);
+  console.log("📡 Realtime manager initialized.");
+  // We don't subscribe here anymore. We subscribe dynamically in switchChannel.
+}
+
+// Helper to unsubscribe from old channel and subscribe to new one
+async function subscribeToCurrentChannel() {
+  if (!currentChannelId) {
+    console.log("⚠️ No channel selected. Unsubscribing from messages.");
+    if (activeMessageChannel) {
+      await activeMessageChannel.unsubscribe();
+      activeMessageChannel = null;
+    }
+    return;
+  }
+
+  console.log(`🔄 Subscribing to messages for channel ID: ${currentChannelId}`);
+
+  // 1. Unsubscribe from previous channel if exists
+  if (activeMessageChannel) {
+    await activeMessageChannel.unsubscribe();
+    activeMessageChannel = null;
+  }
+
+  // 2. Subscribe to the NEW channel with a filter
+  activeMessageChannel = supabaseClient
+    .channel(`messages-channel-${currentChannelId}`)
+    .on(
+      "postgres_changes",
+      { 
+        event: "*", 
+        schema: "public", 
+        table: "messages",
+        filter: `channel_id=eq.${currentChannelId}` // 🔥 CRITICAL FILTER
+      },
+      (payload) => {
+        console.log("📩 Realtime message event:", payload.eventType);
+        handleRealtimeMessage(payload.new || payload.old, payload.eventType);
+      }
+    )
+    .subscribe((status) => {
+      console.log(`Realtime status for channel ${currentChannelId}:`, status);
     });
 }
 
@@ -156,17 +344,20 @@ supabaseClient
 const channelList = document.getElementById("channelList");
 
 async function loadChannels() {
+  console.log("📂 loadChannels() STARTED");
+  
   const { data, error } = await supabaseClient
     .from("channels")
     .select("*")
     .order("name");
 
   if (error) {
-    console.error(error);
+    console.error("❌ loadChannels error:", error);
     return;
   }
 
   channels = data;
+  console.log("✅ Channels fetched:", channels);
 
   channelList.innerHTML = "";
 
@@ -180,14 +371,14 @@ async function loadChannels() {
 
     channelList.appendChild(div);
   });
-
-  if (data.length > 0) {
-    switchChannel(data[0].id);
-  }
+  
+  console.log("📋 Channels rendered. Total:", channels.length);
 }
 
 function switchChannel(channelId) {
+  // 🔥 CRITICAL: Set this IMMEDIATELY
   currentChannelId = channelId;
+  console.log("🔄 switchChannel called. currentChannelId set to:", currentChannelId);
 
   // Highlight selected channel
   document.querySelectorAll(".channel").forEach(el => {
@@ -203,28 +394,56 @@ function switchChannel(channelId) {
     document.getElementById("currentChannelName").textContent = "# " + ch.name;
   }
 
+  // 🔥 CLEAR AND LOAD MESSAGES
   messagesList.innerHTML = "";
   messagesMap.clear();
-
+  
+  // 🔥 Call loadMessages
   loadMessages();
+  
+  // 🔥 CRITICAL: Subscribe to realtime for THIS specific channel
+  subscribeToCurrentChannel();
+  
+  // 🔥 Force scroll to bottom
+  setTimeout(() => {
+    messagesList.scrollTop = messagesList.scrollHeight;
+  }, 100);
 }
-
 // ------------------------ Load Messages ------------------------
 async function loadMessages() {
-  if (!currentChannelId) return;
+  // 🔥 CHECK AGAIN: If still null, something is very wrong
+  if (!currentChannelId) {
+    console.error("❌ CRITICAL ERROR: currentChannelId is still NULL in loadMessages!");
+    messagesList.innerHTML = "<li style='color:red;'>⚠️ Critical Error: No channel selected. Check console.</li>";
+    return;
+  }
+
+  // Show loading indicator
+  messagesList.innerHTML = "<li style='color:#aaa;'>⏳ Loading messages...</li>";
 
   const { data, error } = await supabaseClient
     .from("messages")
     .select("*")
     .eq("channel_id", currentChannelId)
-    .order("created_at", { ascending: true });
+    .order("inserted_at", { ascending: true });
 
   if (error) {
-    console.error(error);
+    messagesList.innerHTML = "<li style='color:red;'>❌ Error loading messages: " + error.message + "</li>";
+    console.error("Supabase Error:", error);
     return;
   }
 
-  renderMessage(data);
+  // Clear loading and show messages
+  messagesList.innerHTML = "";
+  data.forEach(msg => renderMessage(msg));
+  
+  // Force reflow
+  void messagesList.offsetWidth;
+
+  // Scroll to bottom
+  setTimeout(() => {
+    messagesList.scrollTop = messagesList.scrollHeight;
+  }, 100);
 }
 
 function buildInitialThreads() {
@@ -243,16 +462,41 @@ function buildInitialThreads() {
   });
 }
 
-// ------------------------ Auto-load saved name ------------------------
+// ======================== FULL FIXED loadUser FUNCTION ========================
 async function loadUser() {
+  console.log("🚀 loadUser() STARTED");
+  
   const storedName = localStorage.getItem("chatUsername");
+  console.log("📝 Stored name:", storedName);
+  
+  // 1. Handle Name Prompt if no name is saved
   if (!storedName) {
+    console.log("⚠️ No stored name - showing name prompt");
     namePrompt.style.display = "block";
     input.disabled = true;
     button.disabled = true;
-    return;
+    
+    // 🔥 CRITICAL FIX: Even if no name, we MUST load channels so the UI doesn't break
+    // We do this asynchronously so it doesn't block the name prompt
+    loadChannels().then(() => {
+      console.log("✅ Channels loaded in background for name prompt.");
+      // If we have channels, try to set a default so the header isn't empty
+      if (channels.length > 0) {
+        // We can't fully load messages without a user, but we can set the channel ID
+        // to prevent the "No channel selected" error if the user clicks something
+        currentChannelId = channels[0].id; 
+        document.getElementById("currentChannelName").textContent = "# " + channels[0].name;
+        // Highlight the first channel
+        const firstChannelEl = document.querySelector(`[data-id="${channels[0].id}"]`);
+        if(firstChannelEl) firstChannelEl.classList.add("active");
+      }
+    });
+    
+    return Promise.resolve(); // Return early, but channels are loading in background
   }
 
+  // 2. Set up UI for logged-in user
+  username = storedName; // 🔥 CRITICAL: Set username variable
   nameInput.value = storedName;
   namePrompt.style.display = "none";
   const controls = document.getElementById("controls");
@@ -260,45 +504,72 @@ async function loadUser() {
   input.disabled = false;
   button.disabled = false;
 
-try {
-  const { data, error } = await supabaseClient
-    .from("users")
-    .select("role, blocked, muted_until")
-    .eq("username", storedName)
-    .single();
+  // 3. Fetch User Role & Status
+  try {
+    console.log("🔍 Fetching user role...");
+    const { data, error } = await supabaseClient
+      .from("users")
+      .select("role, blocked, muted_until")
+      .eq("username", storedName)
+      .single();
 
-isBlocked = data?.blocked || false;
-mutedUntil = data?.muted_until || null;
+    isBlocked = data?.blocked || false;
+    mutedUntil = data?.muted_until || null;
 
-  if (error) {
-    console.error("Failed to fetch user role:", error);
+    if (error) {
+      console.error("Failed to fetch user role:", error);
+      currentRole = "User";
+      localStorage.setItem("chatRole", "User");
+    } else {
+      currentRole = data?.role || "User";
+      localStorage.setItem("chatRole", currentRole);
+    }
+    console.log("✅ User role:", currentRole);
+  } catch (err) {
+    console.error("Exception fetching user:", err);
     currentRole = "User";
     localStorage.setItem("chatRole", "User");
-  } else {
-    currentRole = data?.role || "User";
-    localStorage.setItem("chatRole", currentRole);
   }
-} catch (err) {
-  console.error("Exception fetching user:", err);
-  currentRole = "User";
-  localStorage.setItem("chatRole", "User");
-}
 
+  // Show log box for admins
   logBox.style.display = currentRole === "Admin" ? "block" : "none";
 
-  loadMessages();
+  // 4. CRITICAL SEQUENCE: Load Channels FIRST
+  console.log("📂 Loading channels...");
+  await loadChannels(); // Wait for channels to populate
+  console.log("✅ Channels loaded. Count:", channels.length);
+  console.log("📋 Channels array:", channels);
+
+  // 5. Initialize Realtime Manager (BEFORE loading default channel)
+  console.log("📡 Initializing realtime manager...");
   initRealtime();
+
+  // 6. THEN Load Default Channel (which triggers switchChannel -> loadMessages -> subscribeToCurrentChannel)
+  if (channels.length > 0) {
+    console.log("📡 Loading default channel...");
+    await loadDefaultChannel(); // This sets currentChannelId and loads messages
+    console.log("✅ Default channel loaded.");
+  } else {
+    console.warn("⚠️ No channels found. Creating 'general'...");
+    // Create 'general' if it doesn't exist
+    const { error } = await supabaseClient.from("channels").insert([{ name: "general", created_by: username }]);
+    if (!error) {
+      await loadChannels(); // Reload to get the new channel
+      await loadDefaultChannel();
+    } else {
+      console.error("Failed to create 'general' channel:", error);
+      alert("❌ Failed to create default channel. Please contact admin.");
+    }
+  }
+
+  // 7. Initialize Other Listeners (AFTER channels/messages/realtime are ready)
   watchForceLogout(storedName);
   subscribeToUserStatus();
-applyMuteBlockUI();
-loadChannels();
-loadDefaultChannel();
+  applyMuteBlockUI();
+  
+  console.log("🎉 loadUser() completed successfully.");
+  return Promise.resolve();
 }
-
-loadUser().then(() => {
-  console.log("Final role:", currentRole);
-  console.log("Username:", username);
-});
 
 // ------------------------ Save Name ------------------------
 async function saveName() {
@@ -1539,16 +1810,21 @@ function attachHoverControls(li, msg) {
 }
 
 // Handle Emoji Selection from Picker
-document.querySelectorAll(".emoji-option").forEach(option => {
-  option.addEventListener("click", function() {
-    const picker = document.getElementById("emojiPicker");
-    const messageId = picker.dataset.targetMessageId;
-    const emoji = this.textContent;
+// Run this AFTER the DOM is loaded to ensure buttons exist
+document.addEventListener("DOMContentLoaded", () => {
+  const options = document.querySelectorAll(".emoji-option");
+  options.forEach(option => {
+    option.addEventListener("click", function() {
+      const picker = document.getElementById("emojiPicker");
+      const messageId = picker.dataset.targetMessageId;
+      const emoji = this.textContent;
 
-    if (messageId && emoji) {
-      addReaction(messageId, emoji);
-      picker.style.display = "none";
-    }
+      if (messageId && emoji) {
+        console.log("Adding reaction:", emoji, "to message:", messageId);
+        addReaction(messageId, emoji);
+        picker.style.display = "none";
+      }
+    });
   });
 });
 
@@ -1772,7 +2048,8 @@ fileInput.addEventListener("change", async (e) => {
       content: messageContent,
       role: currentRole,
       is_pinned: false,
-      ip: "unknown" // You could fetch IP here if needed
+      ip: "unknown", // You could fetch IP here if needed
+      channel_id: currentChannelId
     };
 
     if (replyingTo) {
@@ -2037,155 +2314,6 @@ function showMentionToast(msg) {
   setTimeout(() => toast.remove(), 4000);
 }
 
-document.addEventListener("contextmenu", (e) => {
-  const message = e.target.closest("[data-id]");
-  if (!message) return; // Only trigger on messages
-
-  e.preventDefault();
-
-  const menu = document.getElementById("adminMenu");
-  if (!menu) return;
-
-  menu.innerHTML = "";
-
-  const messageId = message.dataset.id;
-  const author = message.dataset.user;
-
-  let currentSection = menu;
-
-  const addButton = (label, action) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "6px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = "white";
-    btn.style.textAlign = "left";
-
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
-
-    btn.onclick = (event) => {
-      event.stopPropagation();
-      action();
-      menu.style.display = "none";
-    };
-
-    currentSection.appendChild(btn);
-  };
-
-  const addSection = (title) => {
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
-
-    const header = document.createElement("div");
-    header.textContent = title + " ▶";
-    header.style.fontSize = "12px";
-    header.style.padding = "6px";
-    header.style.cursor = "pointer";
-    header.style.color = "white";
-
-    header.onmouseenter = () => header.style.background = "#40444b";
-    header.onmouseleave = () => header.style.background = "transparent";
-
-    const sub = document.createElement("div");
-    sub.style.position = "absolute";
-    sub.style.left = "100%";
-    sub.style.top = "0";
-    sub.style.background = "#2f3136";
-    sub.style.border = "1px solid #444";
-    sub.style.display = "none";
-    sub.style.minWidth = "180px";
-
-    wrapper.onmouseenter = () => sub.style.display = "block";
-    wrapper.onmouseleave = () => sub.style.display = "none";
-
-    wrapper.appendChild(header);
-    wrapper.appendChild(sub);
-    menu.appendChild(wrapper);
-
-    currentSection = sub;
-  };
-
-  // ================= BASE ACTIONS =================
-  addButton("Reply", () => startReply(messageId));
-  addButton("Reply in Thread", () => startThread(messageId));
-
-  addButton("React", () => {
-    const picker = document.getElementById("emojiPicker");
-    if (!picker) return;
-
-    picker.style.position = "fixed";
-    picker.style.top = e.clientY + 10 + "px";
-    picker.style.left = e.clientX + 10 + "px";
-    picker.dataset.targetMessageId = messageId;
-    picker.style.display = "block";
-  });
-
-  addButton("Report", () => reportMessage(messageId));
-
-  // ================= ROLE-BASED =================
-  if (currentRole === "Manager" && author === username) {
-    addSection("Manager");
-    addButton("Delete My Message", () => deleteMessage(messageId));
-  }
-
-  if (currentRole === "Admin") {
-    addSection("Delete");
-    addButton("Delete", () => deleteMessage(messageId));
-    addButton("Delete By Keyword", () => deleteKeyword());
-    addButton("Delete User + Messages", () => deleteUser(author));
-
-    addSection("Info");
-    addButton("User Info", () => userInfo(author));
-    addButton("Export Chat", () => exportChat());
-
-    addSection("Edit");
-    addButton("Edit Message", () => editMessage(messageId));
-    addButton("Pin / Unpin", () => pinMessage(messageId));
-    addButton("Change Name", () => changeName(author));
-    addButton("Promote / Demote", () => promote(author));
-    addButton("Mute User", () => muteUser(author));
-    addButton("Block User", () => blockUser(author));
-    addButton("Unblock User", () => unblockUser(author));
-    addButton("Force Logout", () => forceLogout(author));
-  }
-
-  // ================= SCREEN BOUNDARY DETECTION =================
-  const menuWidth = 200; // Approximate width including padding
-  const menuHeight = 300; // Approximate height - adjust based on actual content
-  const submenuWidth = 180;
-  
-  let leftPos = e.clientX + 10;
-  let topPos = e.clientY + 10;
-  
-  // Check if menu would go off right edge
-  if (leftPos + menuWidth > window.innerWidth) {
-    leftPos = e.clientX - menuWidth - 10;
-  }
-  
-  // Check if menu would go off bottom edge
-  if (topPos + menuHeight > window.innerHeight) {
-    topPos = e.clientY - menuHeight - 10;
-  }
-  
-  // Ensure we don't go off left/top edges either
-  if (leftPos < 0) leftPos = 10;
-  if (topPos < 0) topPos = 10;
-
-  // ================= SHOW MENU =================
-  menu.style.position = "fixed";
-  menu.style.left = leftPos + "px";
-  menu.style.top = topPos + "px";
-  menu.style.background = "#2f3136";
-  menu.style.border = "1px solid #444";
-  menu.style.padding = "4px";
-  menu.style.display = "block";
-});
-
 function startMuteCountdownUI() {
   const input = document.getElementById("messageInput");
 
@@ -2294,46 +2422,234 @@ function applyMuteBlockUI() {
   input.placeholder = "Type a message...";
   stopMuteCountdownUI();
 }
-document.getElementById("createChannelBtn").onclick = async () => {
-  if (currentRole !== "Admin") {
-    alert("❌ Only admins can create channels");
+
+// ======================== CREATE CHANNEL BUTTON FIX ========================
+const createBtn = document.getElementById("createChannelBtn");
+
+if (createBtn) {
+  // Remove any old listeners just in case
+  const newBtn = createBtn.cloneNode(true);
+  createBtn.parentNode.replaceChild(newBtn, createBtn);
+  
+  newBtn.addEventListener("click", async (e) => {
+    e.preventDefault(); // Stop any default form submission
+    e.stopPropagation(); // Stop bubbling
+
+    // 🔥 VISUAL FEEDBACK: Show a loading state immediately
+    const originalText = newBtn.textContent;
+    newBtn.textContent = "⏳";
+    newBtn.disabled = true;
+
+    // 1. Get current role from DB directly (bypassing local variable lag)
+    const storedName = localStorage.getItem("chatUsername");
+    let isAdmin = false;
+
+    if (storedName) {
+      try {
+        const { data, error } = await supabaseClient
+          .from("users")
+          .select("role")
+          .eq("username", storedName)
+          .single();
+
+        if (data && data.role === "Admin") {
+          isAdmin = true;
+        }
+      } catch (err) {
+        console.error("Role check failed", err);
+      }
+    }
+
+    // 2. Check Permission
+    if (!isAdmin) {
+      newBtn.textContent = "❌";
+      setTimeout(() => {
+        newBtn.textContent = originalText;
+        newBtn.disabled = false;
+      }, 1000);
+      
+      alert(`❌ ACCESS DENIED\n\nYou are not an Admin.\nCurrent detected role: ${isAdmin ? 'Admin' : 'User'}`);
+      return;
+    }
+
+    // 3. Ask for Channel Name
+    const name = prompt("Enter new channel name:");
+    if (!name) {
+      newBtn.textContent = originalText;
+      newBtn.disabled = false;
+      return;
+    }
+
+    // 4. Create Channel
+    try {
+      const { error } = await supabaseClient
+        .from("channels")
+        .insert({ name: name, created_by: storedName });
+
+      if (error) {
+        newBtn.textContent = "❌";
+        setTimeout(() => {
+          newBtn.textContent = originalText;
+          newBtn.disabled = false;
+        }, 1000);
+        alert("❌ Failed to create channel:\n" + error.message);
+      } else {
+        newBtn.textContent = "✅";
+        setTimeout(() => {
+          newBtn.textContent = originalText;
+          newBtn.disabled = false;
+        }, 1000);
+        alert("✅ Channel '" + name + "' created!");
+        // Reload channels to show it immediately
+        await loadChannels(); 
+      }
+    } catch (err) {
+      newBtn.textContent = "❌";
+      setTimeout(() => {
+        newBtn.textContent = originalText;
+        newBtn.disabled = false;
+      }, 1000);
+      alert("❌ Unexpected error: " + err.message);
+    }
+  });
+}
+
+async function loadDefaultChannel() {
+  console.log("📡 loadDefaultChannel() called. Channels length:", channels.length);
+
+  if (channels.length === 0) {
+    console.error("❌ Channels array is empty! Cannot select default.");
     return;
   }
 
-  const name = prompt("Channel name:");
-  if (!name) return;
-
-  const { error } = await supabaseClient
-    .from("channels")
-    .insert({
-      name,
-      created_by: username
-    });
-
-  if (error) {
-    alert("❌ Failed: " + error.message);
-  } else {
-    loadChannels();
-  }
-};
-
-async function loadDefaultChannel() {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("channels")
     .select("*")
     .eq("name", "general")
     .single();
 
+  let targetChannelId;
+
   if (error) {
-    console.error("Channel load error:", error);
+    console.warn("⚠️ 'general' not found. Using first channel.");
+    targetChannelId = channels[0].id;
+  } else {
+    targetChannelId = data.id;
+  }
+
+  console.log("🎯 Target channel ID:", targetChannelId);
+
+  // 🔥 Call switchChannel which handles everything
+  switchChannel(targetChannelId);
+  
+  // 🔥 Force scroll to bottom after a slight delay
+  setTimeout(() => {
+    messagesList.scrollTop = messagesList.scrollHeight;
+  }, 200);
+}
+
+// ======================== INLINE CHANNEL CREATION FUNCTION ========================
+async function tryCreateChannel() {
+  // 1. Visual Feedback: Change button text immediately
+  const btn = document.getElementById("createChannelBtn");
+  if (!btn) return;
+  
+  const originalText = btn.textContent;
+  btn.textContent = "⏳";
+  btn.disabled = true;
+
+  // 2. Get Username
+  const storedName = localStorage.getItem("chatUsername");
+  if (!storedName) {
+    alert("❌ Please enter your name first!");
+    btn.textContent = originalText;
+    btn.disabled = false;
     return;
   }
 
-  currentChannelId = data.id;
+  // 3. Check Role DIRECTLY from Database (Bypassing variables)
+  let isAdmin = false;
+  try {
+    const { data, error } = await supabaseClient
+      .from("users")
+      .select("role")
+      .eq("username", storedName)
+      .single();
 
-  document.getElementById("currentChannelName").textContent =
-    "# " + data.name;
+    if (data && data.role === "Admin") {
+      isAdmin = true;
+    }
+  } catch (err) {
+    console.error("Role check error", err);
+  }
 
-  loadMessages(); // 👈 IMPORTANT
+  // 4. Permission Check
+  if (!isAdmin) {
+    btn.textContent = "❌";
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }, 1000);
+    alert("❌ ACCESS DENIED\n\nYou are not an Admin.\nPlease check your role in the database.");
+    return;
+  }
+
+  // 5. Ask for Name
+  const name = prompt("Enter new channel name:");
+  if (!name) {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    return;
+  }
+
+  // 6. Create Channel
+  try {
+    const { error } = await supabaseClient
+      .from("channels")
+      .insert({ name: name, created_by: storedName });
+
+    if (error) {
+      btn.textContent = "❌";
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 1000);
+      alert("❌ Failed to create channel:\n" + error.message);
+    } else {
+      btn.textContent = "✅";
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 1000);
+      alert("✅ Channel '" + name + "' created!");
+      // Reload channels
+      if (typeof loadChannels === 'function') {
+        await loadChannels();
+      }
+    }
+  } catch (err) {
+    btn.textContent = "❌";
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }, 1000);
+    alert("❌ Unexpected error: " + err.message);
+  }
 }
+
+// ======================== REALTIME FOR CHANNELS ========================
+// This listener watches the 'channels' table for changes
+supabaseClient
+  .channel("channels-channel")
+  .on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "channels" }, // Listen to INSERT, UPDATE, DELETE
+    (payload) => {
+      console.log("📢 Channel change detected:", payload.eventType);
+      
+      // If a channel was added, updated, or deleted, reload the list
+      loadChannels();
+    }
+  )
+  .subscribe();
 // ======================== END FEATURES ========================

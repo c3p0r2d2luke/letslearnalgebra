@@ -303,20 +303,7 @@ li[data-pinned="true"] {
   background: var(--bg-hover);
 }
 
-/* ===============================
-   LOG BOX (ADMIN ONLY)
-   =============================== */
 
-#logBox {
-  background: #0f0f10;
-  color: #00ff88;
-  font-family: monospace;
-  font-size: 12px;
-  padding: 8px;
-  max-height: 160px;
-  overflow-y: auto;
-  border-top: 1px solid var(--bg-secondary);
-}
 
 /* ===============================
    NAME PROMPT
@@ -768,4 +755,91 @@ li[data-pinned="true"] {
   padding: 12px;
   border-bottom: 1px solid var(--bg-secondary);
   font-weight: bold;
+}
+
+/* ===============================
+   CONTEXT MENU STYLES
+   =============================== */
+#adminMenu button {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+#adminMenu button:hover {
+  background: #40444b;
+}
+
+/* Hover controls on messages */
+.hoverControls {
+  position: absolute;
+  right: 10px;
+  top: 5px;
+  display: none;
+  flex-direction: row;
+  gap: 4px;
+  z-index: 1000;
+}
+
+#messages li:hover .hoverControls {
+  display: flex;
+}
+
+.hoverControls button {
+  background: rgba(47, 49, 54, 0.9);
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.hoverControls button:hover {
+  background: rgba(64, 68, 75, 0.9);
+}
+
+/* CHANNEL ITEM */
+.channel {
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.channel:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.channel.active {
+  background: #40444b;
+  color: white;
+  font-weight: 600;
+}
+
+/* FORCE RIGHT-CLICK MENU TO BE ON TOP */
+#adminMenu {
+  display: none;
+  position: fixed;
+  background: #2f3136;
+  border: 1px solid #444;
+  padding: 4px;
+  z-index: 999999 !important; /* SUPER HIGH */
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+  pointer-events: auto; /* Ensure it captures clicks */
+}
+
+/* Ensure chat messages don't block the menu */
+.chat-app, #messages, .message-content {
+  z-index: 1; /* Lower than menu */
+  position: relative;
 }

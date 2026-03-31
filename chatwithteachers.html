@@ -41,7 +41,7 @@
     <div class="channel-sidebar">
       <div class="channel-header">
         <span>Server</span>
-        <button id="createChannelBtn">+</button>
+<button id="createChannelBtn" onclick="tryCreateChannel()">+</button>
       </div>
       <div id="channelList"></div>
     </div>
@@ -64,12 +64,28 @@
     </div>
 
   </div>
-
   <div id="logBox"></div>
   <div id="typingIndicator"></div>
 
 </div>
+<!-- RIGHT-CLICK CONTEXT MENU -->
+<div id="adminMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:200px;"></div>
 
+<!-- EMOJI PICKER -->
+<div id="emojiPicker" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:8px; z-index:9999; border-radius:8px;">
+  <div style="display:flex; flex-wrap:wrap; gap:4px;">
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😀</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😂</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😍</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😎</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😢</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">😡</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">👍</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">👎</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">❤️</button>
+    <button class="emoji-option" style="background:none; border:none; font-size:20px; cursor:pointer; padding:4px;">🎉</button>
+  </div>
+</div>
 <script src="./script.js" defer></script>
 </body>
 </html>
