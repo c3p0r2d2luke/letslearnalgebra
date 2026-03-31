@@ -1,5 +1,42 @@
 /* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
 
+document.addEventListener("click", () => {
+  categoryMenu.style.display = "none";
+});
+
+const channelSidebar = document.querySelector(".channel-sidebar");
+const categoryMenu = document.getElementById("categoryMenu");
+
+// 🚫 Prevent default browser menu
+channelSidebar.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+
+  // 🔒 BLOCK non-admins completely
+  if (!currentRole || currentRole.toLowerCase() !== "admin") {
+    return; // nothing happens
+  }
+
+  const target = e.target;
+
+  // CATEGORY
+  if (target.classList.contains("category-header")) {
+    const category = target.dataset.category;
+    showCategoryMenu(e.pageX, e.pageY, category);
+    return;
+  }
+
+  // EMPTY SIDEBAR
+  if (!target.classList.contains("channel")) {
+    showSidebarMenu(e.pageX, e.pageY);
+  }
+});
+
+document.getElementById("createChannelBtn").addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  tryCreateChannel();
+});
+
 document.addEventListener("contextmenu", (e) => {
   // 🔥 FIX: Look for the closest LI with data-id, even if clicked on a child
   const message = e.target.closest("li[data-id]"); 
@@ -363,54 +400,52 @@ async function loadChannels() {
 
 function renderChannelList() {
   channelList.innerHTML = "";
+
+  const grouped = {};
+
+  // ✅ Group channels by category
   channels.forEach(ch => {
-    const div = document.createElement("div");
-    div.textContent = "# " + ch.name;
-    div.className = "channel";
-    div.dataset.id = ch.id;
-    if (ch.id === currentChannelId) div.classList.add("active");
+    const cat = ch.category || "General";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(ch);
+  });
 
-    div.addEventListener("click", () => switchChannel(ch.id));
+  // ✅ Render categories
+  Object.keys(grouped).forEach(category => {
 
-    if (currentRole === "Admin") {
-      div.draggable = true;
-      div.classList.add("draggable-channel");
+    // 🔹 CATEGORY HEADER
+    const header = document.createElement("div");
+    header.textContent = category.toUpperCase();
+header.className = "category-header";
+header.dataset.category = category;
 
-      div.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("text/plain", ch.id);
-        div.classList.add("dragging");
-      });
+    channelList.appendChild(header);
 
-      div.addEventListener("dragend", () => {
-        div.classList.remove("dragging");
-        document.querySelectorAll(".channel").forEach(el => el.classList.remove("drag-over"));
-      });
+    // 🔹 CONTAINER FOR CHANNELS (needed for collapse)
+    const container = document.createElement("div");
 
-      div.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        document.querySelectorAll(".channel").forEach(el => el.classList.remove("drag-over"));
-        div.classList.add("drag-over");
-      });
+    grouped[category].forEach(ch => {
+      const div = document.createElement("div");
+      div.textContent = "# " + ch.name;
+      div.className = "channel";
+      div.dataset.id = ch.id;
 
-      div.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const draggedId = parseInt(e.dataTransfer.getData("text/plain"), 10);
-        const targetId = ch.id;
-        if (draggedId === targetId) return;
+      if (ch.id === currentChannelId) {
+        div.classList.add("active");
+      }
 
-        const draggedIndex = channels.findIndex(c => c.id === draggedId);
-        const targetIndex = channels.findIndex(c => c.id === targetId);
-        if (draggedIndex === -1 || targetIndex === -1) return;
+      div.addEventListener("click", () => switchChannel(ch.id));
 
-        const [removed] = channels.splice(draggedIndex, 1);
-        channels.splice(targetIndex, 0, removed);
+      container.appendChild(div);
+    });
 
-        saveChannelOrder(channels.map(c => c.id));
-        renderChannelList();
-      });
-    }
+    channelList.appendChild(container);
 
-    channelList.appendChild(div);
+    // ✅ COLLAPSE / EXPAND LOGIC
+    header.addEventListener("click", () => {
+      const isHidden = container.style.display === "none";
+      container.style.display = isHidden ? "block" : "none";
+    });
   });
 }
 
@@ -2944,39 +2979,59 @@ async function loadDefaultChannel() {
 
 // ======================== INLINE CHANNEL CREATION FUNCTION ========================
 async function tryCreateChannel() {
-  if (currentRole !== "Admin") return;
+  console.log("🔥 create channel clicked");
 
-  const btn = document.getElementById("createChannelBtn");
-  if (!btn) return;
+  // ✅ Admin check
+  if (!currentRole || currentRole.toLowerCase() !== "admin") {
+    alert("❌ Only admins can create channels");
+    return;
+  }
 
+  const btn = document.getElementById("addServerBtn");
+
+  // ✅ 1. Get name
   const name = prompt("Enter new channel name:");
   if (!name || !name.trim()) return;
 
+  // ✅ 2. DEFINE trimmedName (THIS is what you're missing)
   const trimmedName = name.trim();
-  btn.textContent = "⏳";
-  btn.disabled = true;
+
+  // ✅ 3. Get category
+  const category = prompt("Enter category (e.g. Text, Voice, School):");
+
+  if (btn) {
+    btn.textContent = "⏳";
+    btn.disabled = true;
+  }
 
   try {
+    // ✅ 4. USE trimmedName AFTER defining it
     const { data, error } = await supabaseClient
       .from("channels")
-      .insert({ name: trimmedName, created_by: username })
+      .insert({
+        name: trimmedName,
+        created_by: username,
+        category: category || "General"
+      })
       .select()
       .single();
 
     if (error) {
-      alert("❌ Failed to create channel: " + error.message);
-    } else if (data) {
-      // Add to local array and switch to it (activates realtime for this channel)
-      channels.push(data);
-      saveChannelOrder(channels.map(c => c.id));
-      renderChannelList();
-      switchChannel(data.id);
+      alert("❌ Failed: " + error.message);
+      console.error(error);
+      return;
     }
+
+    await loadChannels();
+    switchChannel(data.id);
+
   } catch (err) {
-    alert("❌ Unexpected error: " + err.message);
+    alert("❌ Unexpected: " + err.message);
   } finally {
-    btn.textContent = "+";
-    btn.disabled = false;
+    if (btn) {
+      btn.textContent = "+";
+      btn.disabled = false;
+    }
   }
 }
 
@@ -3033,4 +3088,92 @@ supabaseClient
   .subscribe((status) => {
     console.log("📡 Channels realtime status:", status);
   });
+
+  function showCategoryMenu(x, y, category) {
+    if (!currentRole || currentRole.toLowerCase() !== "admin") {
+  alert("❌ Admins only");
+  return;
+}
+  categoryMenu.innerHTML = `
+    <div class="menu-item" id="renameCat">Rename Category</div>
+    <div class="menu-item" id="deleteCat" style="color:red;">Delete Category</div>
+  `;
+
+  categoryMenu.style.left = x + "px";
+  categoryMenu.style.top = y + "px";
+  categoryMenu.style.display = "block";
+
+  // 🔹 Rename
+  document.getElementById("renameCat").onclick = async () => {
+    const newName = prompt("New category name:", category);
+    if (!newName || !newName.trim()) return;
+
+    const { error } = await supabaseClient
+      .from("channels")
+      .update({ category: newName.trim() })
+      .eq("category", category);
+
+    if (error) {
+      alert("❌ Failed: " + error.message);
+      return;
+    }
+
+    categoryMenu.style.display = "none";
+    await loadChannels();
+  };
+
+  // 🔹 Delete (move channels to General)
+  document.getElementById("deleteCat").onclick = async () => {
+    if (!confirm(`Delete category "${category}"? Channels will be moved.`)) return;
+
+    const { error } = await supabaseClient
+      .from("channels")
+      .update({ category: "General" })
+      .eq("category", category);
+
+    if (error) {
+      alert("❌ Failed: " + error.message);
+      return;
+    }
+
+    categoryMenu.style.display = "none";
+    await loadChannels();
+  };
+}
+
+function showSidebarMenu(x, y) {
+  if (!currentRole || currentRole.toLowerCase() !== "admin") {
+  alert("❌ Admins only");
+  return;
+}
+  categoryMenu.innerHTML = `
+    <div class="menu-item" id="createCat">Create Category</div>
+  `;
+
+  categoryMenu.style.left = x + "px";
+  categoryMenu.style.top = y + "px";
+  categoryMenu.style.display = "block";
+
+  document.getElementById("createCat").onclick = async () => {
+    const name = prompt("Enter new category name:");
+    if (!name || !name.trim()) return;
+
+    // Create empty category by adding a hidden channel placeholder (optional)
+    const { error } = await supabaseClient
+      .from("channels")
+      .insert({
+        name: "placeholder",
+        created_by: username,
+        category: name.trim()
+      });
+
+    if (error) {
+      alert("❌ Failed: " + error.message);
+      return;
+    }
+
+    categoryMenu.style.display = "none";
+    await loadChannels();
+  };
+}
 // ======================== END FEATURES ========================

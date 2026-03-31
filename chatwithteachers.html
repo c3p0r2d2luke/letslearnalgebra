@@ -34,14 +34,14 @@
     <div class="server-sidebar">
       <div class="server-icon active">L</div>
       <div class="divider"></div>
-      <div class="server-icon">+</div>
+    <div class="server-icon" id="addServerBtn">+</div>
     </div>
 
     <!-- CHANNELS -->
     <div class="channel-sidebar">
       <div class="channel-header">
         <span>Server</span>
-<button id="createChannelBtn" style="display:none;">+</button>
+    <button id="createChannelBtn" style="display:none;">+</button>
       </div>
       <div id="channelList"></div>
     </div>
@@ -84,6 +84,18 @@
 
 <!-- EMOJI PICKER (built dynamically by script.js) -->
 <div id="emojiPicker" style="display:none;"></div>
+
+<div id="categoryMenu" style="
+  display:none;
+  position:fixed;
+  background:#2f3136;
+  border:1px solid #444;
+  padding:6px;
+  z-index:9999;
+  border-radius:6px;
+  min-width:160px;
+"></div>
+
 <script src="./script.js" defer></script>
 </body>
 </html>
