@@ -20,6 +20,7 @@
   "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
-    "eslint": "^10.0.3"
+    "eslint": "^10.0.3",
+    "wrangler": "^4.79.0"
   }
 }
