@@ -1,40 +1,17 @@
-/* global requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
-
-document.addEventListener("click", () => {
-  categoryMenu.style.display = "none";
-});
-
-const channelSidebar = document.querySelector(".channel-sidebar");
-const categoryMenu = document.getElementById("categoryMenu");
-
-// 🚫 Prevent default browser menu
-channelSidebar.addEventListener("contextmenu", (e) => {
-  e.preventDefault();
-
-  // 🔒 BLOCK non-admins completely
-  if (!currentRole || currentRole.toLowerCase() !== "admin") {
-    return; // nothing happens
-  }
-
-  const target = e.target;
-
-  // CATEGORY
-  if (target.classList.contains("category-header")) {
-    const category = target.dataset.category;
-    showCategoryMenu(e.pageX, e.pageY, category);
-    return;
-  }
-
-  // EMPTY SIDEBAR
-  if (!target.classList.contains("channel")) {
-    showSidebarMenu(e.pageX, e.pageY);
-  }
-});
+/* global Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
 
 document.getElementById("createChannelBtn").addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
   tryCreateChannel();
+});
+
+const channelSidebar = document.querySelector(".channel-sidebar");
+const categoryMenu = document.getElementById("categoryMenu");
+
+// Close category menu on click-away (channelMenu is handled in the shared click handler below)
+document.addEventListener("click", () => {
+  if (categoryMenu) categoryMenu.style.display = "none";
 });
 
 document.addEventListener("contextmenu", (e) => {
@@ -132,7 +109,7 @@ document.addEventListener("contextmenu", (e) => {
     addButton("Delete My Message", () => deleteMessage(messageId));
   }
 
-  if (currentRole === "Admin") {
+  if (userPermissions.manage_roles) {
     addSection("Delete");
     addButton("Delete", () => deleteMessage(messageId));
     addButton("Delete By Keyword", () => deleteKeyword());
@@ -147,6 +124,8 @@ document.addEventListener("contextmenu", (e) => {
     addButton("Pin / Unpin", () => pinMessage(messageId));
     addButton("Change Name", () => changeName(author));
     addButton("Promote / Demote", () => promote(author));
+    addButton("Create Custom Role", createCustomRole);
+    addButton("Give Custom Role", () => giveCustomRole(author));
     addButton("Mute User", () => muteUser(author));
     addButton("Block User", () => blockUser(author));
     addButton("Unblock User", () => unblockUser(author));
@@ -218,6 +197,9 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
 });
 
 let channels = [];
+let categories = [];
+let collapsedCategories = new Set();
+try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
 let currentChannelId = null;
 let isBlocked = false;
 let mutedUntil = null;
@@ -272,7 +254,25 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 // ------------------------ User data ------------------------
 let username = localStorage.getItem("chatUsername") || "";
 let currentRole = "User";
-const messagesMap = new Map();
+let userPermissions = {};
+
+async function loadUserPermissions(roleName) {
+
+  const { data, error } = await supabaseClient
+    .from("roles")
+    .select("permissions")
+    .eq("name", roleName)
+    .maybeSingle();
+
+  if (error) {
+    console.error("❌ Failed to load role permissions:", error);
+    userPermissions = {};
+    return;
+  }
+
+  userPermissions = data.permissions || {};
+  console.log("🔐 Permissions loaded:", userPermissions);
+}const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
 let typingTimeout = null;
 
@@ -285,11 +285,6 @@ function updateMessageLock() {
 nameInput.addEventListener("input", updateMessageLock);
 updateMessageLock();
 
-// ------------------------ Logging ------------------------
-function log(msg, obj = null, type = "info") {
-  if (obj) console[type === "error" ? "error" : "log"](msg, obj);
-  else console.log(msg);
-}
 
 // ------------------------ Realtime ------------------------
 let channel = null;
@@ -368,11 +363,20 @@ supabaseClient
 
 const channelList = document.getElementById("channelList");
 
+async function loadCategories() {
+  const { data, error } = await supabaseClient
+    .from("categories")
+    .select("*")
+    .order("sort_order");
+  if (!error && data) categories = data;
+}
+
 async function loadChannels() {
+  await loadCategories();
   const { data, error } = await supabaseClient
     .from("channels")
     .select("*")
-    .order("name");
+    .order("sort_order");
 
   if (error) {
     console.error("❌ loadChannels error:", error);
@@ -380,93 +384,184 @@ async function loadChannels() {
   }
 
   channels = data;
-
-  // Apply saved order from localStorage if available
-  const savedOrder = getSavedChannelOrder();
-  if (savedOrder.length > 0) {
-    channels.sort((a, b) => {
-      const ai = savedOrder.indexOf(a.id);
-      const bi = savedOrder.indexOf(b.id);
-      if (ai === -1 && bi === -1) return 0;
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-  }
-
   renderChannelList();
   console.log("📋 Channels loaded. Total:", channels.length);
 }
 
+let _sortableInstances = [];
+
 function renderChannelList() {
+  // Destroy old SortableJS instances
+  _sortableInstances.forEach(s => { try { s.destroy(); } catch {} });
+  _sortableInstances = [];
+
   channelList.innerHTML = "";
 
+  // Group channels by category text field
   const grouped = {};
-
-  // ✅ Group channels by category
   channels.forEach(ch => {
     const cat = ch.category || "General";
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push(ch);
   });
+  Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
 
-  // ✅ Render categories
-  Object.keys(grouped).forEach(category => {
+  // Build ordered list of category names: DB-ordered categories first, then any orphan names
+  const catNames = categories.map(c => c.name);
+  Object.keys(grouped).forEach(cat => { if (!catNames.includes(cat)) catNames.push(cat); });
+  // Always include "General" if no categories at all
+  if (catNames.length === 0) catNames.push("General");
 
-    // 🔹 CATEGORY HEADER
+  catNames.forEach(catName => {
+    const catChannels = grouped[catName] || [];
+    const isCollapsed = collapsedCategories.has(catName);
+
+    const block = document.createElement("div");
+    block.className = "category-block";
+    block.dataset.categoryName = catName;
+
+    // Header
     const header = document.createElement("div");
-    header.textContent = category.toUpperCase();
-header.className = "category-header";
-header.dataset.category = category;
+    header.className = "category-header";
 
-    channelList.appendChild(header);
+    const arrow = document.createElement("span");
+    arrow.className = "cat-arrow";
+    arrow.textContent = isCollapsed ? "▸" : "▾";
 
-    // 🔹 CONTAINER FOR CHANNELS (needed for collapse)
-    const container = document.createElement("div");
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "cat-name";
+    nameSpan.textContent = catName.toUpperCase();
 
-    grouped[category].forEach(ch => {
-      const div = document.createElement("div");
-      div.textContent = "# " + ch.name;
-      div.className = "channel";
-      div.dataset.id = ch.id;
+    const spacer = document.createElement("span");
+    spacer.style.flex = "1";
 
-      if (ch.id === currentChannelId) {
-        div.classList.add("active");
-      }
+    const dragHandle = document.createElement("span");
+    dragHandle.className = "cat-drag-handle";
+    dragHandle.innerHTML = "&#8942;";
+    dragHandle.title = "Drag to reorder";
 
-      div.addEventListener("click", () => switchChannel(ch.id));
+    header.appendChild(arrow);
+    header.appendChild(nameSpan);
+    header.appendChild(spacer);
+    if (userPermissions.manage_roles) header.appendChild(dragHandle);
 
-      container.appendChild(div);
+    header.addEventListener("click", (e) => {
+      if (e.target === dragHandle) return;
+      const nowCollapsed = !collapsedCategories.has(catName);
+      if (nowCollapsed) collapsedCategories.add(catName);
+      else collapsedCategories.delete(catName);
+      localStorage.setItem("collapsedCategories", JSON.stringify([...collapsedCategories]));
+      arrow.textContent = nowCollapsed ? "▸" : "▾";
+      itemsContainer.style.display = nowCollapsed ? "none" : "block";
     });
 
-    channelList.appendChild(container);
+    if (userPermissions.manage_roles) {
+      header.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showCategoryContextMenu(catName, e.clientX, e.clientY);
+      });
+    }
 
-    // ✅ COLLAPSE / EXPAND LOGIC
-    header.addEventListener("click", () => {
-      const isHidden = container.style.display === "none";
-      container.style.display = isHidden ? "block" : "none";
+    block.appendChild(header);
+
+    // Channel items container
+    const itemsContainer = document.createElement("div");
+    itemsContainer.className = "channel-items";
+    itemsContainer.dataset.categoryName = catName;
+    itemsContainer.style.display = isCollapsed ? "none" : "block";
+
+    catChannels.forEach(ch => {
+      itemsContainer.appendChild(buildChannelItem(ch));
     });
+
+    block.appendChild(itemsContainer);
+    channelList.appendChild(block);
   });
-}
 
-// ======================== CHANNEL ORDER PERSISTENCE ========================
-function saveChannelOrder(idArray) {
-  localStorage.setItem("channelOrder", JSON.stringify(idArray));
-}
+  // Init SortableJS for admins
+  if (userPermissions.manage_roles && typeof Sortable !== "undefined") {
+    // Outer: reorder category blocks by dragging their drag handle
+    const outerSort = Sortable.create(channelList, {
+      handle: ".cat-drag-handle",
+      animation: 150,
+      draggable: ".category-block",
+      onEnd: async () => {
+        const blocks = channelList.querySelectorAll(".category-block");
+        const updates = [];
+        blocks.forEach((block, i) => {
+          const cat = categories.find(c => c.name === block.dataset.categoryName);
+          if (cat && cat.sort_order !== i) {
+            cat.sort_order = i;
+            updates.push(supabaseClient.from("categories").update({ sort_order: i }).eq("id", cat.id));
+          }
+        });
+        await Promise.all(updates);
+      }
+    });
+    _sortableInstances.push(outerSort);
 
-function getSavedChannelOrder() {
-  try {
-    return JSON.parse(localStorage.getItem("channelOrder") || "[]");
-  } catch {
-    return [];
+    // Inner: reorder and move channels between categories
+    document.querySelectorAll(".channel-items").forEach(container => {
+      const innerSort = Sortable.create(container, {
+        group: "channels",
+        animation: 150,
+        draggable: ".channel",
+        onEnd: async (evt) => {
+          const channelId = parseInt(evt.item.dataset.id, 10);
+          const newCatName = evt.to.dataset.categoryName;
+          const ch = channels.find(c => c.id === channelId);
+          const updates = [];
+
+          if (ch && ch.category !== newCatName) {
+            ch.category = newCatName;
+            updates.push(
+              supabaseClient.from("channels").update({ category: newCatName }).eq("id", channelId)
+            );
+          }
+
+          // Update sort_order for all channels in destination container
+          const items = evt.to.querySelectorAll(".channel");
+          items.forEach((el, i) => {
+            const id = parseInt(el.dataset.id, 10);
+            const c = channels.find(x => x.id === id);
+            if (c) c.sort_order = i;
+            updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", id));
+          });
+
+          // Also update source container if different
+          if (evt.from !== evt.to) {
+            const srcItems = evt.from.querySelectorAll(".channel");
+            srcItems.forEach((el, i) => {
+              const id = parseInt(el.dataset.id, 10);
+              const c = channels.find(x => x.id === id);
+              if (c) c.sort_order = i;
+              updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", id));
+            });
+          }
+
+          await Promise.all(updates);
+        }
+      });
+      _sortableInstances.push(innerSort);
+    });
   }
+}
+
+function buildChannelItem(ch) {
+  const div = document.createElement("div");
+  div.textContent = "# " + ch.name;
+  div.className = "channel";
+  div.dataset.id = ch.id;
+  if (ch.id === currentChannelId) div.classList.add("active");
+  div.addEventListener("click", () => switchChannel(ch.id));
+  return div;
 }
 
 // ======================== CHANNEL RIGHT-CLICK MENU ========================
 channelList.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-
-  if (currentRole !== "Admin") return;
+  if (!userPermissions.manage_roles) return;
 
   const channelEl = e.target.closest(".channel");
   if (!channelEl) return;
@@ -475,114 +570,311 @@ channelList.addEventListener("contextmenu", (e) => {
   const ch = channels.find(c => c.id === channelId);
   if (!ch) return;
 
-  const menu = document.getElementById("channelMenu");
-  menu.innerHTML = "";
+  showContextMenu(document.getElementById("channelMenu"), e.clientX, e.clientY, [
+    { label: "Rename Channel", color: "white", action: () => openInlineRow("channel-rename", ch.name, channelId) },
+    { label: "Delete Channel", color: "#ed4245", action: () => showInlineDelete("channel", channelId, ch.name) }
+  ]);
+});
 
-  const addOption = (label, color, action) => {
+// Close channel/category menus on any click
+document.addEventListener("click", () => {
+  document.getElementById("channelMenu").style.display = "none";
+  const cm = document.getElementById("categoryMenu");
+  if (cm) cm.style.display = "none";
+});
+
+function showContextMenu(menuEl, x, y, items) {
+  menuEl.innerHTML = "";
+  items.forEach(({ label, color, action }) => {
     const btn = document.createElement("button");
     btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "7px 10px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = color || "white";
-    btn.style.textAlign = "left";
-    btn.style.fontSize = "13px";
-    btn.style.borderRadius = "3px";
-
+    Object.assign(btn.style, {
+      display: "block", width: "100%", padding: "7px 10px",
+      border: "none", background: "transparent", cursor: "pointer",
+      color: color || "white", textAlign: "left", fontSize: "13px", borderRadius: "3px"
+    });
     btn.onmouseenter = () => btn.style.background = "#40444b";
     btn.onmouseleave = () => btn.style.background = "transparent";
+    btn.onclick = (ev) => { ev.stopPropagation(); menuEl.style.display = "none"; action(); };
+    menuEl.appendChild(btn);
+  });
 
-    btn.onclick = (ev) => {
-      ev.stopPropagation();
-      menu.style.display = "none";
-      action();
-    };
+  const mw = 160, mh = items.length * 34;
+  let left = x + 4, top = y + 4;
+  if (left + mw > window.innerWidth) left = x - mw;
+  if (top + mh > window.innerHeight) top = y - mh;
+  menuEl.style.left = left + "px";
+  menuEl.style.top = top + "px";
+  menuEl.style.display = "block";
+}
 
-    menu.appendChild(btn);
+function showCategoryContextMenu(catName, x, y) {
+  const menu = document.getElementById("categoryMenu");
+  showContextMenu(menu, x, y, [
+    { label: "Rename Category", color: "white", action: () => openInlineRow("category-rename", catName, null) },
+    { label: "Delete Category", color: "#ed4245", action: () => showInlineDeleteCategory(catName) }
+  ]);
+}
+
+// ======================== CHANNEL + CATEGORY ADMIN ACTIONS ========================
+
+// ---- Inline Row helpers ----
+function openInlineRow(mode, prefill, targetId) {
+  const row = document.getElementById("newChannelRow");
+  const inp = document.getElementById("newChannelInput");
+  const label = document.getElementById("newChannelLabel");
+  const createChannelBtn = document.getElementById("createChannelBtn");
+  const createCategoryBtn = document.getElementById("createCategoryBtn");
+
+  row.dataset.mode = mode;
+  row.dataset.targetId = targetId ?? "";
+  row.dataset.targetName = prefill ?? "";
+
+  const labels = {
+    "channel-create": "New channel:",
+    "channel-rename": "Rename channel:",
+    "category-create": "New category:",
+    "category-rename": "Rename category:"
   };
+  label.textContent = labels[mode] || "";
+  inp.value = prefill || "";
+  inp.placeholder = mode.includes("channel") ? "channel-name" : "category-name";
 
-  addOption("Rename Channel", "white", () => renameChannel(channelId, ch.name));
-  addOption("Delete Channel", "#ed4245", () => deleteChannel(channelId, ch.name));
+  createChannelBtn.style.display = "none";
+  if (createCategoryBtn) createCategoryBtn.style.display = "none";
+  row.style.display = "flex";
+  inp.focus();
+  inp.select();
+}
 
-  const menuWidth = 160;
-  const menuHeight = 70;
-  let left = e.clientX + 4;
-  let top = e.clientY + 4;
-
-  if (left + menuWidth > window.innerWidth) left = e.clientX - menuWidth;
-  if (top + menuHeight > window.innerHeight) top = e.clientY - menuHeight;
-
-  menu.style.left = left + "px";
-  menu.style.top = top + "px";
-  menu.style.display = "block";
-});
-
-// Close channel menu on any click
-document.addEventListener("click", () => {
-  const menu = document.getElementById("channelMenu");
-  if (menu) menu.style.display = "none";
-});
-
-// ======================== CHANNEL ADMIN ACTIONS ========================
-async function renameChannel(channelId, currentName) {
-  const newName = prompt(`Rename channel "${currentName}" to:`, currentName);
-  if (!newName || newName.trim() === currentName) return;
-
-  const trimmed = newName.trim();
-
-  const { error } = await supabaseClient
-    .from("channels")
-    .update({ name: trimmed })
-    .eq("id", channelId);
-
-  if (error) {
-    alert("❌ Rename failed: " + error.message);
-    return;
+function closeInlineRow() {
+  const row = document.getElementById("newChannelRow");
+  row.style.display = "none";
+  row.dataset.mode = "";
+  if (userPermissions.manage_roles) {
+    const createChannelBtn = document.getElementById("createChannelBtn");
+    const createCategoryBtn = document.getElementById("createCategoryBtn");
+    if (createChannelBtn) createChannelBtn.style.display = "inline-block";
+    if (createCategoryBtn) createCategoryBtn.style.display = "inline-block";
   }
+}
 
-  // Update local array
+function showInlineDelete(type, id, name) {
+  // Remove any existing delete bar
+  document.querySelectorAll(".inline-delete-bar").forEach(el => el.remove());
+
+  const bar = document.createElement("div");
+  bar.className = "inline-delete-bar";
+  bar.innerHTML = `<span>Delete <b>#${name}</b>?</span>`;
+
+  const yes = document.createElement("button");
+  yes.className = "inline-delete-yes";
+  yes.textContent = "Delete";
+
+  const no = document.createElement("button");
+  no.className = "inline-delete-no";
+  no.textContent = "Cancel";
+
+  yes.onclick = async (e) => {
+    e.stopPropagation();
+    bar.remove();
+    if (type === "channel") await performDeleteChannel(id, name);
+  };
+  no.onclick = (e) => { e.stopPropagation(); bar.remove(); };
+
+  bar.appendChild(yes);
+  bar.appendChild(no);
+
+  const channelEl = document.querySelector(`.channel[data-id="${id}"]`);
+  if (channelEl) channelEl.parentNode.insertBefore(bar, channelEl.nextSibling);
+}
+
+function showInlineDeleteCategory(catName) {
+  document.querySelectorAll(".inline-delete-bar").forEach(el => el.remove());
+
+  const bar = document.createElement("div");
+  bar.className = "inline-delete-bar";
+  bar.innerHTML = `<span>Delete <b>${catName}</b>?</span>`;
+
+  const yes = document.createElement("button");
+  yes.className = "inline-delete-yes";
+  yes.textContent = "Delete";
+
+  const no = document.createElement("button");
+  no.className = "inline-delete-no";
+  no.textContent = "Cancel";
+
+  yes.onclick = async (e) => {
+    e.stopPropagation();
+    bar.remove();
+    await performDeleteCategory(catName);
+  };
+  no.onclick = (e) => { e.stopPropagation(); bar.remove(); };
+
+  bar.appendChild(yes);
+  bar.appendChild(no);
+
+  const block = document.querySelector(`.category-block[data-category-name="${catName}"]`);
+  if (block) block.parentNode.insertBefore(bar, block.nextSibling);
+}
+
+// ---- Channel CRUD ----
+async function performCreateChannel(name) {
+  const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
+  if (!trimmed) return;
+
+  const { data, error } = await supabaseClient
+    .from("channels")
+    .insert({ name: trimmed, created_by: username, category: "General", sort_order: channels.length })
+    .select()
+    .maybeSingle();
+
+  if (error) { console.error("❌ Create channel:", error.message); return; }
+  if (data) {
+    channels.push(data);
+    renderChannelList();
+    switchChannel(data.id);
+  }
+}
+
+async function performRenameChannel(channelId, newName) {
+  const trimmed = newName.trim();
+  if (!trimmed) return;
+
+  const { error } = await supabaseClient.from("channels").update({ name: trimmed }).eq("id", channelId);
+  if (error) { console.error("❌ Rename channel:", error.message); return; }
+
   const ch = channels.find(c => c.id === channelId);
   if (ch) ch.name = trimmed;
-
   renderChannelList();
-
-  // Update header if this is the current channel
   if (currentChannelId === channelId) {
     document.getElementById("currentChannelName").textContent = "# " + trimmed;
   }
 }
 
-async function deleteChannel(channelId, channelName) {
-  if (!confirm(`Delete channel "${channelName}" and all its messages? This cannot be undone.`)) return;
-
-  // Delete all messages in the channel first
+async function performDeleteChannel(channelId) {
   await supabaseClient.from("messages").delete().eq("channel_id", channelId);
+  const { error } = await supabaseClient.from("channels").delete().eq("id", channelId);
+  if (error) { console.error("❌ Delete channel:", error.message); return; }
 
-  const { error } = await supabaseClient
-    .from("channels")
-    .delete()
-    .eq("id", channelId);
+  channels = channels.filter(c => c.id !== channelId);
+  renderChannelList();
+  if (currentChannelId === channelId && channels.length > 0) switchChannel(channels[0].id);
+}
 
-  if (error) {
-    alert("❌ Delete failed: " + error.message);
+// ---- Category CRUD ----
+async function performCreateCategory(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const sortOrder = categories.length;
+  const { data, error } = await supabaseClient
+    .from("categories")
+    .insert({ name: trimmed, sort_order: sortOrder, created_by: username })
+    .select()
+    .maybeSingle();
+
+  if (error) { console.error("❌ Create category:", error.message); return; }
+  if (data) { categories.push(data); renderChannelList(); }
+}
+
+async function performRenameCategory(oldName, newName) {
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return;
+
+  const cat = categories.find(c => c.name === oldName);
+  if (cat) {
+    const { error } = await supabaseClient.from("categories").update({ name: trimmed }).eq("id", cat.id);
+    if (error) { console.error("❌ Rename category:", error.message); return; }
+    cat.name = trimmed;
+  }
+
+  // Update all channels in this category
+  await supabaseClient.from("channels").update({ category: trimmed }).eq("category", oldName);
+  channels.filter(c => c.category === oldName).forEach(c => c.category = trimmed);
+  renderChannelList();
+}
+
+async function performDeleteCategory(catName) {
+  const cat = categories.find(c => c.name === catName);
+  if (cat) {
+    await supabaseClient.from("categories").delete().eq("id", cat.id);
+    categories = categories.filter(c => c.id !== cat.id);
+  }
+  // Move channels in deleted category to "General"
+  await supabaseClient.from("channels").update({ category: "General" }).eq("category", catName);
+  channels.filter(c => c.category === catName).forEach(c => c.category = "General");
+  // Ensure "General" is in categories
+  if (!categories.find(c => c.name === "General")) {
+    const { data } = await supabaseClient
+      .from("categories")
+      .insert({ name: "General", sort_order: 0, created_by: username })
+      .select()
+      .maybeSingle();
+    if (data) categories.push(data);
+  }
+  renderChannelList();
+}
+
+async function deleteChannel(channelId, channelName) {
+  // Legacy compat — just call the inline delete show
+  showInlineDelete("channel", channelId, channelName);
+  return; // old code below kept as dead code just in case
+
+}
+
+async function tryCreateChannel() {
+  console.log("🔥 create channel clicked");
+
+  // ✅ Admin check
+  if (!currentRole || currentRole.toLowerCase() !== "admin") {
+    alert("❌ Only admins can create channels");
     return;
   }
 
-  channels = channels.filter(c => c.id !== channelId);
-  saveChannelOrder(channels.map(c => c.id));
-  renderChannelList();
+  const btn = document.getElementById("addServerBtn");
 
-  // Switch to first available channel if we deleted the current one
-  if (currentChannelId === channelId) {
-    if (channels.length > 0) {
-      switchChannel(channels[0].id);
-    } else {
-      currentChannelId = null;
-      messagesList.innerHTML = "";
-      document.getElementById("currentChannelName").textContent = "No channels";
+  // ✅ 1. Get name
+  const name = prompt("Enter new channel name:");
+  if (!name || !name.trim()) return;
+
+  // ✅ 2. DEFINE trimmedName (THIS is what you're missing)
+  const trimmedName = name.trim();
+
+  // ✅ 3. Get category
+  const category = prompt("Enter category (e.g. Text, Voice, School):");
+
+  if (btn) {
+    btn.textContent = "⏳";
+    btn.disabled = true;
+  }
+
+  try {
+    // ✅ 4. USE trimmedName AFTER defining it
+    const { data, error } = await supabaseClient
+      .from("channels")
+      .insert({
+        name: trimmedName,
+        created_by: username,
+        category: category || "General"
+      })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      alert("❌ Failed: " + error.message);
+      console.error(error);
+      return;
+    }
+
+    await loadChannels();
+    switchChannel(data.id);
+
+  } catch (err) {
+    alert("❌ Unexpected: " + err.message);
+  } finally {
+    if (btn) {
+      btn.textContent = "+";
+      btn.disabled = false;
     }
   }
 }
@@ -723,7 +1015,7 @@ async function loadUser() {
       .from("users")
       .select("role, blocked, muted_until")
       .eq("username", storedName)
-      .single();
+      .maybeSingle();
 
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
@@ -735,6 +1027,7 @@ async function loadUser() {
     } else {
       currentRole = data?.role || "User";
       localStorage.setItem("chatRole", currentRole);
+      await loadUserPermissions(currentRole);
     }
     console.log("✅ User role:", currentRole);
   } catch (err) {
@@ -743,9 +1036,11 @@ async function loadUser() {
     localStorage.setItem("chatRole", "User");
   }
 
-  // Show create-channel button for admins only
+  // Show create-channel and create-category buttons for admins only
   const createChannelBtn = document.getElementById("createChannelBtn");
-  if (createChannelBtn) createChannelBtn.style.display = currentRole === "Admin" ? "inline-block" : "none";
+  const createCategoryBtnEl = document.getElementById("createCategoryBtn");
+  if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+  if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
 
   // 4. CRITICAL SEQUENCE: Load Channels FIRST
   console.log("📂 Loading channels...");
@@ -798,7 +1093,7 @@ async function saveName() {
       .from("users")
       .select("role")
       .eq("username", name)
-      .single();
+      .maybeSingle();
 
     if (checkError && checkError.code !== "PGRST116") {
       console.error("Check error:", checkError);
@@ -839,7 +1134,9 @@ async function saveName() {
   initRealtime();
 
   const createBtn = document.getElementById("createChannelBtn");
-  if (createBtn) createBtn.style.display = currentRole === "Admin" ? "inline-block" : "none";
+  if (createBtn) createBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+  const catBtn = document.getElementById("createCategoryBtn");
+  if (catBtn) catBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
   updateMessageLock();
 }
 
@@ -862,6 +1159,12 @@ function isUserBlockedOrMutedSync() {
 
 // ------------------------ Send Message ------------------------
 async function sendMessage() {
+
+  if (!userPermissions.send_messages) {
+  alert("❌ You don't have permission to send messages.");
+  return;
+}
+
   let content = input.value.trim();
   if (!content || !username) return;
 
@@ -870,7 +1173,7 @@ if (isUserBlockedOrMutedSync()) {
   return;
 }
 
-  if (currentRole !== "Admin" && containsPlainTextUrl(content)) {
+  if (!userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
     return;
   }
@@ -901,7 +1204,7 @@ const messageData = {
     const { error } = await supabaseClient.from("messages").insert([messageData]);
     if (!error) {
       input.value = "";
-      log("✅ Message sent to Supabase");
+      console.log("✅ Message sent to Supabase");
 
     // 🔥 ADD THIS - Scroll to bottom after sending
     setTimeout(() => {
@@ -920,7 +1223,7 @@ const messageData = {
 }
 
       // --- Push Notification Logic (Admin Broadcast) ---
-      const isImportant = currentRole === "Admin" && content.includes("!important!");
+      const isImportant = userPermissions.manage_roles && content.includes("!important!");
       fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
         method: "POST",
         headers: { "Content-Type": "application/json" }, // FIXED TYPO HERE
@@ -940,7 +1243,7 @@ const messageData = {
       }
     }
   } catch (e) {
-    log("❌ Failed to send message", e, "error");
+    console.error("❌ Failed to send message", e);
   }
 }
 
@@ -1140,7 +1443,7 @@ if (msg.role === "Admin") {
   managerDiv.className = "managerControls";
   managerDiv.style.display = "none";
 
-  if (currentRole === "Admin") li.appendChild(adminDiv);
+  if (userPermissions.manage_roles) li.appendChild(adminDiv);
   else if (currentRole === "Manager") li.appendChild(managerDiv);
 
   if (msg.reply_to) {
@@ -1220,6 +1523,8 @@ document.addEventListener("keydown", e => {
     currentRole = null;
     const cb = document.getElementById("createChannelBtn");
     if (cb) cb.style.display = "none";
+    const catb = document.getElementById("createCategoryBtn");
+    if (catb) catb.style.display = "none";
     updateMessageLock();
     saveNameBtn.onclick = saveName;
   }
@@ -1291,7 +1596,7 @@ function rebuildCustomGrid() {
   const customGrid = picker.querySelector(".ep-custom-grid");
   if (customGrid) renderEmojiGrid(customGrid, customEmojis.map(e => e.url), true);
   const adminBar = picker.querySelector(".ep-admin-bar");
-  if (adminBar) adminBar.style.display = currentRole === "Admin" ? "flex" : "none";
+  if (adminBar) adminBar.style.display = userPermissions.manage_roles ? "flex" : "none";
 }
 
 function buildEmojiPicker() {
@@ -1381,7 +1686,7 @@ function renderEmojiGrid(container, emojis, isCustom = false) {
     });
 
     // Admin delete button for custom emojis
-    if (isCustom && currentRole === "Admin") {
+    if (isCustom && userPermissions.manage_roles) {
       btn.style.position = "relative";
       const del = document.createElement("span");
       del.textContent = "✕";
@@ -1436,7 +1741,7 @@ function showCategory(index) {
 
   // Show admin bar on Custom tab
   const adminBar = picker.querySelector(".ep-admin-bar");
-  if (adminBar) adminBar.style.display = (isCustom && currentRole === "Admin") ? "flex" : "none";
+  if (adminBar) adminBar.style.display = (isCustom && userPermissions.manage_roles) ? "flex" : "none";
 }
 
 function filterEmojis(query) {
@@ -1481,7 +1786,7 @@ function openEmojiPicker(messageId, x, y) {
   if (adminBar) {
     const activeTab = picker.querySelector(".ep-tab.active");
     const isCustom = activeTab && EMOJI_CATEGORIES[parseInt(activeTab.dataset.catIndex)]?.name === "Custom";
-    adminBar.style.display = (isCustom && currentRole === "Admin") ? "flex" : "none";
+    adminBar.style.display = (isCustom && userPermissions.manage_roles) ? "flex" : "none";
   }
 
   // Position with screen boundary detection
@@ -1511,7 +1816,7 @@ function saveRecentEmoji(emoji) {
 
 // ======================== CUSTOM EMOJI MANAGEMENT ========================
 async function addCustomEmoji() {
-  if (currentRole !== "Admin") return;
+  if (!userPermissions.manage_roles) return;
   const name = prompt("Custom emoji name (e.g. 'tadacat'):");
   if (!name || !name.trim()) return;
 
@@ -1585,7 +1890,7 @@ async function reportMessage(messageId) {
       .select("*")
       .eq("channel_id", currentChannelId)
       .eq("id", messageId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -1604,8 +1909,8 @@ async function reportMessage(messageId) {
 
     // send email via EmailJS
     await emailjs.send(
-      "YOUR_SERVICE_ID",     // replace
-      "YOUR_TEMPLATE_ID",    // replace
+      "service_8a92zsj",     // replace
+      "template_y386ub2",    // replace
       {
         reporter: reportData.reporter,
         offender: reportData.reported_user,
@@ -1614,7 +1919,7 @@ async function reportMessage(messageId) {
         message_id: reportData.message_id,
         time: new Date().toLocaleString()
       },
-      "YOUR_PUBLIC_KEY"      // replace
+      "_ruE2WKFK8bLzX42w"      // replace
     );
 
     alert("✅ Report submitted.");
@@ -1633,7 +1938,7 @@ async function pinMessage(messageId) {
       .from("messages")
       .select("is_pinned")
       .eq("id", messageId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -1654,7 +1959,7 @@ async function deleteMessage(messageId) {
   const li = messagesMap.get(Number(messageId));
   const author = li ? li.dataset.user : null;
 
-  if (currentRole !== "Admin" && !(currentRole === "Manager" && author === username)) {
+  if (!userPermissions.manage_roles && !(currentRole === "Manager" && author === username)) {
     alert("❌ Access Denied: You can only delete your own messages.");
     return;
   }
@@ -1665,7 +1970,7 @@ async function deleteMessage(messageId) {
       .from("messages")
       .select("content")
       .eq("id", messageId)
-      .single();
+      .maybeSingle();
 
     if (fetchError) throw fetchError;
 
@@ -1857,7 +2162,7 @@ async function userInfo(author) {
       .from("users")
       .select("*")
       .eq("username", author)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -1946,7 +2251,7 @@ async function promote(author) {
       .from("users")
       .select("role")
       .eq("username", author)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -2582,7 +2887,7 @@ fileInput.addEventListener("change", async (e) => {
     uploadBtn.textContent = "📎";
     uploadBtn.disabled = false;
 
-    log("✅ File uploaded successfully");
+    console.log("✅ File uploaded successfully");
 
   } catch (err) {
     console.error("Upload failed:", err);
@@ -2863,7 +3168,7 @@ async function updateMuteUI() {
     .from("users")
     .select("muted_until")
     .eq("username", username)
-    .single();
+    .maybeSingle();
 
   if (!data || !data.muted_until) {
     el.style.display = "none";
@@ -2936,12 +3241,68 @@ function applyMuteBlockUI() {
   stopMuteCountdownUI();
 }
 
-// ======================== CREATE CHANNEL BUTTON ========================
-document.getElementById("createChannelBtn").addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  tryCreateChannel();
-});
+// ======================== CHANNEL HEADER BUTTONS + INLINE ROW ========================
+(function () {
+  const createChannelBtn = document.getElementById("createChannelBtn");
+  const createCategoryBtn = document.getElementById("createCategoryBtn");
+  const row = document.getElementById("newChannelRow");
+  const inp = document.getElementById("newChannelInput");
+  const confirmBtn = document.getElementById("newChannelConfirm");
+  const cancelBtn = document.getElementById("newChannelCancel");
+
+  createChannelBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openInlineRow("channel-create", "", null);
+  });
+
+  createCategoryBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openInlineRow("category-create", "", null);
+  });
+
+  cancelBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeInlineRow();
+  });
+
+  async function dispatch() {
+    const mode = row.dataset.mode;
+    const val = inp.value.trim();
+    if (!val) { closeInlineRow(); return; }
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "⏳";
+
+    try {
+      if (mode === "channel-create") {
+        await performCreateChannel(val);
+        closeInlineRow();
+      } else if (mode === "channel-rename") {
+        const id = parseInt(row.dataset.targetId, 10);
+        await performRenameChannel(id, val);
+        closeInlineRow();
+      } else if (mode === "category-create") {
+        await performCreateCategory(val);
+        closeInlineRow();
+      } else if (mode === "category-rename") {
+        const oldName = row.dataset.targetName;
+        await performRenameCategory(oldName, val);
+        closeInlineRow();
+      }
+    } finally {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "✓";
+    }
+  }
+
+  confirmBtn.addEventListener("click", (e) => { e.stopPropagation(); dispatch(); });
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); dispatch(); }
+    else if (e.key === "Escape") { closeInlineRow(); }
+  });
+})();
 
 async function loadDefaultChannel() {
   console.log("📡 loadDefaultChannel() called. Channels length:", channels.length);
@@ -2955,7 +3316,7 @@ async function loadDefaultChannel() {
     .from("channels")
     .select("*")
     .eq("name", "general")
-    .single();
+    .maybeSingle();
 
   let targetChannelId;
 
@@ -2977,63 +3338,6 @@ async function loadDefaultChannel() {
   }, 200);
 }
 
-// ======================== INLINE CHANNEL CREATION FUNCTION ========================
-async function tryCreateChannel() {
-  console.log("🔥 create channel clicked");
-
-  // ✅ Admin check
-  if (!currentRole || currentRole.toLowerCase() !== "admin") {
-    alert("❌ Only admins can create channels");
-    return;
-  }
-
-  const btn = document.getElementById("addServerBtn");
-
-  // ✅ 1. Get name
-  const name = prompt("Enter new channel name:");
-  if (!name || !name.trim()) return;
-
-  // ✅ 2. DEFINE trimmedName (THIS is what you're missing)
-  const trimmedName = name.trim();
-
-  // ✅ 3. Get category
-  const category = prompt("Enter category (e.g. Text, Voice, School):");
-
-  if (btn) {
-    btn.textContent = "⏳";
-    btn.disabled = true;
-  }
-
-  try {
-    // ✅ 4. USE trimmedName AFTER defining it
-    const { data, error } = await supabaseClient
-      .from("channels")
-      .insert({
-        name: trimmedName,
-        created_by: username,
-        category: category || "General"
-      })
-      .select()
-      .single();
-
-    if (error) {
-      alert("❌ Failed: " + error.message);
-      console.error(error);
-      return;
-    }
-
-    await loadChannels();
-    switchChannel(data.id);
-
-  } catch (err) {
-    alert("❌ Unexpected: " + err.message);
-  } finally {
-    if (btn) {
-      btn.textContent = "+";
-      btn.disabled = false;
-    }
-  }
-}
 
 // ======================== REALTIME FOR CHANNELS ========================
 supabaseClient
@@ -3046,17 +3350,9 @@ supabaseClient
 
       if (payload.eventType === "INSERT" && payload.new) {
         const newCh = payload.new;
-        // Only add if not already in local list (avoid double-add when we inserted it ourselves)
-        const alreadyExists = channels.some(c => c.id === newCh.id);
-        if (!alreadyExists) {
+        if (!channels.some(c => c.id === newCh.id)) {
           channels.push(newCh);
-          saveChannelOrder(channels.map(c => c.id));
           renderChannelList();
-          // Auto-switch to the new channel if someone else created it
-          // (if we created it ourselves, switchChannel was already called in tryCreateChannel)
-          if (currentChannelId !== newCh.id) {
-            switchChannel(newCh.id);
-          }
         }
       } else if (payload.eventType === "UPDATE" && payload.new) {
         const updated = payload.new;
@@ -3071,109 +3367,78 @@ supabaseClient
       } else if (payload.eventType === "DELETE" && payload.old) {
         const deletedId = payload.old.id;
         channels = channels.filter(c => c.id !== deletedId);
-        saveChannelOrder(channels.map(c => c.id));
         renderChannelList();
         if (currentChannelId === deletedId) {
-          if (channels.length > 0) {
-            switchChannel(channels[0].id);
-          } else {
-            currentChannelId = null;
-            messagesList.innerHTML = "";
-            document.getElementById("currentChannelName").textContent = "No channels";
-          }
+          if (channels.length > 0) switchChannel(channels[0].id);
+          else { currentChannelId = null; messagesList.innerHTML = ""; document.getElementById("currentChannelName").textContent = "No channels"; }
         }
       }
     }
   )
-  .subscribe((status) => {
-    console.log("📡 Channels realtime status:", status);
-  });
+  .subscribe();
 
-  function showCategoryMenu(x, y, category) {
-    if (!currentRole || currentRole.toLowerCase() !== "admin") {
-  alert("❌ Admins only");
-  return;
-}
-  categoryMenu.innerHTML = `
-    <div class="menu-item" id="renameCat">Rename Category</div>
-    <div class="menu-item" id="deleteCat" style="color:red;">Delete Category</div>
-  `;
-
-  categoryMenu.style.left = x + "px";
-  categoryMenu.style.top = y + "px";
-  categoryMenu.style.display = "block";
-
-  // 🔹 Rename
-  document.getElementById("renameCat").onclick = async () => {
-    const newName = prompt("New category name:", category);
-    if (!newName || !newName.trim()) return;
-
-    const { error } = await supabaseClient
-      .from("channels")
-      .update({ category: newName.trim() })
-      .eq("category", category);
-
-    if (error) {
-      alert("❌ Failed: " + error.message);
-      return;
+// ======================== REALTIME FOR CATEGORIES ========================
+supabaseClient
+  .channel("categories-realtime")
+  .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, (payload) => {
+    if (payload.eventType === "INSERT" && payload.new) {
+      if (!categories.some(c => c.id === payload.new.id)) categories.push(payload.new);
+      renderChannelList();
+    } else if (payload.eventType === "UPDATE" && payload.new) {
+      const idx = categories.findIndex(c => c.id === payload.new.id);
+      if (idx !== -1) categories[idx] = { ...categories[idx], ...payload.new };
+      renderChannelList();
+    } else if (payload.eventType === "DELETE" && payload.old) {
+      categories = categories.filter(c => c.id !== payload.old.id);
+      renderChannelList();
     }
+  })
+  .subscribe();
 
-    categoryMenu.style.display = "none";
-    await loadChannels();
+async function giveCustomRole(targetUser) {
+
+  const roleName = prompt("Enter role name to give:");
+
+  if (!roleName) return;
+
+  const { error } = await supabaseClient
+    .from("users")
+    .update({ role: roleName })
+    .eq("username", targetUser);
+
+  if (error) {
+    alert("❌ Failed to assign role");
+    console.error(error);
+    return;
+  }
+
+  alert("✅ Role assigned to " + targetUser);
+}
+
+async function createCustomRole() {
+
+  const roleName = prompt("Role name?");
+  if (!roleName) return;
+
+  const permissions = {
+    read_messages: confirm("Can read messages?"),
+    send_messages: confirm("Can send messages?"),
+    delete_messages: confirm("Can delete messages?"),
+    rename_channels: confirm("Can rename channels?"),
+    create_channels: confirm("Can create channels?"),
+    manage_roles: confirm("Can manage roles?"),
+    mute_users: confirm("Can mute users?")
   };
 
-  // 🔹 Delete (move channels to General)
-  document.getElementById("deleteCat").onclick = async () => {
-    if (!confirm(`Delete category "${category}"? Channels will be moved.`)) return;
+  const { error } = await supabaseClient
+    .from("roles")
+    .insert([{ name: roleName, permissions }]);
 
-    const { error } = await supabaseClient
-      .from("channels")
-      .update({ category: "General" })
-      .eq("category", category);
+  if (error) {
+    alert("❌ Failed to create role");
+    console.error(error);
+    return;
+  }
 
-    if (error) {
-      alert("❌ Failed: " + error.message);
-      return;
-    }
-
-    categoryMenu.style.display = "none";
-    await loadChannels();
-  };
+  alert("✅ Role created!");
 }
-
-function showSidebarMenu(x, y) {
-  if (!currentRole || currentRole.toLowerCase() !== "admin") {
-  alert("❌ Admins only");
-  return;
-}
-  categoryMenu.innerHTML = `
-    <div class="menu-item" id="createCat">Create Category</div>
-  `;
-
-  categoryMenu.style.left = x + "px";
-  categoryMenu.style.top = y + "px";
-  categoryMenu.style.display = "block";
-
-  document.getElementById("createCat").onclick = async () => {
-    const name = prompt("Enter new category name:");
-    if (!name || !name.trim()) return;
-
-    // Create empty category by adding a hidden channel placeholder (optional)
-    const { error } = await supabaseClient
-      .from("channels")
-      .insert({
-        name: "placeholder",
-        created_by: username,
-        category: name.trim()
-      });
-
-    if (error) {
-      alert("❌ Failed: " + error.message);
-      return;
-    }
-
-    categoryMenu.style.display = "none";
-    await loadChannels();
-  };
-}
-// ======================== END FEATURES ========================

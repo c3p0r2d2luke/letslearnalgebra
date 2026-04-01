@@ -549,12 +549,11 @@ li[data-pinned="true"] {
    =============================== */
 
 #typingIndicator {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  padding: 4px 16px;
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--bg-secondary);
-  min-height: 20px;
+  padding: 2px 16px;
+  min-height: 18px;
+  background: transparent;
 }
 
 /* ===============================
@@ -1022,19 +1021,198 @@ li[data-pinned="true"] {
 }
 .ep-add-custom-btn:hover { background: #4752c4; }
 
-.category-header {
-  font-size: 12px;
-  color: #888;
-  padding: 6px 10px;
-  margin-top: 10px;
-  text-transform: uppercase;
+/* ===============================
+   CHANNEL HEADER BUTTONS
+   =============================== */
+
+.channel-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
 }
+
+.channel-header > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#createChannelBtn,
+#createCategoryBtn {
+  background: transparent;
+  border: none;
+  color: #b9bbbe;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+#createChannelBtn:hover,
+#createCategoryBtn:hover { color: white; background: rgba(255,255,255,0.1); }
+
+/* ===============================
+   INLINE CHANNEL/CATEGORY ROW
+   =============================== */
+
+#newChannelRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #292b2f;
+  flex-wrap: wrap;
+}
+
+#newChannelLabel {
+  font-size: 10px;
+  color: #72767d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: 100%;
+  padding-bottom: 2px;
+}
+
+#newChannelInput {
+  flex: 1;
+  background: #40444b;
+  border: 1px solid #5865f2;
+  border-radius: 4px;
+  color: #dcddde;
+  padding: 4px 7px;
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+#newChannelInput::placeholder { color: #72767d; }
+
+#newChannelConfirm,
+#newChannelCancel {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 3px 6px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+#newChannelConfirm { color: #57f287; }
+#newChannelConfirm:hover { background: rgba(87,242,135,0.15); }
+#newChannelConfirm:disabled { color: #72767d; cursor: default; }
+#newChannelCancel { color: #ed4245; }
+#newChannelCancel:hover { background: rgba(237,66,69,0.15); }
+
+/* ===============================
+   CATEGORY BLOCKS
+   =============================== */
+
+.category-block { margin-bottom: 2px; }
+
+.category-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px 4px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.category-header:hover { background: rgba(255,255,255,0.04); }
+
+.cat-arrow {
+  font-size: 10px;
+  color: #72767d;
+  flex-shrink: 0;
+  width: 10px;
+}
+
+.cat-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #72767d;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cat-drag-handle {
+  font-size: 16px;
+  color: #4f545c;
+  cursor: grab;
+  padding: 0 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+.category-header:hover .cat-drag-handle { opacity: 1; }
+.cat-drag-handle:active { cursor: grabbing; }
+
+.channel-items { padding-left: 4px; }
+
+/* SortableJS drag states */
+.sortable-ghost {
+  opacity: 0.35;
+  background: #5865f2 !important;
+  border-radius: 4px;
+}
+.sortable-drag { opacity: 0.9; }
+
+/* ===============================
+   INLINE DELETE BAR
+   =============================== */
+
+.inline-delete-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: #292b2f;
+  border-left: 3px solid #ed4245;
+  font-size: 12px;
+  color: #dcddde;
+  flex-wrap: wrap;
+  margin: 1px 0;
+}
+.inline-delete-bar span { flex: 1; }
+.inline-delete-yes {
+  background: #ed4245;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.inline-delete-yes:hover { background: #c03537; }
+.inline-delete-no {
+  background: #4f545c;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.inline-delete-no:hover { background: #36393f; }
+
+/* ===============================
+   LEGACY MENU ITEMS
+   =============================== */
 
 .menu-item {
   padding: 6px 10px;
   cursor: pointer;
 }
-
-.menu-item:hover {
-  background: #40444b;
-}
+.menu-item:hover { background: #40444b; }
