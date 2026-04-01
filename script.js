@@ -1339,7 +1339,14 @@ if (fileMatch) {
   const type = getFileType(url);
 
   if (type === "image") {
-    wrapper.innerHTML = `<img src="${url}" class="msg-image">`;
+    const imgEl = document.createElement("img");
+    imgEl.src = url;
+    imgEl.className = "msg-image";
+    imgEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openLightbox(url);
+    });
+    wrapper.appendChild(imgEl);
   } else if (type === "video") {
     wrapper.innerHTML = `
       <video controls style="max-width:300px;border-radius:8px;">
@@ -2832,19 +2839,25 @@ document.addEventListener("keydown", (e) => {
 });
 
 document.addEventListener("click", (e) => {
-  if (e.target.tagName === "IMG") {
-    // Skip emoji images, tiny icons, and server icons
-    const skip = e.target.closest(
-      ".reactionBubble, .reactionBar, .hoverControls, .server-icon, .emoji-trigger, .link-preview"
-    );
-    if (skip) return;
+  if (e.target.tagName !== "IMG") return;
 
-    const w = e.target.naturalWidth || e.target.width;
-    const h = e.target.naturalHeight || e.target.height;
-    if (w < 48 || h < 48) return; // skip tiny images (emoji-sized)
-
+  // Always open lightbox for uploaded message images
+  if (e.target.classList.contains("msg-image")) {
     openLightbox(e.target.src);
+    return;
   }
+
+  // Skip emoji/icon areas for everything else
+  const skip = e.target.closest(
+    ".reactionBubble, .reactionBar, .hoverControls, .server-icon, .emoji-trigger"
+  );
+  if (skip) return;
+
+  // Use rendered size (reliable even before naturalWidth resolves)
+  const rect = e.target.getBoundingClientRect();
+  if (rect.width < 60 || rect.height < 60) return;
+
+  openLightbox(e.target.src);
 });
 
 // ======================== SCROLL-TO-BOTTOM BUTTON ========================
