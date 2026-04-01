@@ -13,11 +13,32 @@
 </head>
 <body>
 
-<!-- PASSWORD -->
-<div id="passwordGate">
-  <h2>Enter Password</h2>
-  <input id="passwordInput" type="password" placeholder="Password" />
-  <button id="passwordBtn">Enter</button>
+<!-- AUTH GATE -->
+<div id="authGate">
+  <div id="authBox">
+
+    <!-- Sign In View -->
+    <div id="signInView">
+      <h2>Welcome Back</h2>
+      <input id="signInEmail" type="email" placeholder="Email" autocomplete="email" />
+      <input id="signInPassword" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="signInBtn">Sign In</button>
+      <p class="auth-error" id="signInError" style="display:none;"></p>
+      <p class="auth-switch">Don't have an account? <a href="#" id="toSignUp">Create one</a></p>
+    </div>
+
+    <!-- Sign Up View -->
+    <div id="signUpView" style="display:none;">
+      <h2>Create Account</h2>
+      <input id="signUpUsername" type="text" placeholder="Username" autocomplete="username" />
+      <input id="signUpEmail" type="email" placeholder="Email" autocomplete="email" />
+      <input id="signUpPassword" type="password" placeholder="Password" autocomplete="new-password" />
+      <button id="signUpBtn">Sign Up</button>
+      <p class="auth-error" id="signUpError" style="display:none;"></p>
+      <p class="auth-switch">Already have an account? <a href="#" id="toSignIn">Sign In</a></p>
+    </div>
+
+  </div>
 </div>
 
 <!-- APP -->

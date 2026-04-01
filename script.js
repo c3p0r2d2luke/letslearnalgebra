@@ -167,43 +167,140 @@ document.addEventListener("contextmenu", (e) => {
   console.log("✅ Context menu opened for message:", messageId);
 });
 
-// 🔐 SHA-256 hash function
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
+// ======================== SUPABASE AUTH ========================
+
+function showAuthGate() {
+  document.getElementById("authGate").style.display = "flex";
+  document.getElementById("appContent").style.display = "none";
 }
 
-// 🔑 CHANGE THIS to your hashed password
-const CORRECT_HASH = "22c932242295554614d1b3f90e13aee6efc317c3e044999664d8157d8ea53ca0";
+function hideAuthGate() {
+  document.getElementById("authGate").style.display = "none";
+  document.getElementById("appContent").style.display = "block";
+}
 
-// ✅ Check if already logged in (RUN ON PAGE LOAD)
-document.addEventListener("DOMContentLoaded", () => {
-  if (localStorage.getItem("isAuthenticated") === "true") {
-    document.getElementById("passwordGate").style.display = "none";
-    document.getElementById("appContent").style.display = "block";
-    loadUser();
+async function handleAuthSuccess(user) {
+  const uname = user.user_metadata?.username;
+  if (uname) {
+    localStorage.setItem("chatUsername", uname);
+  }
+  hideAuthGate();
+  loadUser();
+}
+
+// ✅ Check for existing session on page load
+document.addEventListener("DOMContentLoaded", async () => {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    await handleAuthSuccess(session.user);
+  } else {
+    showAuthGate();
   }
 });
 
-// Handle login
-document.getElementById("passwordBtn").addEventListener("click", async () => {
-  const input = document.getElementById("passwordInput").value;
-  const hashed = await hashPassword(input);
+// Toggle between sign in / sign up views
+document.getElementById("toSignUp").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("signInView").style.display = "none";
+  document.getElementById("signUpView").style.display = "block";
+  document.getElementById("signInError").style.display = "none";
+  document.getElementById("signUpError").style.display = "none";
+});
 
-  if (hashed === CORRECT_HASH) {
-    // ✅ Save login state
-    localStorage.setItem("isAuthenticated", "true");
+document.getElementById("toSignIn").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("signUpView").style.display = "none";
+  document.getElementById("signInView").style.display = "block";
+  document.getElementById("signInError").style.display = "none";
+  document.getElementById("signUpError").style.display = "none";
+});
 
-    document.getElementById("passwordGate").style.display = "none";
-    document.getElementById("appContent").style.display = "block";
-    loadUser();
-  } else {
-    alert("❌ Wrong password");
+// Sign In
+async function doSignIn() {
+  const email = document.getElementById("signInEmail").value.trim();
+  const password = document.getElementById("signInPassword").value;
+  const errorEl = document.getElementById("signInError");
+  errorEl.style.display = "none";
+
+  if (!email || !password) {
+    errorEl.textContent = "❌ Please fill in all fields.";
+    errorEl.style.display = "block";
+    return;
   }
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    errorEl.textContent = "❌ " + error.message;
+    errorEl.style.display = "block";
+    return;
+  }
+  await handleAuthSuccess(data.user);
+}
+
+document.getElementById("signInBtn").addEventListener("click", doSignIn);
+document.getElementById("signInPassword").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doSignIn();
+});
+
+// Sign Up
+async function doSignUp() {
+  const usernameVal = document.getElementById("signUpUsername").value.trim();
+  const email = document.getElementById("signUpEmail").value.trim();
+  const password = document.getElementById("signUpPassword").value;
+  const errorEl = document.getElementById("signUpError");
+  errorEl.style.display = "none";
+
+  if (!usernameVal || !email || !password) {
+    errorEl.textContent = "❌ Please fill in all fields.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // Check username availability
+  const { data: existingUser } = await supabaseClient
+    .from("users")
+    .select("username")
+    .eq("username", usernameVal)
+    .maybeSingle();
+
+  if (existingUser) {
+    errorEl.textContent = "❌ Username already taken.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: { data: { username: usernameVal } }
+  });
+
+  if (error) {
+    errorEl.textContent = "❌ " + error.message;
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // Upsert into users table
+  await supabaseClient.from("users").upsert({
+    username: usernameVal,
+    role: "User"
+  }, { onConflict: ["username"] });
+
+  localStorage.setItem("chatUsername", usernameVal);
+
+  if (data.session) {
+    await handleAuthSuccess(data.user);
+  } else {
+    errorEl.style.color = "var(--success)";
+    errorEl.textContent = "✅ Account created! Check your email to confirm, then sign in.";
+    errorEl.style.display = "block";
+  }
+}
+
+document.getElementById("signUpBtn").addEventListener("click", doSignUp);
+document.getElementById("signUpPassword").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doSignUp();
 });
 
 let isTyping = false;
@@ -1478,23 +1575,13 @@ button.addEventListener("click", sendMessage);
 input.addEventListener("keydown", e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
 
 // Secret sign-out shortcut
-document.addEventListener("keydown", e => {
+document.addEventListener("keydown", async e => {
   if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase()==="t"){
     e.preventDefault();
     localStorage.removeItem("chatUsername");
     localStorage.removeItem("chatRole");
-    alert("👋 You have been signed out!");
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-    nameInput.value = "";
-    currentRole = null;
-    const cb = document.getElementById("createChannelBtn");
-    if (cb) cb.style.display = "none";
-    const catb = document.getElementById("createCategoryBtn");
-    if (catb) catb.style.display = "none";
-    updateMessageLock();
-    saveNameBtn.onclick = saveName;
+    await supabaseClient.auth.signOut();
+    location.reload();
   }
 });
 

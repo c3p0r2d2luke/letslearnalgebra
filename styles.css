@@ -30,6 +30,95 @@ body {
 }
 
 /* ===============================
+   AUTH GATE
+   =============================== */
+
+#authGate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-secondary);
+}
+
+#authBox {
+  background: var(--bg-main);
+  border-radius: 8px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+#authBox h2 {
+  margin: 0 0 24px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: center;
+}
+
+#authBox input {
+  display: block;
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: var(--text-main);
+  font-size: 14px;
+  margin-bottom: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#authBox input:focus {
+  border-color: var(--accent);
+}
+
+#authBox button {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 11px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background 0.15s;
+}
+
+#authBox button:hover {
+  background: #4752c4;
+}
+
+.auth-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 8px 0 0 0;
+  text-align: center;
+}
+
+.auth-switch {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 16px 0 0 0;
+}
+
+.auth-switch a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+/* ===============================
    APP LAYOUT (SIDEBAR + CHAT)
    =============================== */
 
