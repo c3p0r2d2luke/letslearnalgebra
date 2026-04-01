@@ -3157,60 +3157,56 @@ async function loadDefaultChannel() {
 }
 
 
-// ======================== REALTIME FOR CHANNELS ========================
+// ======================== REALTIME FOR CHANNELS & CATEGORIES ========================
+
+// Refetch both categories and channels from DB, then re-render.
+// Called by both realtime handlers so every client always has the authoritative order.
+async function reloadChannelsRealtime(deletedChannelId = null) {
+  await loadCategories();
+  const { data, error } = await supabaseClient
+    .from("channels")
+    .select("*")
+    .order("sort_order");
+  if (error) return;
+  channels = data;
+  renderChannelList();
+
+  // If the channel the user was viewing was deleted, switch away
+  if (deletedChannelId && currentChannelId === deletedChannelId) {
+    if (channels.length > 0) switchChannel(channels[0].id);
+    else {
+      currentChannelId = null;
+      messagesList.innerHTML = "";
+      document.getElementById("currentChannelName").textContent = "No channels";
+    }
+  }
+
+  // Keep the header name in sync if the current channel was renamed
+  if (currentChannelId) {
+    const cur = channels.find(c => c.id === currentChannelId);
+    if (cur) document.getElementById("currentChannelName").textContent = "# " + cur.name;
+  }
+}
+
 supabaseClient
-  .channel("channels-channel")
+  .channel("channels-realtime")
   .on(
     "postgres_changes",
     { event: "*", schema: "public", table: "channels" },
     (payload) => {
-      console.log("📢 Channel change detected:", payload.eventType);
-
-      if (payload.eventType === "INSERT" && payload.new) {
-        const newCh = payload.new;
-        if (!channels.some(c => c.id === newCh.id)) {
-          channels.push(newCh);
-          renderChannelList();
-        }
-      } else if (payload.eventType === "UPDATE" && payload.new) {
-        const updated = payload.new;
-        const idx = channels.findIndex(c => c.id === updated.id);
-        if (idx !== -1) {
-          channels[idx] = { ...channels[idx], ...updated };
-          renderChannelList();
-          if (currentChannelId === updated.id) {
-            document.getElementById("currentChannelName").textContent = "# " + updated.name;
-          }
-        }
-      } else if (payload.eventType === "DELETE" && payload.old) {
-        const deletedId = payload.old.id;
-        channels = channels.filter(c => c.id !== deletedId);
-        renderChannelList();
-        if (currentChannelId === deletedId) {
-          if (channels.length > 0) switchChannel(channels[0].id);
-          else { currentChannelId = null; messagesList.innerHTML = ""; document.getElementById("currentChannelName").textContent = "No channels"; }
-        }
-      }
+      const deletedId = payload.eventType === "DELETE" ? payload.old?.id : null;
+      reloadChannelsRealtime(deletedId);
     }
   )
   .subscribe();
 
-// ======================== REALTIME FOR CATEGORIES ========================
 supabaseClient
   .channel("categories-realtime")
-  .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, (payload) => {
-    if (payload.eventType === "INSERT" && payload.new) {
-      if (!categories.some(c => c.id === payload.new.id)) categories.push(payload.new);
-      renderChannelList();
-    } else if (payload.eventType === "UPDATE" && payload.new) {
-      const idx = categories.findIndex(c => c.id === payload.new.id);
-      if (idx !== -1) categories[idx] = { ...categories[idx], ...payload.new };
-      renderChannelList();
-    } else if (payload.eventType === "DELETE" && payload.old) {
-      categories = categories.filter(c => c.id !== payload.old.id);
-      renderChannelList();
-    }
-  })
+  .on(
+    "postgres_changes",
+    { event: "*", schema: "public", table: "categories" },
+    () => reloadChannelsRealtime()
+  )
   .subscribe();
 
 async function giveCustomRole(targetUser) {
