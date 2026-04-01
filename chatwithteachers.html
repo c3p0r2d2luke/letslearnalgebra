@@ -50,19 +50,19 @@
     <!-- CHAT -->
     <div class="chat-app">
 
+      <div id="typingIndicator"></div>
+
       <div class="chat-header">
         <span id="currentChannelName"># general</span>
       </div>
 
       <ul id="messages"></ul>
 
+      <button id="scrollBottomBtn" title="Jump to latest">↓</button>
+
       <div id="replyBanner" style="display:none;">
         <span id="replyBannerText"></span>
         <button id="cancelReplyBtn">✕</button>
-      </div>
-      <div id="threadBanner" style="display:none;">
-        <span id="threadBannerText"></span>
-        <button id="cancelThreadBtn">✕</button>
       </div>
 
       <div id="controls">
@@ -70,11 +70,9 @@
   <textarea id="messageInput" placeholder="Message..." disabled></textarea>
   <button id="sendButton">Send</button>
 </div>
-
     </div>
 
   </div>
-  <div id="typingIndicator"></div>
 
 </div>
 <!-- MESSAGE RIGHT-CLICK CONTEXT MENU -->

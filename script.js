@@ -1,5 +1,15 @@
 /* global Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs, TextEncoder, crypto */
 
+const input = document.getElementById("messageInput");
+
+input.addEventListener("input", () => {
+  sendTyping(true);
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    sendTyping(false);
+  }, 2000);
+});
+
 document.getElementById("createChannelBtn").addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
@@ -196,6 +206,7 @@ document.getElementById("passwordBtn").addEventListener("click", async () => {
   }
 });
 
+let isTyping = false;
 let channels = [];
 let categories = [];
 let collapsedCategories = new Set();
@@ -204,13 +215,10 @@ let currentChannelId = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
-const threadMap = new Map(); // parentId → { parent, replies }
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
-const input = document.getElementById("messageInput");
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
-const threadsContainer = document.getElementById("threadsContainer");
 
 function escapeHTML(str) {
   return str
@@ -218,29 +226,6 @@ function escapeHTML(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-
-// ======================== TAB SYSTEM ========================
-let currentTab = "messages";
-
-document.querySelectorAll(".tab").forEach(tab => {
-  tab.addEventListener("click", () => {
-    const tabName = tab.dataset.tab;
-    currentTab = tabName;
-
-    // Update active tab styling
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    tab.classList.add("active");
-
-    // Update panes
-    document.querySelectorAll(".tab-pane").forEach(pane => pane.classList.remove("active"));
-    document.getElementById(`${tabName}-pane`).classList.add("active");
-
-    // Refresh threads view if switching to threads
-    if (tabName === "threads") {
-
-    }
-  });
-});
 
 const namePrompt = document.getElementById("namePrompt");
 const nameInput = document.getElementById("nameInput");
@@ -950,21 +935,6 @@ async function loadMessages() {
   }, 100);
 }
 
-function buildInitialThreads() {
-  messageDataMap.forEach(msg => {
-    if (msg.is_thread && msg.reply_to) {
-      if (!threadMap.has(msg.reply_to)) {
-        threadMap.set(msg.reply_to, { parent: null, replies: [] });
-      }
-      threadMap.get(msg.reply_to).replies.push(msg);
-    } else {
-      // parent message
-      if (threadMap.has(msg.id)) {
-        threadMap.get(msg.id).parent = msg;
-      }
-    }
-  });
-}
 
 // ======================== FULL FIXED loadUser FUNCTION ========================
 async function loadUser() {
@@ -1051,6 +1021,7 @@ async function loadUser() {
   // 5. Initialize Realtime Manager (BEFORE loading default channel)
   console.log("📡 Initializing realtime manager...");
   initRealtime();
+  subscribeToTyping();
 
   // 6. THEN Load Default Channel (which triggers switchChannel -> loadMessages -> subscribeToCurrentChannel)
   if (channels.length > 0) {
@@ -1194,10 +1165,7 @@ const messageData = {
   ip,
   channel_id: currentChannelId // 🔥 IMPORTANT
 };
-    if (threadReplyingTo) {
-      messageData.reply_to = threadReplyingTo;
-      messageData.is_thread = true;
-    } else if (replyingTo) {
+    if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
 
@@ -1211,14 +1179,7 @@ const messageData = {
       messagesList.scrollTop = messagesList.scrollHeight;
     }, 100);
 
-      if (threadReplyingTo) {
-  clearThreadReply();
-
-  if (currentTab === "threads") {
-    renderSingleThread(threadReplyingTo);
-  }
-
-} else if (replyingTo) {
+      if (replyingTo) {
   clearReply();
 }
 
@@ -1238,9 +1199,6 @@ const messageData = {
       // Moved inside the success block so it only runs if message was sent
       await processMentions(content);
 
-      if (currentTab === "threads") {
-
-      }
     }
   } catch (e) {
     console.error("❌ Failed to send message", e);
@@ -1322,9 +1280,6 @@ async function buildLinkPreview(url) {
 async function renderMessage(msg) {
   messageDataMap.set(msg.id, msg);
 
-  // Thread replies only appear in the Threads tab, not the main channel
-  if (msg.is_thread) return;
-
   let li = messagesMap.get(msg.id);
   if (!li) {
     li = document.createElement("li");
@@ -1350,10 +1305,23 @@ async function renderMessage(msg) {
   li.dataset.pinned = msg.is_pinned ? "true" : "false";
   li.style.border = msg.is_pinned ? "2px solid red" : "";
 
-   // --- Username ---
+   // --- Username + Timestamp Row ---
   const uname = document.createElement("div");
   uname.className = "username";
   uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
+
+  const ts = document.createElement("span");
+  ts.className = "msg-timestamp";
+  if (msg.inserted_at) {
+    const d = new Date(msg.inserted_at);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    ts.textContent = isToday
+      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
+        d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  uname.appendChild(ts);
   li.appendChild(uname);
 
   // --- Content ---
@@ -1371,10 +1339,7 @@ if (fileMatch) {
   const type = getFileType(url);
 
   if (type === "image") {
-    wrapper.innerHTML = `
-      <img src="${url}" 
-           style="max-width:300px;border-radius:8px;cursor:pointer;">
-    `;
+    wrapper.innerHTML = `<img src="${url}" class="msg-image">`;
   } else if (type === "video") {
     wrapper.innerHTML = `
       <video controls style="max-width:300px;border-radius:8px;">
@@ -1459,7 +1424,6 @@ function handleRealtimeMessage(newMsg, eventType) {
   if (eventType === "INSERT") {
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
-    updateThreadForMessage(newMsg);
     // 🔥 ADD THIS - Scroll to bottom for new messages
     setTimeout(() => {
       messagesList.scrollTop = messagesList.scrollHeight;
@@ -1479,7 +1443,6 @@ function handleRealtimeMessage(newMsg, eventType) {
   else if (eventType === "UPDATE") {
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
-    updateThreadForMessage(newMsg);
     if (newMsg.content.includes(`@${username}`)) {
   showMentionToast(newMsg);
 
@@ -1499,8 +1462,6 @@ function handleRealtimeMessage(newMsg, eventType) {
       li.remove();
       messagesMap.delete(newMsg.id);
     }
-
-    removeThreadMessage(newMsg.id);
   }
 }
 
@@ -2448,20 +2409,13 @@ async function renderReactions(messageId, li) {
 }
 
 
-// ---------------- THREAD REPLIES ----------------
+// ---------------- REPLIES ----------------
 
 let replyingTo = null;
-let threadReplyingTo = null;
 
 function clearReply() {
   replyingTo = null;
   document.getElementById("replyBanner").style.display = "none";
-  input.placeholder = "Message #general";
-}
-
-function clearThreadReply() {
-  threadReplyingTo = null;
-  document.getElementById("threadBanner").style.display = "none";
   input.placeholder = "Message #general";
 }
 
@@ -2470,7 +2424,6 @@ async function startReply(messageId) {
   alert("❌ You are muted.");
   return;
 }
-  clearThreadReply();
   replyingTo = messageId;
 
   const li = messagesMap.get(Number(messageId));
@@ -2486,34 +2439,11 @@ async function startReply(messageId) {
   input.focus();
 }
 
-async function startThread(messageId) {
-  if (isUserBlockedOrMutedSync()) {
-  alert("❌ You are muted.");
-  return;
-}
-  clearReply();
-  threadReplyingTo = messageId;
-
-  const li = messagesMap.get(Number(messageId));
-  if (!li) return;
-
-  const author = li.dataset.user === "Frenchwizz" ? "Takeo" : li.dataset.user;
-  const content = li.querySelector(".content")?.textContent || "";
-
-  document.getElementById("threadBannerText").textContent =
-    `${author}: ${content.substring(0, 50)}${content.length > 50 ? "…" : ""}`;
-  document.getElementById("threadBanner").style.display = "flex";
-  input.placeholder = "Reply in thread…";
-  input.focus();
-}
-
-// Cancel buttons and Escape key
+// Cancel button and Escape key
 document.getElementById("cancelReplyBtn").addEventListener("click", clearReply);
-document.getElementById("cancelThreadBtn").addEventListener("click", clearThreadReply);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     clearReply();
-    clearThreadReply();
   }
 });
 
@@ -2601,21 +2531,11 @@ input.addEventListener("input", async () => {
 function attachHoverControls(li, msg) {
   const controls = document.createElement("div");
   controls.className = "hoverControls";
-  controls.style.position = "absolute";
-  controls.style.right = "10px";
-  controls.style.top = "5px";
-  controls.style.display = "none";
-  controls.style.zIndex = "1000"; // Ensure it's on top
 
-  // React Button (Triggers Picker)
   const reactBtn = document.createElement("button");
   reactBtn.textContent = "😀";
   reactBtn.className = "emoji-trigger";
-  reactBtn.style.background = "transparent";
-  reactBtn.style.border = "none";
-  reactBtn.style.cursor = "pointer";
-  reactBtn.style.fontSize = "18px";
-
+  reactBtn.title = "React";
   reactBtn.onclick = (e) => {
     e.stopPropagation();
     const rect = reactBtn.getBoundingClientRect();
@@ -2624,10 +2544,7 @@ function attachHoverControls(li, msg) {
 
   const replyBtn = document.createElement("button");
   replyBtn.textContent = "↩";
-  replyBtn.style.background = "transparent";
-  replyBtn.style.border = "none";
-  replyBtn.style.cursor = "pointer";
-  replyBtn.style.fontSize = "18px";
+  replyBtn.title = "Reply";
   replyBtn.onclick = () => startReply(msg.id);
 
   controls.appendChild(reactBtn);
@@ -2635,14 +2552,6 @@ function attachHoverControls(li, msg) {
 
   li.style.position = "relative";
   li.appendChild(controls);
-
-  li.addEventListener("mouseenter", () => {
-    controls.style.display = "block";
-  });
-
-  li.addEventListener("mouseleave", () => {
-    controls.style.display = "none";
-  });
 }
 
 
@@ -2666,106 +2575,6 @@ function displayName(u) {
   return u === "Frenchwizz" ? "Takeo" : u;
 }
 
-async function getAllThreads() {
-  // Only fetch messages explicitly marked as thread replies
-  const { data: threadReplies } = await supabaseClient
-    .from("messages")
-    .select("*")
-    .eq("is_thread", true)
-    .order("inserted_at", { ascending: true });
-
-  if (!threadReplies || threadReplies.length === 0) return [];
-
-  const parentIds = [...new Set(threadReplies.map(r => r.reply_to))].filter(Boolean);
-  if (parentIds.length === 0) return [];
-
-  const { data: parents } = await supabaseClient
-    .from("messages")
-    .select("*")
-    .in("id", parentIds);
-
-  if (!parents) return [];
-
-  const parentMap = {};
-  parents.forEach(p => { parentMap[p.id] = p; });
-
-  const threads = {};
-  threadReplies.forEach(r => {
-    if (!r.reply_to || !parentMap[r.reply_to]) return;
-    if (!threads[r.reply_to]) {
-      threads[r.reply_to] = { parent: parentMap[r.reply_to], replies: [] };
-    }
-    threads[r.reply_to].replies.push(r);
-  });
-
-  return Object.values(threads).filter(t => t.parent);
-}
-
-async function renderAllThreads() {
-  threadsContainer.innerHTML = "";
-  const threads = await getAllThreads();
-
-  if (threads.length === 0) {
-    threadsContainer.innerHTML = `
-      <p style="color: var(--text-muted); padding: 16px; text-align: center;">
-        No threads yet.<br>
-        Right-click any message and choose <strong>Reply in Thread</strong> to start one.
-      </p>`;
-    return;
-  }
-
-  threads.forEach(thread => {
-    const threadEl = document.createElement("div");
-    threadEl.className = "thread-item";
-
-    const count = thread.replies.length;
-    const parentText = thread.parent.content.substring(0, 80) +
-      (thread.parent.content.length > 80 ? "…" : "");
-
-    // Clickable header — expands/collapses replies
-    const headerDiv = document.createElement("div");
-    headerDiv.className = "thread-header";
-    headerDiv.innerHTML = `
-      <div style="flex:1; min-width:0;">
-        <span class="reply-author">${escapeHTML(displayName(thread.parent.username))}</span>
-        <span style="color:var(--text-muted); font-weight:400;"> — ${escapeHTML(parentText)}</span>
-      </div>
-      <div class="thread-reply-count">${count} ${count === 1 ? "reply" : "replies"} ▾</div>
-    `;
-
-    // Replies panel (hidden by default)
-    const repliesDiv = document.createElement("div");
-    repliesDiv.className = "thread-replies";
-    repliesDiv.style.display = "none";
-
-    thread.replies.forEach(reply => {
-      const replyEl = document.createElement("div");
-replyEl.className = "thread-reply";
-
-// 🔥 ADD THIS
-replyEl.dataset.id = reply.id;
-replyEl.dataset.user = reply.username;
-      replyEl.innerHTML = `
-        <div class="reply-author">${escapeHTML(displayName(reply.username))}</div>
-        <div>${escapeHTML(reply.content)}</div>
-      `;
-      repliesDiv.appendChild(replyEl);
-    });
-
-    // Toggle on click
-    headerDiv.style.cursor = "pointer";
-    headerDiv.addEventListener("click", () => {
-      const isOpen = repliesDiv.style.display !== "none";
-      repliesDiv.style.display = isOpen ? "none" : "block";
-      headerDiv.querySelector(".thread-reply-count").textContent =
-        `${count} ${count === 1 ? "reply" : "replies"} ${isOpen ? "▾" : "▴"}`;
-    });
-
-    threadEl.appendChild(headerDiv);
-    threadEl.appendChild(repliesDiv);
-    threadsContainer.appendChild(threadEl);
-  });
-}
 
 // ===================== Force Logout Logic =====================
 function watchForceLogout(currentUsername) {
@@ -2904,7 +2713,7 @@ function updateTypingUI() {
 
   supabaseClient
     .from("typing")
-    .select("username")
+    .select("username, updated_at, typing")
     .eq("typing", true)
     .then(({ data }) => {
       if (!data) {
@@ -2912,13 +2721,25 @@ function updateTypingUI() {
         return;
       }
 
+      const now = Date.now();
+
       const typingUsers = data
-        .filter(u => u.username !== username)
+        .filter(u => 
+          u.username !== username &&
+          now - new Date(u.updated_at).getTime() < 5000 // ignore stale
+        )
         .map(u => u.username);
 
-      box.textContent = typingUsers.length > 0 
-        ? `${typingUsers.join(", ")} typing...` 
-        : "";
+      const dots = `<span class="typing-dots"><span></span><span></span><span></span></span>`;
+      if (typingUsers.length === 0) {
+        box.innerHTML = "";
+      } else if (typingUsers.length === 1) {
+        box.innerHTML = `<strong>${typingUsers[0]}</strong> is typing${dots}`;
+      } else if (typingUsers.length === 2) {
+        box.innerHTML = `<strong>${typingUsers[0]}</strong> and <strong>${typingUsers[1]}</strong> are typing${dots}`;
+      } else {
+        box.innerHTML = `<strong>${typingUsers[0]}</strong> and <strong>${typingUsers.length - 1}</strong> others are typing${dots}`;
+      }
     });
 }
 
@@ -2942,29 +2763,109 @@ function getFileType(url) {
   }
 }
 
-document.addEventListener("click", (e) => {
-  if (e.target.tagName === "IMG") {
-    const src = e.target.src;
-    const overlay = document.createElement("div");
+// ======================== DISCORD-STYLE LIGHTBOX ========================
 
-    overlay.style.position = "fixed";
-    overlay.style.top = 0;
-    overlay.style.left = 0;
-    overlay.style.width = "100%";
-    overlay.style.height = "100%";
-    overlay.style.background = "rgba(0,0,0,0.8)";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.zIndex = "9999";
+function openLightbox(src) {
+  const existing = document.getElementById("lightboxOverlay");
+  if (existing) existing.remove();
 
-    overlay.innerHTML = `<img src="${src}" style="max-width: 90%; max-height: 90%;">`;
+  const overlay = document.createElement("div");
+  overlay.id = "lightboxOverlay";
 
-    overlay.onclick = () => overlay.remove();
+  const imgWrap = document.createElement("div");
+  imgWrap.className = "lightbox-img-wrap";
+  const img = document.createElement("img");
+  img.src = src;
+  imgWrap.appendChild(img);
 
-    document.body.appendChild(overlay);
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "lightbox-close";
+  closeBtn.textContent = "✕";
+  closeBtn.title = "Close (ESC)";
+  closeBtn.onclick = (e) => { e.stopPropagation(); closeLightbox(overlay); };
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "lightbox-toolbar";
+
+  const openLink = document.createElement("a");
+  openLink.href = src;
+  openLink.target = "_blank";
+  openLink.rel = "noopener noreferrer";
+  openLink.textContent = "⧉  Open in browser";
+  openLink.onclick = (e) => e.stopPropagation();
+
+  const dlLink = document.createElement("a");
+  dlLink.href = src;
+  dlLink.download = src.split("/").pop().split("?")[0] || "image";
+  dlLink.textContent = "⬇  Download";
+  dlLink.onclick = (e) => e.stopPropagation();
+
+  toolbar.appendChild(openLink);
+  toolbar.appendChild(dlLink);
+
+  overlay.appendChild(closeBtn);
+  overlay.appendChild(imgWrap);
+  overlay.appendChild(toolbar);
+  document.body.appendChild(overlay);
+
+  // Animate in
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => overlay.classList.add("visible"));
+  });
+
+  // Click backdrop to close
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay || e.target === imgWrap) closeLightbox(overlay);
+  });
+}
+
+function closeLightbox(overlay) {
+  overlay.classList.remove("visible");
+  setTimeout(() => overlay.remove(), 160);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const overlay = document.getElementById("lightboxOverlay");
+    if (overlay) closeLightbox(overlay);
   }
 });
+
+document.addEventListener("click", (e) => {
+  if (e.target.tagName === "IMG") {
+    // Skip emoji images, tiny icons, and server icons
+    const skip = e.target.closest(
+      ".reactionBubble, .reactionBar, .hoverControls, .server-icon, .emoji-trigger, .link-preview"
+    );
+    if (skip) return;
+
+    const w = e.target.naturalWidth || e.target.width;
+    const h = e.target.naturalHeight || e.target.height;
+    if (w < 48 || h < 48) return; // skip tiny images (emoji-sized)
+
+    openLightbox(e.target.src);
+  }
+});
+
+// ======================== SCROLL-TO-BOTTOM BUTTON ========================
+
+(function initScrollBottomBtn() {
+  const btn = document.getElementById("scrollBottomBtn");
+  if (!btn) return;
+
+  messagesList.addEventListener("scroll", () => {
+    const distFromBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight;
+    if (distFromBottom > 200) {
+      btn.classList.add("visible");
+    } else {
+      btn.classList.remove("visible");
+    }
+  });
+
+  btn.addEventListener("click", () => {
+    messagesList.scrollTo({ top: messagesList.scrollHeight, behavior: "smooth" });
+  });
+})();
 
 function handleReaction(messageId, emoji) {
   const li = messagesMap.get(Number(messageId));
@@ -3017,103 +2918,7 @@ function executeScripts(container) {
   });
 }
 
-function refreshUI() {
-  if (currentTab === "threads") {
 
-  } else {
-    // main chat already updates incrementally
-    // but you *can* force consistency if needed:
-    // messagesList.innerHTML = "";
-    // messagesMap.clear();
-    // loadMessages();
-  }
-}
-
-function updateThreadForMessage(msg) {
-  if (!msg.reply_to && !msg.is_thread) {
-    // this is a parent message
-    if (!threadMap.has(msg.id)) {
-      threadMap.set(msg.id, { parent: msg, replies: [] });
-    } else {
-      threadMap.get(msg.id).parent = msg;
-    }
-    return;
-  }
-
-  if (!msg.reply_to) return;
-
-  if (!threadMap.has(msg.reply_to)) {
-    threadMap.set(msg.reply_to, { parent: null, replies: [] });
-  }
-
-  const thread = threadMap.get(msg.reply_to);
-
-  if (msg.is_thread) {
-    const existingIndex = thread.replies.findIndex(r => r.id === msg.id);
-
-    if (existingIndex !== -1) {
-      thread.replies[existingIndex] = msg;
-    } else {
-      thread.replies.push(msg);
-    }
-
-    if (currentTab === "threads") {
-      renderSingleThread(msg.reply_to);
-    }
-  }
-}
-
-function removeThreadMessage(messageId) {
-  threadMap.forEach((thread, parentId) => {
-    thread.replies = thread.replies.filter(r => r.id !== messageId);
-
-    if (thread.parent?.id === messageId) {
-      threadMap.delete(parentId);
-      removeThreadFromUI(parentId);
-    } else {
-      if (currentTab === "threads") {
-        renderSingleThread(parentId);
-      }
-    }
-  });
-}
-
-function renderSingleThread(parentId) {
-  const thread = threadMap.get(parentId);
-  if (!thread || !thread.parent) return;
-
-  let existing = document.querySelector(`[data-thread-id="${parentId}"]`);
-
-  if (!existing) {
-    existing = document.createElement("div");
-    existing.className = "thread-item";
-    existing.dataset.threadId = parentId;
-    threadsContainer.appendChild(existing);
-  }
-
-  existing.innerHTML = "";
-
-  const header = document.createElement("div");
-  header.className = "thread-header";
-  header.textContent = `${thread.parent.username}: ${thread.parent.content}`;
-
-  existing.appendChild(header);
-
-  thread.replies.forEach(reply => {
-    const replyEl = document.createElement("div");
-    replyEl.className = "thread-reply";
-    replyEl.dataset.id = reply.id;
-    replyEl.dataset.user = reply.username;
-    replyEl.textContent = reply.content;
-
-    existing.appendChild(replyEl);
-  });
-}
-
-function removeThreadFromUI(parentId) {
-  const el = document.querySelector(`[data-thread-id="${parentId}"]`);
-  if (el) el.remove();
-}
 function showMentionToast(msg) {
   const toast = document.createElement("div");
   toast.textContent = `📣 ${msg.username} mentioned you`;
@@ -3442,3 +3247,38 @@ async function createCustomRole() {
 
   alert("✅ Role created!");
 }
+
+function sendTyping(status) {
+  if (isTyping === status) return;
+  isTyping = status;
+
+  supabaseClient
+    .from("typing")
+    .upsert({
+      username: username,
+      typing: status
+    });
+}
+
+function subscribeToTyping() {
+  supabaseClient
+    .channel("typing-channel")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "typing" },
+      () => {
+        updateTypingUI();
+      }
+    )
+    .subscribe();
+}
+
+window.addEventListener("beforeunload", () => {
+  navigator.sendBeacon(
+    `${supabaseUrl}/rest/v1/typing`,
+    JSON.stringify({
+      username: username,
+      typing: false
+    })
+  );
+});
