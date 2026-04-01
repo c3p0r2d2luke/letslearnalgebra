@@ -1880,11 +1880,18 @@ async function addCustomEmoji() {
 
   if (useUrl) {
     url = prompt("Paste image URL:");
-    if (!url || !url.trim()) return;
+    if (!url || !url.trim()) {
+      alert("❌ URL is required for URL-based emojis.");
+      return;
+    }
     url = url.trim();
   } else {
     url = await uploadCustomEmojiFile();
-    if (!url) return;
+    if (!url) {
+      // User cancelled file selection - give them feedback
+      alert("ℹ️ File upload was cancelled. No emoji was added.");
+      return;
+    }
   }
 
   const { error } = await supabaseClient
@@ -1895,24 +1902,97 @@ async function addCustomEmoji() {
     alert("❌ Failed to add custom emoji: " + error.message);
   } else {
     await loadCustomEmojis();
+    alert("✅ Custom emoji added successfully!");
   }
 }
 
 async function uploadCustomEmojiFile() {
   return new Promise((resolve) => {
+    // 1. Create the input element
     const fileInput = document.createElement("input");
     fileInput.type = "file";
     fileInput.accept = "image/*";
+    
+    // 2. Append it to the body (required for some browsers to allow programmatic click)
+    document.body.appendChild(fileInput);
+
+    // 3. Define the change handler BEFORE clicking
     fileInput.onchange = async () => {
       const file = fileInput.files[0];
-      if (!file) { resolve(null); return; }
-      const fileName = `emoji_${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
-      const { error } = await supabaseClient.storage.from("emoji-files").upload(fileName, file);
-      if (error) { alert("❌ Upload failed: " + error.message); resolve(null); return; }
-      const { data } = supabaseClient.storage.from("emoji-files").getPublicUrl(fileName);
-      resolve(data.publicUrl);
+      
+      // Clean up: remove the input from DOM
+      document.body.removeChild(fileInput);
+
+      if (!file) {
+        console.log("🚫 File upload cancelled by user.");
+        resolve(null);
+        return;
+      }
+
+      // Validate file size
+      const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+      if (file.size > MAX_SIZE) {
+        alert("❌ File too large. Max 10MB allowed.");
+        resolve(null);
+        return;
+      }
+
+      // Show loading state
+      const uploadBtn = document.getElementById("uploadBtn");
+      if (uploadBtn) {
+        uploadBtn.textContent = "⏳";
+        uploadBtn.disabled = true;
+      }
+
+      try {
+        // 4. Generate unique filename
+        const timestamp = Date.now();
+        const fileName = `emoji_$${timestamp}_$${file.name.replace(/\s+/g, "_")}`;
+
+        console.log("📤 Uploading file:", fileName);
+
+        // 5. Upload to Supabase Storage
+        const { error: uploadError } = await supabaseClient.storage
+          .from("emoji-files")
+          .upload(fileName, file);
+
+        if (uploadError) {
+          console.error("❌ Upload error:", uploadError);
+          alert("❌ Upload failed: " + uploadError.message);
+          resolve(null);
+          return;
+        }
+
+        // 6. Get public URL
+        const { data: urlData } = supabaseClient.storage
+          .from("emoji-files")
+          .getPublicUrl(fileName);
+
+        console.log("✅ Upload successful. URL:", urlData.publicUrl);
+        resolve(urlData.publicUrl);
+
+      } catch (err) {
+        console.error("❌ Unexpected error:", err);
+        alert("❌ Unexpected error: " + err.message);
+        resolve(null);
+      } finally {
+        if (uploadBtn) {
+          uploadBtn.textContent = "📎";
+          uploadBtn.disabled = false;
+        }
+      }
     };
+
+    // 7. Trigger the click
+    console.log("🖱️ Triggering file picker click...");
     fileInput.click();
+
+    // Optional: Auto-remove if user doesn't interact for 30s (cleanup safety)
+    setTimeout(() => {
+      if (document.body.contains(fileInput)) {
+        document.body.removeChild(fileInput);
+      }
+    }, 30000);
   });
 }
 
