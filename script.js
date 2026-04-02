@@ -171,6 +171,9 @@ document.addEventListener("contextmenu", (e) => {
     addButton("Block User", () => blockUser(author));
     addButton("Unblock User", () => unblockUser(author));
     addButton("Force Logout", () => forceLogout(author));
+
+    addSection("Server");
+    addButton("Generate Invite Link", () => generateInvite());
   }
 
   // ================= SCREEN BOUNDARY DETECTION =================
@@ -340,6 +343,10 @@ let categories = [];
 let collapsedCategories = new Set();
 try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
 let currentChannelId = null;
+let currentServerId = null;
+let servers = [];
+let serverMembers = [];
+let presenceSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -477,19 +484,17 @@ supabaseClient
 const channelList = document.getElementById("channelList");
 
 async function loadCategories() {
-  const { data, error } = await supabaseClient
-    .from("categories")
-    .select("*")
-    .order("sort_order");
+  let q = supabaseClient.from("categories").select("*").order("sort_order");
+  if (currentServerId) q = q.eq("server_id", currentServerId);
+  const { data, error } = await q;
   if (!error && data) categories = data;
 }
 
 async function loadChannels() {
   await loadCategories();
-  const { data, error } = await supabaseClient
-    .from("channels")
-    .select("*")
-    .order("sort_order");
+  let q = supabaseClient.from("channels").select("*").order("sort_order");
+  if (currentServerId) q = q.eq("server_id", currentServerId);
+  const { data, error } = await q;
 
   if (error) {
     console.error("❌ loadChannels error:", error);
@@ -882,7 +887,7 @@ async function performCreateCategory(name) {
   const sortOrder = categories.length;
   const { data, error } = await supabaseClient
     .from("categories")
-    .insert({ name: trimmed, sort_order: sortOrder, created_by: username })
+    .insert({ name: trimmed, sort_order: sortOrder, created_by: username, server_id: currentServerId })
     .select()
     .maybeSingle();
 
@@ -944,7 +949,7 @@ async function tryCreateChannel() {
     return;
   }
 
-  const btn = document.getElementById("addServerBtn");
+  const btn = document.getElementById("createChannelBtn");
 
   // ✅ 1. Get name
   const name = prompt("Enter new channel name:");
@@ -968,7 +973,8 @@ async function tryCreateChannel() {
       .insert({
         name: trimmedName,
         created_by: username,
-        category: category || "General"
+        category: category || "General",
+        server_id: currentServerId
       })
       .select()
       .maybeSingle();
@@ -1020,6 +1026,9 @@ function switchChannel(channelId) {
 
   // 🔥 CRITICAL: Subscribe to realtime for THIS specific channel
   subscribeToCurrentChannel();
+
+  // Update channel presence for member list
+  updateChannelPresence(channelId);
 
   // 🔥 Force scroll to bottom
   setTimeout(() => {
@@ -1140,36 +1149,17 @@ async function loadUser() {
   if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
   if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
 
-  // 4. CRITICAL SEQUENCE: Load Channels FIRST
-  console.log("📂 Loading channels...");
-  await loadChannels(); // Wait for channels to populate
-  console.log("✅ Channels loaded. Count:", channels.length);
-  console.log("📋 Channels array:", channels);
-
-  // 5. Initialize Realtime Manager (BEFORE loading default channel)
+  // 4. Initialize Realtime Manager
   console.log("📡 Initializing realtime manager...");
   initRealtime();
   subscribeToTyping();
 
-  // 6. THEN Load Default Channel (which triggers switchChannel -> loadMessages -> subscribeToCurrentChannel)
-  if (channels.length > 0) {
-    console.log("📡 Loading default channel...");
-    await loadDefaultChannel(); // This sets currentChannelId and loads messages
-    console.log("✅ Default channel loaded.");
-  } else {
-    console.warn("⚠️ No channels found. Creating 'general'...");
-    // Create 'general' if it doesn't exist
-    const { error } = await supabaseClient.from("channels").insert([{ name: "general", created_by: username }]);
-    if (!error) {
-      await loadChannels(); // Reload to get the new channel
-      await loadDefaultChannel();
-    } else {
-      console.error("Failed to create 'general' channel:", error);
-      alert("❌ Failed to create default channel. Please contact admin.");
-    }
-  }
+  // 5. Load servers (which will load channels + default channel per server)
+  initServerModals();
+  await loadServers();
+  await checkInviteOnLoad();
 
-  // 7. Initialize Other Listeners (AFTER channels/messages/realtime are ready)
+  // 6. Initialize Other Listeners
   watchForceLogout(storedName);
   subscribeToUserStatus();
   applyMuteBlockUI();
@@ -3391,11 +3381,9 @@ async function loadDefaultChannel() {
     return;
   }
 
-  const { data, error } = await supabaseClient
-    .from("channels")
-    .select("*")
-    .eq("name", "general")
-    .maybeSingle();
+  let q2 = supabaseClient.from("channels").select("*").eq("name", "general");
+  if (currentServerId) q2 = q2.eq("server_id", currentServerId);
+  const { data, error } = await q2.maybeSingle();
 
   let targetChannelId;
 
@@ -3424,10 +3412,9 @@ async function loadDefaultChannel() {
 // Called by both realtime handlers so every client always has the authoritative order.
 async function reloadChannelsRealtime(deletedChannelId = null) {
   await loadCategories();
-  const { data, error } = await supabaseClient
-    .from("channels")
-    .select("*")
-    .order("sort_order");
+  let q = supabaseClient.from("channels").select("*").order("sort_order");
+  if (currentServerId) q = q.eq("server_id", currentServerId);
+  const { data, error } = await q;
   if (error) return;
   channels = data;
   renderChannelList();
@@ -3541,6 +3528,467 @@ function subscribeToTyping() {
       }
     )
     .subscribe();
+}
+
+// ======================== SERVER SYSTEM ========================
+
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "flex";
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
+}
+
+async function loadServers() {
+  if (!username) return;
+  const { data, error } = await supabaseClient
+    .from("server_members")
+    .select("server_id, servers(*)")
+    .eq("username", username);
+
+  if (error) { console.error("loadServers error:", error); servers = []; }
+  else { servers = (data || []).map(d => d.servers).filter(Boolean); }
+
+  renderServerList();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const serverSlug = urlParams.get("server");
+  let target = serverSlug ? servers.find(s => s.slug === serverSlug) : null;
+  if (!target && servers.length > 0) target = servers[0];
+
+  if (target) {
+    await switchServer(target.id, false);
+  } else {
+    showNoServerScreen();
+  }
+}
+
+async function switchServer(serverId, updateUrl = true) {
+  currentServerId = serverId;
+  const server = servers.find(s => s.id === serverId);
+
+  if (server) {
+    if (updateUrl) {
+      const url = new URL(window.location);
+      url.searchParams.set("server", server.slug);
+      url.searchParams.delete("invite");
+      window.history.replaceState({}, "", url);
+    }
+    const nameEl = document.getElementById("serverNameDisplay");
+    if (nameEl) nameEl.textContent = server.name;
+  }
+
+  document.querySelectorAll(".server-icon[data-server-id]").forEach(el => {
+    el.classList.toggle("active", el.dataset.serverId === serverId);
+  });
+
+  const noServerScreen = document.getElementById("noServerScreen");
+  if (noServerScreen) noServerScreen.remove();
+  const controlsEl = document.getElementById("controls");
+  if (controlsEl) controlsEl.classList.add("visible");
+
+  const msgInput = document.getElementById("messageInput");
+  if (msgInput) msgInput.disabled = false;
+
+  await loadChannels();
+
+  if (channels.length > 0) {
+    await loadDefaultChannel();
+  } else {
+    await supabaseClient.from("channels").insert({
+      name: "general",
+      created_by: username,
+      category: "General",
+      server_id: currentServerId
+    });
+    await loadChannels();
+    await loadDefaultChannel();
+  }
+
+  loadServerMembers();
+  subscribeToPresence();
+}
+
+function renderServerList() {
+  const serverList = document.getElementById("serverList");
+  if (!serverList) return;
+  serverList.innerHTML = "";
+
+  servers.forEach(server => {
+    const icon = document.createElement("div");
+    icon.className = "server-icon";
+    icon.dataset.serverId = server.id;
+    icon.title = server.name;
+    if (server.id === currentServerId) icon.classList.add("active");
+    if (server.icon_url) {
+      const img = document.createElement("img");
+      img.src = server.icon_url;
+      img.alt = server.name;
+      icon.appendChild(img);
+    } else {
+      icon.textContent = server.name.charAt(0).toUpperCase();
+    }
+    icon.addEventListener("click", () => switchServer(server.id));
+    serverList.appendChild(icon);
+  });
+}
+
+function showNoServerScreen() {
+  const controlsEl = document.getElementById("controls");
+  if (controlsEl) controlsEl.classList.remove("visible");
+  const msgInput = document.getElementById("messageInput");
+  if (msgInput) msgInput.disabled = true;
+  document.getElementById("currentChannelName").textContent = "No Server";
+  const messagesEl = document.getElementById("messages");
+  if (messagesEl) messagesEl.innerHTML = "";
+
+  const chatApp = document.querySelector(".chat-app");
+  if (!chatApp) return;
+  let screen = document.getElementById("noServerScreen");
+  if (!screen) {
+    screen = document.createElement("div");
+    screen.id = "noServerScreen";
+    chatApp.appendChild(screen);
+  }
+  screen.innerHTML = `
+    <h3>You're not in any server</h3>
+    <p>Create a new server or join one with an invite link.</p>
+    <button onclick="openModal('serverModal')">Add a Server</button>
+  `;
+}
+
+async function loadServerMembers() {
+  if (!currentServerId) return;
+  const { data: members, error } = await supabaseClient
+    .from("server_members")
+    .select("username, users(role)")
+    .eq("server_id", currentServerId);
+
+  if (error) { console.error("loadServerMembers error:", error); return; }
+  serverMembers = members || [];
+
+  const { data: presence } = await supabaseClient
+    .from("channel_presence")
+    .select("*")
+    .eq("server_id", currentServerId);
+
+  renderMemberList(presence || []);
+}
+
+function renderMemberList(presence) {
+  const content = document.getElementById("memberListContent");
+  if (!content) return;
+  content.innerHTML = "";
+
+  const presenceMap = new Map((presence || []).map(p => [p.username, p]));
+  const now = Date.now();
+  const ONLINE_THRESHOLD = 5 * 60 * 1000;
+  const online = [];
+  const offline = [];
+
+  serverMembers.forEach(m => {
+    const p = presenceMap.get(m.username);
+    const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
+    if (isOnline) online.push({ ...m, presence: p });
+    else offline.push({ ...m, presence: null });
+  });
+
+  const renderGroup = (label, members) => {
+    if (members.length === 0) return;
+    const groupLabel = document.createElement("div");
+    groupLabel.className = "member-group-label";
+    groupLabel.textContent = `${label} — ${members.length}`;
+    content.appendChild(groupLabel);
+
+    members.forEach(m => {
+      const item = document.createElement("div");
+      item.className = "member-item";
+      const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
+      const role = m.users?.role || "User";
+      const roleLower = role.toLowerCase();
+      item.innerHTML = `
+        <div class="member-avatar">
+          ${escapeHTML(m.username.charAt(0).toUpperCase())}
+          <span class="status-dot ${label === "Online" ? "online" : ""}"></span>
+        </div>
+        <div class="member-info">
+          <div class="member-name">${escapeHTML(m.username)}</div>
+          ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
+        </div>
+        ${(roleLower === "admin" || roleLower === "manager") ? `<span class="member-role-badge ${roleLower}">${role}</span>` : ""}
+      `;
+      content.appendChild(item);
+    });
+  };
+
+  renderGroup("Online", online);
+  renderGroup("Offline", offline);
+}
+
+async function updateChannelPresence(channelId) {
+  if (!username || !currentServerId) return;
+  await supabaseClient.from("channel_presence").upsert({
+    username,
+    channel_id: channelId,
+    server_id: currentServerId,
+    updated_at: new Date().toISOString()
+  }, { onConflict: ["username"] });
+}
+
+function subscribeToPresence() {
+  if (presenceSubscription) {
+    try { presenceSubscription.unsubscribe(); } catch {}
+    presenceSubscription = null;
+  }
+  if (!currentServerId) return;
+
+  presenceSubscription = supabaseClient
+    .channel(`presence-${currentServerId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "channel_presence",
+      filter: `server_id=eq.${currentServerId}`
+    }, () => {
+      loadServerMembers();
+    })
+    .subscribe();
+}
+
+async function generateInvite() {
+  if (!currentServerId) { alert("❌ No server selected."); return; }
+  const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+  const { error } = await supabaseClient.from("server_invites").insert({
+    server_id: currentServerId,
+    code,
+    created_by: username
+  });
+  if (error) { alert("❌ Failed to create invite: " + error.message); return; }
+  const base = window.location.origin + window.location.pathname;
+  const link = `${base}?invite=${code}`;
+  const linkInput = document.getElementById("inviteLinkText");
+  if (linkInput) linkInput.value = link;
+  openModal("inviteModal");
+}
+
+async function joinServer(codeOrUrl) {
+  let code = codeOrUrl.trim();
+  try {
+    const u = new URL(code);
+    const c = u.searchParams.get("invite");
+    if (c) code = c;
+  } catch {}
+
+  const { data: invite, error } = await supabaseClient
+    .from("server_invites")
+    .select("*, servers(*)")
+    .eq("code", code)
+    .maybeSingle();
+
+  if (error || !invite) return "❌ Invalid invite code.";
+  if (invite.expires_at && new Date(invite.expires_at) < new Date()) return "❌ This invite has expired.";
+  if (invite.max_uses && invite.use_count >= invite.max_uses) return "❌ This invite has reached its maximum uses.";
+
+  const { data: existing } = await supabaseClient
+    .from("server_members")
+    .select("username")
+    .eq("server_id", invite.server_id)
+    .eq("username", username)
+    .maybeSingle();
+
+  if (!existing) {
+    const { error: joinErr } = await supabaseClient.from("server_members").insert({
+      server_id: invite.server_id,
+      username
+    });
+    if (joinErr) return "❌ Failed to join: " + joinErr.message;
+    await supabaseClient.from("server_invites")
+      .update({ use_count: invite.use_count + 1 })
+      .eq("id", invite.id);
+  }
+
+  if (!servers.find(s => s.id === invite.server_id)) {
+    servers.push(invite.servers);
+    renderServerList();
+  }
+  await switchServer(invite.server_id);
+  return null;
+}
+
+async function checkInviteOnLoad() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const inviteCode = urlParams.get("invite");
+  if (!inviteCode || !username) return;
+
+  const { data: invite } = await supabaseClient
+    .from("server_invites")
+    .select("*, servers(*)")
+    .eq("code", inviteCode)
+    .maybeSingle();
+
+  if (!invite || !invite.servers) return;
+
+  const titleEl = document.getElementById("acceptInviteTitle");
+  const descEl = document.getElementById("acceptInviteDesc");
+  if (titleEl) titleEl.textContent = `You've been invited to join ${invite.servers.name}!`;
+  if (descEl) descEl.textContent = "Click Accept to join the server.";
+
+  const confirmBtn = document.getElementById("confirmAcceptInvite");
+  const declineBtn = document.getElementById("declineAcceptInvite");
+  const closeBtn = document.getElementById("closeAcceptInviteModal");
+
+  if (confirmBtn) confirmBtn.onclick = async () => {
+    closeModal("acceptInviteModal");
+    const err = await joinServer(inviteCode);
+    if (err) alert(err);
+  };
+  if (declineBtn) declineBtn.onclick = () => {
+    closeModal("acceptInviteModal");
+    const url = new URL(window.location);
+    url.searchParams.delete("invite");
+    window.history.replaceState({}, "", url);
+  };
+  if (closeBtn) closeBtn.onclick = () => closeModal("acceptInviteModal");
+
+  openModal("acceptInviteModal");
+}
+
+async function createServer(name, slug) {
+  const trimName = name.trim();
+  const trimSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  if (!trimName || !trimSlug) return "❌ Please fill in all fields.";
+
+  const { data: existing } = await supabaseClient
+    .from("servers")
+    .select("id")
+    .eq("slug", trimSlug)
+    .maybeSingle();
+
+  if (existing) return "❌ That URL is already taken. Try another.";
+
+  const { data: newServer, error } = await supabaseClient
+    .from("servers")
+    .insert({ name: trimName, slug: trimSlug, owner_username: username })
+    .select()
+    .maybeSingle();
+
+  if (error) return "❌ Failed to create server: " + error.message;
+
+  await supabaseClient.from("server_members").insert({
+    server_id: newServer.id,
+    username
+  });
+
+  servers.push(newServer);
+  renderServerList();
+  await switchServer(newServer.id);
+  return null;
+}
+
+function initServerModals() {
+  const addBtn = document.getElementById("addServerBtn");
+  if (addBtn) addBtn.addEventListener("click", () => openModal("serverModal"));
+
+  const goCreate = document.getElementById("goCreateServer");
+  if (goCreate) goCreate.addEventListener("click", () => {
+    closeModal("serverModal");
+    openModal("createServerModal");
+  });
+
+  const goJoin = document.getElementById("goJoinServer");
+  if (goJoin) goJoin.addEventListener("click", () => {
+    closeModal("serverModal");
+    openModal("joinServerModal");
+  });
+
+  const closeServer = document.getElementById("closeServerModal");
+  if (closeServer) closeServer.addEventListener("click", () => closeModal("serverModal"));
+
+  const confirmCreate = document.getElementById("confirmCreateServer");
+  if (confirmCreate) confirmCreate.addEventListener("click", async () => {
+    const name = document.getElementById("newServerName")?.value || "";
+    const slug = document.getElementById("newServerSlug")?.value || "";
+    const errEl = document.getElementById("createServerError");
+    if (errEl) errEl.style.display = "none";
+    const err = await createServer(name, slug);
+    if (err) {
+      if (errEl) { errEl.textContent = err; errEl.style.display = "block"; }
+      return;
+    }
+    if (document.getElementById("newServerName")) document.getElementById("newServerName").value = "";
+    if (document.getElementById("newServerSlug")) document.getElementById("newServerSlug").value = "";
+    closeModal("createServerModal");
+  });
+
+  const cancelCreate = document.getElementById("cancelCreateServer");
+  if (cancelCreate) cancelCreate.addEventListener("click", () => {
+    closeModal("createServerModal");
+    openModal("serverModal");
+  });
+  const closeCreate = document.getElementById("closeCreateServerModal");
+  if (closeCreate) closeCreate.addEventListener("click", () => closeModal("createServerModal"));
+
+  const confirmJoin = document.getElementById("confirmJoinServer");
+  if (confirmJoin) confirmJoin.addEventListener("click", async () => {
+    const code = document.getElementById("inviteCodeInput")?.value || "";
+    const errEl = document.getElementById("joinServerError");
+    if (errEl) errEl.style.display = "none";
+    const err = await joinServer(code);
+    if (err) {
+      if (errEl) { errEl.textContent = err; errEl.style.display = "block"; }
+      return;
+    }
+    if (document.getElementById("inviteCodeInput")) document.getElementById("inviteCodeInput").value = "";
+    closeModal("joinServerModal");
+  });
+
+  const cancelJoin = document.getElementById("cancelJoinServer");
+  if (cancelJoin) cancelJoin.addEventListener("click", () => {
+    closeModal("joinServerModal");
+    openModal("serverModal");
+  });
+  const closeJoin = document.getElementById("closeJoinServerModal");
+  if (closeJoin) closeJoin.addEventListener("click", () => closeModal("joinServerModal"));
+
+  const copyBtn = document.getElementById("copyInviteBtn");
+  if (copyBtn) copyBtn.addEventListener("click", () => {
+    const linkInput = document.getElementById("inviteLinkText");
+    if (!linkInput) return;
+    navigator.clipboard.writeText(linkInput.value).catch(() => {
+      linkInput.select();
+      document.execCommand("copy");
+    });
+    copyBtn.textContent = "Copied!";
+    setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
+  });
+
+  const closeInvite = document.getElementById("closeInviteModal");
+  if (closeInvite) closeInvite.addEventListener("click", () => closeModal("inviteModal"));
+  const closeInviteX = document.getElementById("closeInviteModalX");
+  if (closeInviteX) closeInviteX.addEventListener("click", () => closeModal("inviteModal"));
+
+  const mlToggle = document.getElementById("memberListToggle");
+  if (mlToggle) {
+    mlToggle.addEventListener("click", () => {
+      const ml = document.getElementById("memberList");
+      if (!ml) return;
+      if (window.innerWidth <= 768) {
+        ml.classList.toggle("open");
+      } else {
+        ml.style.display = (ml.style.display === "none" || ml.style.display === "") ? "flex" : "none";
+      }
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const ml = document.getElementById("memberList");
+    if (!ml || !ml.classList.contains("open")) return;
+    if (!ml.contains(e.target) && e.target.id !== "memberListToggle") {
+      ml.classList.remove("open");
+    }
+  });
 }
 
 window.addEventListener("beforeunload", () => {
