@@ -1,5 +1,36 @@
 /* global Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+// Add this near the top with your other constants
+const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Cache helpers
+function getPreviewCache() {
+  try {
+    const cached = localStorage.getItem(PREVIEW_CACHE_KEY);
+    if (!cached) return {};
+    const parsed = JSON.parse(cached);
+    // Prune expired entries
+    const now = Date.now();
+    const fresh = {};
+    Object.entries(parsed).forEach(([url, data]) => {
+      if (now - data.timestamp < CACHE_TTL) {
+        fresh[url] = data;
+      }
+    });
+    localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(fresh));
+    return fresh;
+  } catch {
+    return {};
+  }
+}
+
+function setPreviewCache(url, data) {
+  const cache = getPreviewCache();
+  cache[url] = { data, timestamp: Date.now() };
+  localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(cache));
+}
+
 const input = document.getElementById("messageInput");
 
 input.addEventListener("input", () => {
@@ -1349,24 +1380,43 @@ async function processMentions(content) {
     }
   }
 }
-
-// ------------------------ Link Preview ------------------------
+// Optimized preview builder with timeout
 async function buildLinkPreview(url) {
-  try {
-    const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
-    const { data } = await res.json();
-    if (!data) return null;
+  // Check cache first
+  const cache = getPreviewCache();
+  if (cache[url]?.data) {
+    console.log("📦 Preview loaded from cache:", url);
+    return cache[url].data;
+  }
 
-    return `
-      <div class="link-preview">
-        ${data.image ? `<img src="${data.image.url}">` : ""}
-        <div class="lp-text">
-          <div class="lp-title">${data.title || url}</div>
-          <div class="lp-desc">${data.description || ""}</div>
-          <a href="${url}" target="_blank">${url}</a>
-        </div>
-      </div>
-    `;
+  try {
+    // Timeout handling (works in all browsers)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Request timeout")), 3000);
+    });
+
+    const fetchPromise = fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+
+    // Race between fetch and timeout
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
+    const json = await res.json();
+    
+    if (!json.data) return null;
+
+    const preview = `
+<div class="link-preview">
+  ${json.data.image ? `<img src="${json.data.image.url}">` : ""}
+  <div class="lp-text">
+    <div class="lp-title">${json.data.title || url}</div>
+    <div class="lp-desc">${json.data.description || ""}</div>
+    <a href="${url}" target="_blank">${url}</a>
+  </div>
+</div>
+`;
+
+    // Cache the result
+    setPreviewCache(url, preview);
+    return preview;
   } catch (e) {
     console.warn("Preview failed for", url, e);
     return null;
@@ -1467,12 +1517,26 @@ wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
 const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
 
 if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
-  const preview = await buildLinkPreview(urlMatch[0]);
-  if (preview) {
-    const previewDiv = document.createElement("div");
-    previewDiv.innerHTML = preview;
-    wrapper.appendChild(previewDiv);
-  }
+  // Create placeholder immediately
+  const previewContainer = document.createElement("div");
+  previewContainer.className = "link-preview-container";
+  previewContainer.innerHTML = `
+    <div class="link-preview-loading">
+      <span class="loader"></span> Loading preview...
+    </div>
+  `;
+  wrapper.appendChild(previewContainer);
+
+  // Fetch preview in background (non-blocking)
+  setTimeout(async () => {
+    const preview = await buildLinkPreview(urlMatch[0]);
+    if (preview) {
+      previewContainer.innerHTML = preview;
+      previewContainer.classList.add("loaded");
+    } else {
+      previewContainer.remove(); // Remove loader if preview fails
+    }
+  }, 100); // Small delay to not block initial render
 }
 
 // Admin-only script execution stays separate
@@ -1602,6 +1666,36 @@ document.addEventListener("click", () => {
   const menu = document.getElementById("adminMenu");
   if (menu) menu.style.display = "none";
 });
+
+// ======================== MOBILE SIDEBAR TOGGLE ========================
+const menuToggleBtn = document.getElementById("menuToggle");
+const sidebarOverlay = document.getElementById("sidebarOverlay");
+
+function openSidebar() {
+  document.body.classList.add("sidebar-open");
+}
+function closeSidebar() {
+  document.body.classList.remove("sidebar-open");
+}
+
+if (menuToggleBtn) {
+  menuToggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.body.classList.toggle("sidebar-open");
+  });
+}
+
+if (sidebarOverlay) {
+  sidebarOverlay.addEventListener("click", closeSidebar);
+}
+
+// Close sidebar on mobile when a channel is selected
+const channelListEl = document.getElementById("channelList");
+if (channelListEl) {
+  channelListEl.addEventListener("click", () => {
+    if (window.innerWidth <= 768) closeSidebar();
+  });
+}
 
 // Close emoji picker when clicking outside
 document.addEventListener("click", (e) => {
