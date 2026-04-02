@@ -1,4 +1,4 @@
-/* global Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
+/* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
 // Add this near the top with your other constants
 const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
