@@ -174,6 +174,7 @@ document.addEventListener("contextmenu", (e) => {
 
     addSection("Server");
     addButton("Generate Invite Link", () => generateInvite());
+    addButton("Create Role Form", () => createRoleForm());
   }
 
   // ================= SCREEN BOUNDARY DETECTION =================
@@ -1115,33 +1116,18 @@ async function loadUser() {
   input.disabled = false;
   button.disabled = false;
 
-  // 3. Fetch User Role & Status
+  // 3. Fetch global blocked/muted status only (role is now per-server, applied in switchServer)
   try {
-    console.log("🔍 Fetching user role...");
-    const { data, error } = await supabaseClient
+    const { data } = await supabaseClient
       .from("users")
-      .select("role, blocked, muted_until")
+      .select("blocked, muted_until")
       .eq("username", storedName)
       .maybeSingle();
-
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
-
-    if (error) {
-      console.error("Failed to fetch user role:", error);
-      currentRole = "User";
-      localStorage.setItem("chatRole", "User");
-    } else {
-      currentRole = data?.role || "User";
-      localStorage.setItem("chatRole", currentRole);
-      await loadUserPermissions(currentRole);
-    }
-    console.log("✅ User role:", currentRole);
-  } catch (err) {
-    console.error("Exception fetching user:", err);
-    currentRole = "User";
-    localStorage.setItem("chatRole", "User");
-  }
+  } catch {}
+  currentRole = localStorage.getItem("chatRole") || "User";
+  await loadUserPermissions(currentRole);
 
   // Show create-channel and create-category buttons for admins only
   const createChannelBtn = document.getElementById("createChannelBtn");
@@ -1468,6 +1454,18 @@ async function renderMessage(msg) {
   const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
+  // --- ROLE FORM CARD ---
+  if (cleanContent.startsWith("ROLEFORM::")) {
+    try {
+      const formData = JSON.parse(cleanContent.slice("ROLEFORM::".length));
+      const card = buildRoleFormCard(formData, msg.username);
+      contentDiv.appendChild(card);
+      li.appendChild(contentDiv);
+      requestAnimationFrame(() => enhanceMessage(li, msg));
+      return;
+    } catch {}
+  }
+
   // --- FILE / LINK PARSING ---
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
 if (fileMatch) {
@@ -1506,27 +1504,40 @@ wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
 
 const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
 
-if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
-  // Create placeholder immediately
+// --- GIF / IMAGE URL inline rendering (admin-posted) ---
+if (urlMatch && msg.role === "Admin") {
+  const gifUrl = resolveGifUrl(urlMatch[0]);
+  if (gifUrl) {
+    const gifImg = document.createElement("img");
+    gifImg.src = gifUrl;
+    gifImg.className = "msg-image gif-embed";
+    gifImg.style.maxWidth = "400px";
+    gifImg.style.borderRadius = "8px";
+    gifImg.style.marginTop = "6px";
+    gifImg.style.display = "block";
+    gifImg.addEventListener("click", (ev) => { ev.stopPropagation(); openLightbox(gifUrl); });
+    wrapper.appendChild(gifImg);
+  } else if (!msg.content.includes(NO_EMBED_PHRASE)) {
+    const previewContainer = document.createElement("div");
+    previewContainer.className = "link-preview-container";
+    previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
+    wrapper.appendChild(previewContainer);
+    setTimeout(async () => {
+      const preview = await buildLinkPreview(urlMatch[0]);
+      if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
+      else { previewContainer.remove(); }
+    }, 100);
+  }
+} else if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
   const previewContainer = document.createElement("div");
   previewContainer.className = "link-preview-container";
-  previewContainer.innerHTML = `
-    <div class="link-preview-loading">
-      <span class="loader"></span> Loading preview...
-    </div>
-  `;
+  previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
   wrapper.appendChild(previewContainer);
-
-  // Fetch preview in background (non-blocking)
   setTimeout(async () => {
     const preview = await buildLinkPreview(urlMatch[0]);
-    if (preview) {
-      previewContainer.innerHTML = preview;
-      previewContainer.classList.add("loaded");
-    } else {
-      previewContainer.remove(); // Remove loader if preview fails
-    }
-  }, 100); // Small delay to not block initial render
+    if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
+    else { previewContainer.remove(); }
+  }, 100);
 }
 
 // Admin-only script execution stays separate
@@ -2467,15 +2478,16 @@ async function changeName(author) {
 async function promote(author) {
   try {
     const { data, error } = await supabaseClient
-      .from("users")
+      .from("server_members")
       .select("role")
+      .eq("server_id", currentServerId)
       .eq("username", author)
       .maybeSingle();
 
     if (error) throw error;
 
     const currentUserRole = data?.role || "User";
-    const newRole = prompt(`Current role for "${author}": ${currentUserRole}\n\nEnter new role (User / Manager / Admin):`);
+    const newRole = prompt(`Current role for "${author}" in this server: ${currentUserRole}\n\nEnter new role (User / Manager / Admin):`);
     if (!newRole) return;
 
     const trimmedRole = newRole.trim();
@@ -2485,13 +2497,15 @@ async function promote(author) {
     }
 
     const { error: updateError } = await supabaseClient
-      .from("users")
+      .from("server_members")
       .update({ role: trimmedRole })
+      .eq("server_id", currentServerId)
       .eq("username", author);
 
     if (updateError) throw updateError;
 
-    alert(`✅ "${author}" is now a ${trimmedRole}.`);
+    alert(`✅ "${author}" is now a ${trimmedRole} in this server.`);
+    loadServerMembers();
   } catch (err) {
     console.error("promote failed", err);
     alert("❌ Failed: " + err.message);
@@ -2883,7 +2897,14 @@ const fileInput = document.getElementById("fileInput");
 const uploadBtn = document.getElementById("uploadBtn");
 
 // Open file picker when upload button is clicked
-uploadBtn.addEventListener("click", () => fileInput.click());
+uploadBtn.addEventListener("click", () => {
+  const role = (currentRole || "").toLowerCase();
+  if (role !== "admin" && role !== "manager") {
+    alert("❌ Only Managers and Admins can post images.");
+    return;
+  }
+  fileInput.click();
+});
 
 // Handle file selection
 fileInput.addEventListener("change", async (e) => {
@@ -3458,14 +3479,13 @@ supabaseClient
   .subscribe();
 
 async function giveCustomRole(targetUser) {
-
   const roleName = prompt("Enter role name to give:");
-
   if (!roleName) return;
 
   const { error } = await supabaseClient
-    .from("users")
+    .from("server_members")
     .update({ role: roleName })
+    .eq("server_id", currentServerId)
     .eq("username", targetUser);
 
   if (error) {
@@ -3474,7 +3494,8 @@ async function giveCustomRole(targetUser) {
     return;
   }
 
-  alert("✅ Role assigned to " + targetUser);
+  alert(`✅ Role "${roleName}" assigned to ${targetUser} in this server.`);
+  loadServerMembers();
 }
 
 async function createCustomRole() {
@@ -3607,6 +3628,7 @@ async function switchServer(serverId, updateUrl = true) {
     await loadDefaultChannel();
   }
 
+  await refreshServerRole();
   loadServerMembers();
   subscribeToPresence();
 }
@@ -3663,7 +3685,7 @@ async function loadServerMembers() {
   if (!currentServerId) return;
   const { data: members, error } = await supabaseClient
     .from("server_members")
-    .select("username, users(role)")
+    .select("username, role")
     .eq("server_id", currentServerId);
 
   if (error) { console.error("loadServerMembers error:", error); return; }
@@ -3706,7 +3728,7 @@ function renderMemberList(presence) {
       const item = document.createElement("div");
       item.className = "member-item";
       const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
-      const role = m.users?.role || "User";
+      const role = m.role || "User";
       const roleLower = role.toLowerCase();
       item.innerHTML = `
         <div class="member-avatar">
@@ -3989,6 +4011,162 @@ function initServerModals() {
       ml.classList.remove("open");
     }
   });
+}
+
+// ======================== SERVER ROLE HELPERS ========================
+
+async function refreshServerRole() {
+  if (!currentServerId || !username) return;
+  const { data } = await supabaseClient
+    .from("server_members")
+    .select("role")
+    .eq("server_id", currentServerId)
+    .eq("username", username)
+    .maybeSingle();
+
+  const role = data?.role || "User";
+  currentRole = role;
+  localStorage.setItem("chatRole", role);
+  await loadUserPermissions(role);
+  updateRoleUI();
+  console.log(`✅ Server role for this server: ${role}`);
+}
+
+function updateRoleUI() {
+  const createChannelBtn = document.getElementById("createChannelBtn");
+  const createCategoryBtnEl = document.getElementById("createCategoryBtn");
+  if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+  if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+}
+
+// ======================== GIF / IMAGE URL RESOLVER ========================
+
+function resolveGifUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+
+    // Already a direct gif/image
+    if (/\.(gif|png|jpe?g|webp)(\?.*)?$/i.test(u.pathname)) {
+      return url;
+    }
+
+    // giphy.com/gifs/slug-HASH  →  media.giphy.com/media/HASH/giphy.gif
+    if (host === "giphy.com" || host === "www.giphy.com") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      // /gifs/some-slug-HASH or /embed/HASH
+      const gifSegment = parts.find(p => p !== "gifs" && p !== "embed" && p !== "media");
+      if (gifSegment) {
+        const hash = gifSegment.includes("-")
+          ? gifSegment.split("-").pop()
+          : gifSegment;
+        if (hash) return `https://media.giphy.com/media/${hash}/giphy.gif`;
+      }
+    }
+
+    // media.giphy.com/media/HASH/... - already direct
+    if (host === "media.giphy.com" || host === "media0.giphy.com" ||
+        host === "media1.giphy.com" || host === "media2.giphy.com" ||
+        host === "media3.giphy.com" || host === "media4.giphy.com") {
+      return url;
+    }
+
+    // tenor direct GIF CDN
+    if (host === "c.tenor.com" || host === "media.tenor.com") {
+      return url;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ======================== ROLE FORM SYSTEM ========================
+
+function createRoleForm() {
+  const role = prompt("Role name to grant (e.g. Teacher, Moderator):");
+  if (!role || !role.trim()) return;
+  const label = prompt("Form title (e.g. Apply to be a Teacher):", `Apply to be a ${role.trim()}`);
+  if (!label) return;
+  const description = prompt("Description — what does this role do?", "");
+
+  const formData = {
+    role: role.trim(),
+    label: label.trim(),
+    description: (description || "").trim()
+  };
+
+  const content = `ROLEFORM::${JSON.stringify(formData)}`;
+
+  supabaseClient.from("messages").insert({
+    username,
+    content,
+    role: currentRole,
+    is_pinned: false,
+    ip: "unknown",
+    channel_id: currentChannelId
+  }).then(({ error }) => {
+    if (error) alert("❌ Failed to post form: " + error.message);
+  });
+}
+
+function buildRoleFormCard(formData, posterUsername) {
+  const card = document.createElement("div");
+  card.className = "role-form-card";
+
+  const alreadyApplied = localStorage.getItem(`roleApplied_${formData.role}`) === "true";
+  const isSelf = posterUsername === username;
+
+  card.innerHTML = `
+    <div class="role-form-header">
+      <span class="role-form-icon">📋</span>
+      <div>
+        <div class="role-form-title">${escapeHTML(formData.label)}</div>
+        <div class="role-form-sub">Posted by ${escapeHTML(posterUsername)}</div>
+      </div>
+    </div>
+    ${formData.description ? `<div class="role-form-desc">${escapeHTML(formData.description)}</div>` : ""}
+    <button class="role-form-btn ${alreadyApplied ? "applied" : ""}"
+            id="rfbtn_${escapeHTML(formData.role)}"
+            ${(alreadyApplied || isSelf) ? "disabled" : ""}>
+      ${alreadyApplied ? "✅ Applied" : isSelf ? "You posted this" : `Apply for ${escapeHTML(formData.role)}`}
+    </button>
+  `;
+
+  if (!alreadyApplied && !isSelf) {
+    card.querySelector(".role-form-btn").addEventListener("click", () => applyForRole(formData.role, card));
+  }
+
+  return card;
+}
+
+async function applyForRole(roleName, cardEl) {
+  const btn = cardEl?.querySelector(".role-form-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Applying…"; }
+
+  const { error } = await supabaseClient
+    .from("server_members")
+    .update({ role: roleName })
+    .eq("server_id", currentServerId)
+    .eq("username", username);
+
+  if (error) {
+    alert("❌ Failed to apply: " + error.message);
+    if (btn) { btn.disabled = false; btn.textContent = `Apply for ${roleName}`; }
+    return;
+  }
+
+  currentRole = roleName;
+  localStorage.setItem("chatRole", roleName);
+  localStorage.setItem(`roleApplied_${roleName}`, "true");
+  await loadUserPermissions(roleName);
+  updateRoleUI();
+
+  if (btn) {
+    btn.textContent = "✅ Applied";
+    btn.classList.add("applied");
+  }
 }
 
 window.addEventListener("beforeunload", () => {
