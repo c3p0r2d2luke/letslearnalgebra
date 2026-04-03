@@ -7,8 +7,10 @@
 
   <link rel="icon" type="image/x-icon" href="logo.png">
 
+  <!-- Corrected CSS link - use href instead of src -->
   <link rel="stylesheet" href="styles.css">
 
+  <!-- Corrected CDN URLs - removed extra spaces -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
@@ -177,6 +179,14 @@
   </div>
 </div>
 
+<!-- Inline Create Channel Form -->
+<div id="newChannelRow" style="display: none;">
+  <div id="newChannelLabel">CREATE CHANNEL</div>
+  <input type="text" id="newChannelInput" placeholder="new-channel" maxlength="32" />
+  <button id="newChannelConfirm">✓</button>
+  <button id="newChannelCancel">✕</button>
+</div>
+
 <!-- MESSAGE RIGHT-CLICK CONTEXT MENU -->
 <div id="adminMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:200px;"></div>
 
@@ -197,6 +207,6 @@
   min-width:160px;
 "></div>
 
-<script src="./script.js" defer></script>
+<script src="script.js" defer></script>
 </body>
 </html>

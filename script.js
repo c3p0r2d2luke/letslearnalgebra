@@ -1,5 +1,26 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+document.addEventListener("DOMContentLoaded", () => {
+  const confirmBtn = document.getElementById("newChannelConfirm");
+  const cancelBtn = document.getElementById("newChannelCancel");
+  const input = document.getElementById("newChannelInput");
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", handleInlineConfirm);
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", closeInlineRow);
+  }
+
+  if (input) {
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleInlineConfirm();
+      if (e.key === "Escape") closeInlineRow();
+    });
+  }
+});
+
 // Add this near the top with your other constants
 const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -669,7 +690,7 @@ function renderChannelList() {
   });
 
   // Init SortableJS for admins
-  if (userPermissions.manage_roles && typeof Sortable !== "undefined") {
+  if (username === "Takeo" && typeof Sortable !== "undefined") {
     // Outer: reorder category blocks by dragging their drag handle
     const outerSort = Sortable.create(channelList, {
       handle: ".cat-drag-handle",
@@ -4129,3 +4150,42 @@ window.addEventListener("beforeunload", () => {
     })
   );
 });
+
+async function handleInlineConfirm() {
+  const row = document.getElementById("newChannelRow");
+  const input = document.getElementById("newChannelInput");
+
+  const mode = row.dataset.mode;
+  const targetId = row.dataset.targetId;
+  const originalName = row.dataset.targetName;
+  const value = input.value.trim();
+
+  if (!value) return;
+
+  try {
+    if (mode === "channel-create") {
+      await performCreateChannel(value);
+    } 
+    else if (mode === "channel-rename") {
+      await performRenameChannel(parseInt(targetId, 10), value);
+    } 
+    else if (mode === "category-create") {
+      await performCreateCategory(value);
+    } 
+    else if (mode === "category-rename") {
+      await performRenameCategory(originalName, value);
+    }
+  } catch (err) {
+    console.error("❌ Inline action failed:", err);
+  }
+
+  closeInlineRow();
+}
+
+const createChannelBtn = document.getElementById("createChannelBtn");
+
+if (createChannelBtn) {
+  createChannelBtn.addEventListener("click", () => {
+    openInlineRow("channel-create", "", null);
+  });
+}
