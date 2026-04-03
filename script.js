@@ -1,4 +1,4 @@
-/* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
+/* global loadUserPermissionsGlobal, URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
 // Add this near the top with your other constants
 const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
@@ -214,13 +214,129 @@ function hideAuthGate() {
   document.getElementById("appContent").style.display = "block";
 }
 
+// In your auth section
+
 async function handleAuthSuccess(user) {
-  const uname = user.user_metadata?.username;
-  if (uname) {
-    localStorage.setItem("chatUsername", uname);
+  const authId = user.id;
+  console.log("🔑 Auth Success. Fetching profile for auth_id:", authId);
+
+  // 1. Fetch the linked username from your 'users' table
+  const { data: userData, error: fetchError } = await supabaseClient
+    .from("users")
+    .select("username, sys_admin, sys_manager, blocked, muted_until")
+    .eq("auth_id", authId)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error("❌ DB Error fetching profile:", fetchError);
+    alert("Database error. Please try again.");
+    return;
   }
+
+  if (!userData) {
+    console.error("❌ Profile not found for auth_id:", authId);
+    alert("Profile not linked. Please try signing up again.");
+    return;
+  }
+
+  // 2. CRITICAL: Set Global State & Save to LocalStorage IMMEDIATELY
+  username = userData.username;
+  localStorage.setItem("chatUsername", username); // <--- This is the key
+  
+  // Store flags
+  localStorage.setItem("chatSysAdmin", userData.sys_admin ? "true" : "false");
+  localStorage.setItem("chatSysManager", userData.sys_manager ? "true" : "false");
+
+  // 3. Update Local Mute/Block State
+  isBlocked = userData.blocked || false;
+  mutedUntil = userData.muted_until || null;
+
+  // 4. Hide Auth Gate
   hideAuthGate();
-  loadUser();
+  
+  console.log("✅ Logged in as:", username);
+  
+  // 5. Load the App (This will now see the username in localStorage)
+  await loadUser(); 
+}
+
+async function doSignUp() {
+  const usernameVal = document.getElementById("signUpUsername").value.trim();
+  const email = document.getElementById("signUpEmail").value.trim();
+  const password = document.getElementById("signUpPassword").value;
+  const errorEl = document.getElementById("signUpError");
+  errorEl.style.display = "none";
+
+  if (!usernameVal || !email || !password) {
+    errorEl.textContent = "❌ Please fill in all fields.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // 1. Check if username exists
+  const { data: existingUser } = await supabaseClient
+    .from("users")
+    .select("username")
+    .eq("username", usernameVal)
+    .maybeSingle();
+
+  if (existingUser) {
+    errorEl.textContent = "❌ Username already taken.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // 2. Create Auth User
+  const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: { data: { username: usernameVal } }
+  });
+
+  if (authError) {
+    errorEl.textContent = "❌ " + authError.message;
+    errorEl.style.display = "block";
+    return;
+  }
+
+  const userId = authData.user.id;
+
+  // 3. CRITICAL: Create Public Profile with auth_id
+  const { error: profileError } = await supabaseClient
+    .from("users")
+    .insert({
+      username: usernameVal,
+      auth_id: userId, 
+      sys_admin: false,
+      sys_manager: false,
+      blocked: false,
+      forceLogout: false
+    });
+
+  if (profileError) {
+    console.error("Profile creation failed:", profileError);
+    // Optional: Cleanup auth user if profile fails
+    // await supabaseClient.auth.admin.deleteUser(userId); 
+    errorEl.textContent = "❌ Failed to create profile. Check console.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // 4. Auto Sign In
+  const { data: signInData, error: signInError } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (signInError) {
+    console.error("Auto-signin failed:", signInError);
+    errorEl.textContent = "❌ Account created, but login failed.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  // 5. Success
+  await handleAuthSuccess(signInData.user);
 }
 
 // ✅ Check for existing session on page load
@@ -277,62 +393,6 @@ document.getElementById("signInPassword").addEventListener("keydown", (e) => {
   if (e.key === "Enter") doSignIn();
 });
 
-// Sign Up
-async function doSignUp() {
-  const usernameVal = document.getElementById("signUpUsername").value.trim();
-  const email = document.getElementById("signUpEmail").value.trim();
-  const password = document.getElementById("signUpPassword").value;
-  const errorEl = document.getElementById("signUpError");
-  errorEl.style.display = "none";
-
-  if (!usernameVal || !email || !password) {
-    errorEl.textContent = "❌ Please fill in all fields.";
-    errorEl.style.display = "block";
-    return;
-  }
-
-  // Check username availability
-  const { data: existingUser } = await supabaseClient
-    .from("users")
-    .select("username")
-    .eq("username", usernameVal)
-    .maybeSingle();
-
-  if (existingUser) {
-    errorEl.textContent = "❌ Username already taken.";
-    errorEl.style.display = "block";
-    return;
-  }
-
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password,
-    options: { data: { username: usernameVal } }
-  });
-
-  if (error) {
-    errorEl.textContent = "❌ " + error.message;
-    errorEl.style.display = "block";
-    return;
-  }
-
-  // Upsert into users table
-  await supabaseClient.from("users").upsert({
-    username: usernameVal,
-    role: "User"
-  }, { onConflict: ["username"] });
-
-  localStorage.setItem("chatUsername", usernameVal);
-
-  if (data.session) {
-    await handleAuthSuccess(data.user);
-  } else {
-    errorEl.style.color = "var(--success)";
-    errorEl.textContent = "✅ Account created! Check your email to confirm, then sign in.";
-    errorEl.style.display = "block";
-  }
-}
-
 document.getElementById("signUpBtn").addEventListener("click", doSignUp);
 document.getElementById("signUpPassword").addEventListener("keydown", (e) => {
   if (e.key === "Enter") doSignUp();
@@ -378,22 +438,49 @@ let currentRole = "User";
 let userPermissions = {};
 
 async function loadUserPermissions(roleName) {
+  // 1. SysAdmin Override
+  if (localStorage.getItem("chatSysAdmin") === "true") {
+    userPermissions = {
+      manage_roles: true,
+      send_messages: true,
+      delete_messages: true,
+      rename_channels: true,
+      create_channels: true,
+      mute_users: true,
+      ban_users: true,
+      // ... all true
+    };
+    return;
+  }
 
+  // 2. SysManager Override (Partial)
+  if (localStorage.getItem("chatSysManager") === "true") {
+    // If currentRole is 'Manager' (because they joined), load Manager perms
+    // If currentRole is 'User' (not joined), they can only read?
+    // Let's assume standard Manager perms if they are acting as Manager
+    if (currentRole === "Manager") {
+       // Load Manager perms from DB or hardcode
+       userPermissions = { manage_roles: true, send_messages: true, /* ... */ };
+       return;
+    }
+  }
+
+  // 3. Standard Role Lookup
   const { data, error } = await supabaseClient
     .from("roles")
     .select("permissions")
     .eq("name", roleName)
     .maybeSingle();
 
-  if (error) {
-    console.error("❌ Failed to load role permissions:", error);
-    userPermissions = {};
+  if (error || !data) {
+    // Default User permissions
+    userPermissions = { send_messages: true, manage_roles: false, /* ... */ };
     return;
   }
 
   userPermissions = data.permissions || {};
-  console.log("🔐 Permissions loaded:", userPermissions);
-}const messagesMap = new Map();
+}
+const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
 let typingTimeout = null;
 
@@ -1078,81 +1165,80 @@ async function loadMessages() {
 async function loadUser() {
   console.log("🚀 loadUser() STARTED");
 
+  // 1. Get username from LocalStorage (Set by handleAuthSuccess or Session Restore)
   const storedName = localStorage.getItem("chatUsername");
-  console.log("📝 Stored name:", storedName);
-
-  // 1. Handle Name Prompt if no name is saved
+  
   if (!storedName) {
-    console.log("⚠️ No stored name - showing name prompt");
-    namePrompt.style.display = "block";
-    input.disabled = true;
-    button.disabled = true;
-
-    // 🔥 CRITICAL FIX: Even if no name, we MUST load channels so the UI doesn't break
-    // We do this asynchronously so it doesn't block the name prompt
-    loadChannels().then(() => {
-      console.log("✅ Channels loaded in background for name prompt.");
-      // If we have channels, try to set a default so the header isn't empty
-      if (channels.length > 0) {
-        // We can't fully load messages without a user, but we can set the channel ID
-        // to prevent the "No channel selected" error if the user clicks something
-        currentChannelId = channels[0].id; 
-        document.getElementById("currentChannelName").textContent = "# " + channels[0].name;
-        // Highlight the first channel
-        const firstChannelEl = document.querySelector(`[data-id="${channels[0].id}"]`);
-        if(firstChannelEl) firstChannelEl.classList.add("active");
-      }
-    });
-
-    return Promise.resolve(); // Return early, but channels are loading in background
+    // This should ONLY happen if the user is NOT logged in (no session)
+    // But if we are here, it means the session check passed but localStorage is missing.
+    // This implies a bug in handleAuthSuccess or the session restore.
+    console.error("⚠️ No username found in localStorage despite being authenticated.");
+    // Force logout to be safe
+    await supabaseClient.auth.signOut();
+    location.reload();
+    return;
   }
 
+  username = storedName;
+  console.log("📝 Loaded username:", username);
+
   // 2. Set up UI for logged-in user
-  username = storedName; // 🔥 CRITICAL: Set username variable
-  nameInput.value = storedName;
-  namePrompt.style.display = "none";
+  nameInput.value = username;
+  // HIDE the name prompt if it exists (it shouldn't be visible anyway)
+  if (namePrompt) namePrompt.style.display = "none";
+  
   const controls = document.getElementById("controls");
-  controls.classList.add("visible");
+  if (controls) controls.classList.add("visible");
+  
   input.disabled = false;
   button.disabled = false;
 
-  // 3. Fetch global blocked/muted status only (role is now per-server, applied in switchServer)
+  // 3. Fetch global blocked/muted status
   try {
     const { data } = await supabaseClient
       .from("users")
       .select("blocked, muted_until")
-      .eq("username", storedName)
+      .eq("username", username)
       .maybeSingle();
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
-  } catch {}
-  currentRole = localStorage.getItem("chatRole") || "User";
+  } catch (err) {
+    console.error("Error fetching mute/block status:", err);
+  }
+
+  // 4. Load Permissions (SysAdmin/SysManager checks)
+  const isSysAdmin = localStorage.getItem("chatSysAdmin") === "true";
+  const isSysManager = localStorage.getItem("chatSysManager") === "true";
+  
+  // Load role permissions based on currentRole (which will be set later per server)
+  // For now, set default to User until we switch servers
+  currentRole = "User"; 
   await loadUserPermissions(currentRole);
 
-  // Show create-channel and create-category buttons for admins only
+  // 5. Show/Hide Admin Buttons based on Global Flags
   const createChannelBtn = document.getElementById("createChannelBtn");
   const createCategoryBtnEl = document.getElementById("createCategoryBtn");
-  if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
-  if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+  
+  // Note: These buttons will be toggled again in refreshServerRole() per server
+  if (createChannelBtn) createChannelBtn.style.display = (isSysAdmin || isSysManager) ? "inline-block" : "none";
+  if (createCategoryBtnEl) createCategoryBtnEl.style.display = (isSysAdmin || isSysManager) ? "inline-block" : "none";
 
-  // 4. Initialize Realtime Manager
-  console.log("📡 Initializing realtime manager...");
+  // 6. Initialize Realtime & Typing
   initRealtime();
   subscribeToTyping();
 
-  // 5. Load servers (which will load channels + default channel per server)
+  // 7. Load Servers (This triggers switchServer -> refreshServerRole -> loadChannels)
   initServerModals();
   await loadServers();
   await checkInviteOnLoad();
 
-  // 6. Initialize Other Listeners
-  watchForceLogout(storedName);
+  // 8. Initialize Other Listeners
+  watchForceLogout(username);
   subscribeToUserStatus();
   applyMuteBlockUI();
   loadCustomEmojis();
 
   console.log("🎉 loadUser() completed successfully.");
-  return Promise.resolve();
 }
 
 // ------------------------ Save Name ------------------------
@@ -4017,19 +4103,47 @@ function initServerModals() {
 
 async function refreshServerRole() {
   if (!currentServerId || !username) return;
-  const { data } = await supabaseClient
+
+  // 1. Check Global Roles first (SysAdmin/SysManager)
+  const isSysAdmin = localStorage.getItem("chatSysAdmin") === "true";
+  const isSysManager = localStorage.getItem("chatSysManager") === "true";
+
+  if (isSysAdmin) {
+    currentRole = "SysAdmin";
+    userPermissions = { manage_roles: true, send_messages: true, /* all true */ };
+    console.log("👑 SysAdmin detected. Full access granted.");
+    updateRoleUI();
+    return;
+  }
+
+  // 2. Check Per-Server Role
+  const { data: memberData, error } = await supabaseClient
     .from("server_members")
     .select("role")
     .eq("server_id", currentServerId)
     .eq("username", username)
     .maybeSingle();
 
-  const role = data?.role || "User";
-  currentRole = role;
-  localStorage.setItem("chatRole", role);
-  await loadUserPermissions(role);
+  let serverRole = memberData?.role || "User";
+
+  // 3. Special Logic for SysManager
+  if (isSysManager) {
+    // SysManager can talk everywhere, but only has 'manage_roles' in servers they joined
+    // Or maybe they are 'Manager' in joined servers?
+    // Let's assume: If joined, they are 'Manager'. If not joined, they are 'User' (can't talk).
+    if (memberData) {
+      serverRole = "Manager"; // Override to Manager if joined
+    } else {
+      serverRole = "User"; // Not joined, can't talk
+    }
+  }
+
+  currentRole = serverRole;
+  localStorage.setItem("chatRole", currentRole);
+  
+  await loadUserPermissions(currentRole); // Loads permissions based on 'roles' table or hardcoded logic
   updateRoleUI();
-  console.log(`✅ Server role for this server: ${role}`);
+  console.log(`✅ Role for server ${currentServerId}: ${currentRole}`);
 }
 
 function updateRoleUI() {
