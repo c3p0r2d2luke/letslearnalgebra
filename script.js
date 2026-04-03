@@ -418,11 +418,14 @@ let channels = [];
 let categories = [];
 let collapsedCategories = new Set();
 try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
+let categoryOrder = [];
+try { categoryOrder = JSON.parse(localStorage.getItem("categoryOrder") || "[]"); } catch {}
 let currentChannelId = null;
 let currentServerId = null;
 let servers = [];
 let serverMembers = [];
 let presenceSubscription = null;
+let memberRefreshInterval = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -579,7 +582,12 @@ async function loadCategories() {
   let q = supabaseClient.from("categories").select("*").order("sort_order");
   if (currentServerId) q = q.eq("server_id", currentServerId);
   const { data, error } = await q;
-  if (!error && data) categories = data;
+  if (!error && data) {
+    categories = data;
+    // Update categoryOrder based on database order
+    categoryOrder = categories.map(c => c.name);
+    localStorage.setItem("categoryOrder", JSON.stringify(categoryOrder));
+  }
 }
 
 async function loadChannels() {
@@ -617,10 +625,20 @@ function renderChannelList() {
   });
   Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
 
-  // Build ordered list of category names by DB sort_order, then any uncategorised orphans
+  // Build ordered list of category names by saved order, then any uncategorised orphans
   const catNames = categories.map(c => c.name);
   Object.keys(grouped).forEach(cat => { if (!catNames.includes(cat)) catNames.push(cat); });
   if (catNames.length === 0) catNames.push("General");
+
+  // Sort categories based on saved order
+  catNames.sort((a, b) => {
+    const aIndex = categoryOrder.indexOf(a);
+    const bIndex = categoryOrder.indexOf(b);
+    if (aIndex === -1 && bIndex === -1) return 0;
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
 
   catNames.forEach(catName => {
     const catChannels = grouped[catName] || [];
@@ -637,6 +655,9 @@ function renderChannelList() {
     const arrow = document.createElement("span");
     arrow.className = "cat-arrow";
     arrow.textContent = isCollapsed ? "▸" : "▾";
+    arrow.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "cat-name";
@@ -647,16 +668,18 @@ function renderChannelList() {
 
     const dragHandle = document.createElement("span");
     dragHandle.className = "cat-drag-handle";
-    dragHandle.innerHTML = "&#8942;";
-    dragHandle.title = "Drag to reorder";
+    dragHandle.innerHTML = "☰";
+    dragHandle.title = "Drag to reorder category";
+    dragHandle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
 
     header.appendChild(arrow);
     header.appendChild(nameSpan);
     header.appendChild(spacer);
-    if (userPermissions.manage_roles) header.appendChild(dragHandle);
+    header.appendChild(dragHandle);
 
-    header.addEventListener("click", (e) => {
-      if (e.target === dragHandle) return;
+    arrow.addEventListener("click", () => {
       const nowCollapsed = !collapsedCategories.has(catName);
       if (nowCollapsed) collapsedCategories.add(catName);
       else collapsedCategories.delete(catName);
@@ -690,25 +713,47 @@ function renderChannelList() {
   });
 
   // Init SortableJS for admins
-  if (username === "Takeo" && typeof Sortable !== "undefined") {
+  console.log("Checking sortable init:", { currentSystemRole, currentRole, Sortable: typeof Sortable });
+  if (typeof Sortable !== "undefined") {
+    console.log("Creating category sortable");
     // Outer: reorder category blocks by dragging their drag handle
     const outerSort = Sortable.create(channelList, {
-      handle: ".cat-drag-handle",
+      handle: ".category-header",
       animation: 150,
       draggable: ".category-block",
       onEnd: async () => {
-        const blocks = channelList.querySelectorAll(".category-block");
+        console.log("Category drag end triggered");
+        // Save category order to localStorage and database
+        const categoryBlocks = Array.from(channelList.querySelectorAll('.category-block'));
+        const newOrder = categoryBlocks.map(block => block.dataset.categoryName);
+        
+        // Update localStorage
+        localStorage.setItem('categoryOrder', JSON.stringify(newOrder));
+        
+        // Update database sort_order for each category
         const updates = [];
-        blocks.forEach((block, i) => {
-          const cat = categories.find(c => c.name === block.dataset.categoryName);
-          if (cat && cat.sort_order !== i) {
-            cat.sort_order = i;
-            updates.push(supabaseClient.from("categories").update({ sort_order: i }).eq("id", cat.id));
+        newOrder.forEach((catName, index) => {
+          const category = categories.find(c => c.name === catName);
+          if (category) {
+            updates.push(
+              supabaseClient.from('categories').update({ sort_order: index }).eq('id', category.id)
+            );
           }
         });
-        await Promise.all(updates);
+        
+        if (updates.length > 0) {
+          try {
+            await Promise.all(updates);
+          } catch (error) {
+            console.log("Failed to update category order in database:", error);
+          }
+        }
+        
+        // Trigger real-time update for other users
+        console.log('Category order updated:', newOrder);
       }
     });
+    console.log("Category sortable created:", outerSort);
     _sortableInstances.push(outerSort);
 
     // Inner: reorder and move channels between categories
@@ -844,14 +889,33 @@ function openInlineRow(mode, prefill, targetId) {
   row.dataset.targetName = prefill ?? "";
 
   const labels = {
-    "channel-create": "New channel:",
+    "channel-create": "Create Channel",
     "channel-rename": "Rename channel:",
     "category-create": "New category:",
     "category-rename": "Rename category:"
   };
   label.textContent = labels[mode] || "";
+
+  // Remove any extra inputs
+  const extraInputs = row.querySelectorAll(".extra-input");
+  extraInputs.forEach(el => el.remove());
+
+  if (mode === "channel-create") {
+    // Add category input
+    const catInput = document.createElement("input");
+    catInput.type = "text";
+    catInput.className = "extra-input";
+    catInput.placeholder = "category-name";
+    catInput.maxLength = 32;
+    row.insertBefore(catInput, inp);
+    inp.placeholder = "channel-name";
+  } else {
+    inp.placeholder = mode.includes("channel") ? "channel-name" : "category-name";
+  }
+
   inp.value = prefill || "";
-  inp.placeholder = mode.includes("channel") ? "channel-name" : "category-name";
+  inp.focus();
+  inp.select();
 
   createChannelBtn.style.display = "none";
   if (createCategoryBtn) createCategoryBtn.style.display = "none";
@@ -932,7 +996,7 @@ function showInlineDeleteCategory(catName) {
 }
 
 // ---- Channel CRUD ----
-async function performCreateChannel(name, categoryId) {
+async function performCreateChannel(name, categoryName) {
   const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
   if (!trimmed) return;
 
@@ -941,18 +1005,32 @@ async function performCreateChannel(name, categoryId) {
     return;
   }
 
-  // Ensure category exists or fallback safely
-  let effectiveCatId = null;
+  // Find or create category
+  let cat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase() && c.server_id === currentServerId);
+  if (!cat) {
+    // Create new category
+    const sortOrder = categories.filter(c => c.server_id === currentServerId).length;
+    const { data: newCat, error: catError } = await supabaseClient
+      .from("categories")
+      .insert({
+        name: categoryName.trim(),
+        sort_order: sortOrder,
+        created_by: username,
+        server_id: currentServerId
+      })
+      .select()
+      .single();
 
-  if (categoryId) {
-    effectiveCatId = categoryId;
-  } else {
-    const firstCategory = categories.find(c => c.server_id === currentServerId);
-    effectiveCatId = firstCategory ? firstCategory.id : null;
+    if (catError) {
+      console.error("❌ Create category:", catError.message);
+      return;
+    }
+    categories.push(newCat);
+    cat = newCat;
   }
 
   const sortOrder = channels.filter(
-    c => c.server_id === currentServerId && c.category_id === effectiveCatId
+    c => c.server_id === currentServerId && c.category_id === cat.id
   ).length;
 
   const { data, error } = await supabaseClient
@@ -962,7 +1040,7 @@ async function performCreateChannel(name, categoryId) {
       created_by: username,
       sort_order: sortOrder,
       server_id: currentServerId,
-      category_id: effectiveCatId
+      category_id: cat.id
     })
     .select()
     .single();
@@ -1193,25 +1271,50 @@ async function loadUser() {
 
   // 3. Fetch sys role, blocked, and muted status from DB (new schema uses boolean flags)
   try {
-    const { data } = await supabaseClient
+    console.log("📡 Fetching user data from users table for:", username);
+    const { data, error } = await supabaseClient
       .from("users")
-      .select("sys_admin, sys_manager, blocked, muted_until")
+      .select("sys_admin, sys_manager, blocked, muted_until, auth_id")
       .eq("username", username)
       .maybeSingle();
+    
+    console.log("   User data:", data);
+    console.log("   Error:", error);
+    
+    if (!data) {
+      console.warn("⚠️ User record not found in database! Creating one...");
+      // Create user record if it doesn't exist
+      const authId = (await supabaseClient.auth.getUser())?.data?.user?.id;
+      if (authId) {
+        await supabaseClient.from("users").insert({
+          username,
+          auth_id: authId,
+          sys_admin: false,
+          sys_manager: false
+        });
+        console.log("✅ Created user record");
+      }
+    }
+    
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
+    
     if (data?.sys_admin) {
       currentSystemRole = "SysAdmin";
+      console.log("👑 User is SysAdmin!");
     } else if (data?.sys_manager) {
       currentSystemRole = "SysManager";
+      console.log("🔧 User is SysManager!");
     } else {
       currentSystemRole = "User";
+      console.log("👤 User is regular User");
     }
+    
     localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
     localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
-    console.log("🔐 System role:", currentSystemRole);
+    console.log("🔐 System role set to:", currentSystemRole);
   } catch (err) {
-    console.error("Error fetching user data:", err);
+    console.error("❌ Error fetching user data:", err);
   }
 
   // 4. Default per-server permissions until refreshServerRole() runs after switchServer
@@ -2161,6 +2264,24 @@ async function deleteCustomEmoji(id) {
 // Reply
 // Report message (with EmailJS)
 async function reportMessage(messageId) {
+  // Check permissions
+  if (currentSystemRole === "SysManager") {
+    // SysManager can only report in servers they are not invited to
+    const { data: member } = await supabaseClient
+      .from("server_members")
+      .select("id")
+      .eq("server_id", currentServerId)
+      .eq("username", username)
+      .maybeSingle();
+    if (member) {
+      alert("❌ SysManagers can only report in servers they haven't been invited to.");
+      return;
+    }
+  } else if (currentSystemRole !== "SysAdmin" && !userPermissions.manage_roles) {
+    alert("❌ You don't have permission to report messages.");
+    return;
+  }
+
   try {
 
     const reason = prompt("Why are you reporting this message?");
@@ -3601,18 +3722,67 @@ function closeModal(id) {
 async function loadServers() {
   if (!username) return;
 
-  if (currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager") {
-    const { data, error } = await supabaseClient
-      .from("servers").select("*").order("created_at", { ascending: true });
-    if (error) { console.error("loadServers error:", error); servers = []; }
-    else { servers = data || []; }
-  } else {
-    const { data, error } = await supabaseClient
-      .from("server_members")
-      .select("server_id, servers(*)")
-      .eq("username", username);
-    if (error) { console.error("loadServers error:", error); servers = []; }
-    else { servers = (data || []).map(d => d.servers).filter(Boolean); }
+  // First, ensure user is added to the "main" server
+  try {
+    // Find or create "main" server
+    const { data: mainServer, error: findError } = await supabaseClient
+      .from("servers")
+      .select("*")
+      .eq("slug", "main")
+      .maybeSingle();
+
+    if (!findError && mainServer) {
+      // Check if user is already a member
+      const { data: isMember } = await supabaseClient
+        .from("server_members")
+        .select("id")
+        .eq("server_id", mainServer.id)
+        .eq("username", username)
+        .maybeSingle();
+
+      if (!isMember) {
+        // Add user to main server
+        await supabaseClient.from("server_members").insert({
+          server_id: mainServer.id,
+          username,
+          role: "User"
+        });
+        console.log("✅ Added user to main server");
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error adding to main server:", err);
+  }
+
+  try {
+    if (currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager") {
+      console.log("📡 Loading ALL servers (SysAdmin/SysManager)");
+      const { data, error } = await supabaseClient
+        .from("servers").select("*").order("created_at", { ascending: true });
+      if (error) {
+        console.error("❌ loadServers error:", error);
+        servers = [];
+      } else {
+        servers = data || [];
+        console.log(`✅ Loaded ${servers.length} servers`);
+      }
+    } else {
+      console.log("📡 Loading user servers");
+      const { data, error } = await supabaseClient
+        .from("server_members")
+        .select("server_id, servers(*)")
+        .eq("username", username);
+      if (error) {
+        console.error("❌ loadServers error:", error);
+        servers = [];
+      } else {
+        servers = (data || []).map(d => d.servers).filter(Boolean);
+        console.log(`✅ Loaded ${servers.length} servers`);
+      }
+    }
+  } catch (err) {
+    console.error("❌ Unexpected error in loadServers:", err);
+    servers = [];
   }
 
   renderServerList();
@@ -3623,13 +3793,16 @@ async function loadServers() {
   if (!target && servers.length > 0) target = servers[0];
 
   if (target) {
+    console.log("🎯 Switching to server:", target.id, target.name);
     await switchServer(target.id, false);
   } else {
+    console.warn("⚠️ No servers found");
     showNoServerScreen();
   }
 }
 
 async function switchServer(serverId, updateUrl = true) {
+  console.log("🔀 switchServer called with:", serverId);
   currentServerId = serverId;
   const server = servers.find(s => s.id === serverId);
 
@@ -3656,11 +3829,14 @@ async function switchServer(serverId, updateUrl = true) {
   const msgInput = document.getElementById("messageInput");
   if (msgInput) msgInput.disabled = false;
 
+  console.log("📂 Loading channels...");
   await loadChannels();
 
   if (channels.length > 0) {
+    console.log("📝 Loading default channel...");
     await loadDefaultChannel();
   } else {
+    console.log("🆕 No channels, creating 'general'...");
     await supabaseClient.from("channels").insert({
       name: "general",
       created_by: username,
@@ -3671,10 +3847,19 @@ async function switchServer(serverId, updateUrl = true) {
     await loadDefaultChannel();
   }
 
+  console.log("🔐 Refreshing server role...");
   await refreshServerRole();
+  
+  console.log("🌐 Subscribing to server realtime...");
   subscribeToServerRealtime(serverId);
-  loadServerMembers();
+  
+  console.log("👥 Loading server members...");
+  await loadServerMembers();
+  
+  console.log("🔔 Subscribing to presence...");
   subscribeToPresence();
+  
+  console.log("✅ switchServer complete!");
 }
 
 function renderServerList() {
@@ -3682,7 +3867,23 @@ function renderServerList() {
   if (!serverList) return;
   serverList.innerHTML = "";
 
-  servers.forEach(server => {
+  // Get server order from localStorage
+  let serverOrder = [];
+  try {
+    serverOrder = JSON.parse(localStorage.getItem("serverOrder") || "[]");
+  } catch {}
+
+  // Sort servers based on order
+  const sortedServers = servers.slice().sort((a, b) => {
+    const aIndex = serverOrder.indexOf(a.id);
+    const bIndex = serverOrder.indexOf(b.id);
+    if (aIndex === -1 && bIndex === -1) return 0;
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+
+  sortedServers.forEach(server => {
     const icon = document.createElement("div");
     icon.className = "server-icon";
     icon.dataset.serverId = server.id;
@@ -3699,6 +3900,19 @@ function renderServerList() {
     icon.addEventListener("click", () => switchServer(server.id));
     serverList.appendChild(icon);
   });
+
+  // Make servers draggable
+  if (typeof Sortable !== "undefined") {
+    Sortable.create(serverList, {
+      animation: 150,
+      draggable: ".server-icon",
+      onEnd: () => {
+        const icons = serverList.querySelectorAll(".server-icon");
+        const newOrder = Array.from(icons).map(icon => icon.dataset.serverId);
+        localStorage.setItem("serverOrder", JSON.stringify(newOrder));
+      }
+    });
+  }
 }
 
 function showNoServerScreen() {
@@ -3718,34 +3932,126 @@ function showNoServerScreen() {
     screen.id = "noServerScreen";
     chatApp.appendChild(screen);
   }
+  
+  let debugInfo = "";
+  if (currentSystemRole === "SysAdmin") {
+    debugInfo = `<p style="color:#ff6b6b;font-size:12px;margin-top:20px;">
+      <strong>⚠️ You're a SysAdmin but no servers loaded!</strong><br/>
+      This might be a database permission issue. Try:<br/>
+      • Check browser console for errors<br/>
+      • Make sure RLS policies are applied<br/>
+      • Refresh the page<br/>
+      <button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#5865f2;color:white;border:none;cursor:pointer;border-radius:4px;">Refresh Page</button>
+    </p>`;
+  }
+  
   screen.innerHTML = `
     <h3>You're not in any server</h3>
     <p>Create a new server or join one with an invite link.</p>
     <button onclick="openModal('serverModal')">Add a Server</button>
+    <p style="font-size:12px;color:#999;margin-top:20px;">
+      User: ${username} | Role: ${currentSystemRole}
+    </p>
+    ${debugInfo}
   `;
 }
 
 async function loadServerMembers() {
-  if (!currentServerId) return;
-  const { data: members, error } = await supabaseClient
-    .from("server_members")
-    .select("username, role")
-    .eq("server_id", currentServerId);
+  console.log("🔍 loadServerMembers called, currentServerId:", currentServerId);
+  console.log("   Current username:", username);
+  
+  if (!currentServerId) {
+    console.warn("❌ No currentServerId, aborting loadServerMembers");
+    return;
+  }
+  
+  const content = document.getElementById("memberListContent");
+  if (content) content.innerHTML = "<div style='padding:10px;color:#999;font-size:12px;'>Loading members...</div>";
+  
+  try {
+    // Debug: Check if current user is in server_members
+    console.log("📡 Debugging: Checking if current user exists in server_members...");
+    const { data: myMembership } = await supabaseClient
+      .from("server_members")
+      .select("*")
+      .eq("server_id", currentServerId)
+      .eq("username", username)
+      .maybeSingle();
+    console.log("   My membership:", myMembership);
+    
+    // Always fetch fresh member data
+    console.log("📡 Fetching server_members for server:", currentServerId);
+    const { data: members, error } = await supabaseClient
+      .from("server_members")
+      .select("username, role")
+      .eq("server_id", currentServerId);
 
-  if (error) { console.error("loadServerMembers error:", error); return; }
-  serverMembers = members || [];
+    if (error) { 
+      console.error("❌ loadServerMembers error:", error);
+      console.error("   Error code:", error.code);
+      console.error("   Error hint:", error.hint);
+      console.error("   Error details:", error.details);
+      if (content) {
+        content.innerHTML = `<div style='padding:10px;color:#ff6b6b;font-size:11px;word-break:break-word;font-family:monospace;'>
+          <strong>Error loading members:</strong><br/>
+          Code: ${error.code}<br/>
+          Message: ${error.message}<br/>
+          ${error.hint ? `Hint: ${error.hint}<br/>` : ''}
+          Server ID: ${currentServerId.substring(0, 8)}...<br/>
+          Username: ${username}
+        </div>`;
+      }
+      return; 
+    }
+    
+    serverMembers = members || [];
+    console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
-  const { data: presence } = await supabaseClient
-    .from("channel_presence")
-    .select("*")
-    .eq("server_id", currentServerId);
+    // Fetch presence data
+    console.log("📡 Fetching channel_presence for server:", currentServerId);
+    const { data: presence, error: presenceError } = await supabaseClient
+      .from("channel_presence")
+      .select("*")
+      .eq("server_id", currentServerId);
 
-  renderMemberList(presence || []);
+    if (presenceError) {
+      console.error("❌ Presence fetch error:", presenceError);
+    }
+
+    console.log("👥 Got", (presence || []).length, "presence records:", presence);
+    renderMemberList(presence || []);
+  } catch (err) {
+    console.error("❌ Unexpected error in loadServerMembers:", err);
+    if (content) {
+      content.innerHTML = `<div style='padding:10px;color:#ff6b6b;font-size:11px;'>
+        Unexpected error: ${err.message}
+      </div>`;
+    }
+  }
 }
 
 function renderMemberList(presence) {
+  console.log("🎨 renderMemberList called, presence:", presence);
   const content = document.getElementById("memberListContent");
-  if (!content) return;
+  console.log("📍 memberListContent element:", content);
+  
+  if (!content) {
+    console.error("❌ memberListContent element not found!");
+    return;
+  }
+  
+  // Make sure we have serverMembers data
+  if (!serverMembers || serverMembers.length === 0) {
+    console.warn("⚠️ No server members to display. serverMembers:", serverMembers);
+    const debugInfo = currentServerId ? `Server ID: ${currentServerId.substring(0, 8)}...` : "No server selected";
+    content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>
+      No members found.<br/>
+      <span style='font-size:10px;color:#666;'>(${debugInfo})</span>
+    </div>`;
+    return;
+  }
+
+  console.log("✅ Starting to render", serverMembers.length, "members");
   content.innerHTML = "";
 
   const presenceMap = new Map((presence || []).map(p => [p.username, p]));
@@ -3757,12 +4063,24 @@ function renderMemberList(presence) {
   serverMembers.forEach(m => {
     const p = presenceMap.get(m.username);
     const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
-    if (isOnline) online.push({ ...m, presence: p });
-    else offline.push({ ...m, presence: null });
+    if (isOnline) {
+      console.log(`  ✅ ${m.username} is ONLINE`);
+      online.push({ ...m, presence: p });
+    }
+    else {
+      console.log(`  ⚫ ${m.username} is OFFLINE`);
+      offline.push({ ...m, presence: null });
+    }
   });
 
+  console.log(`📊 Final split: ${online.length} online, ${offline.length} offline`);
+
   const renderGroup = (label, members) => {
-    if (members.length === 0) return;
+    if (members.length === 0) {
+      console.log(`  (${label} group is empty, skipping)`);
+      return;
+    }
+    console.log(`📌 Rendering ${label} group with ${members.length} members`);
     const groupLabel = document.createElement("div");
     groupLabel.className = "member-group-label";
     groupLabel.textContent = `${label} — ${members.length}`;
@@ -3773,9 +4091,9 @@ function renderMemberList(presence) {
       item.className = "member-item";
       const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
       const role = m.role || "User";
-  // Ensure role is a string and normalize
-  const roleStr = String(role || "User").toLowerCase();
-  const isSpecialRole = (roleStr === "admin" || roleStr === "manager");      item.innerHTML = `
+      const roleStr = String(role || "User").toLowerCase();
+      const isSpecialRole = (roleStr === "admin" || roleStr === "manager");
+      item.innerHTML = `
         <div class="member-avatar">
           ${escapeHTML(m.username.charAt(0).toUpperCase())}
           <span class="status-dot ${label === "Online" ? "online" : ""}"></span>
@@ -3784,14 +4102,16 @@ function renderMemberList(presence) {
           <div class="member-name">${escapeHTML(m.username)}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
-          ${isSpecialRole ? `<span class="member-role-badge $${roleStr}">$${role}</span>` : ""}
+        ${isSpecialRole ? `<span class="member-role-badge ${roleStr}">${role}</span>` : ""}
       `;
       content.appendChild(item);
+      console.log(`    ✏️ Added ${m.username}`);
     });
   };
 
   renderGroup("Online", online);
   renderGroup("Offline", offline);
+  console.log("✅ renderMemberList complete!");
 }
 
 async function updateChannelPresence(channelId) {
@@ -3805,12 +4125,25 @@ async function updateChannelPresence(channelId) {
 }
 
 function subscribeToPresence() {
+  console.log("🔔 subscribeToPresence called, currentServerId:", currentServerId);
+  
   if (presenceSubscription) {
     try { presenceSubscription.unsubscribe(); } catch {}
     presenceSubscription = null;
   }
-  if (!currentServerId) return;
+  
+  // Clear old refresh interval if exists
+  if (memberRefreshInterval) {
+    clearInterval(memberRefreshInterval);
+    memberRefreshInterval = null;
+  }
+  
+  if (!currentServerId) {
+    console.warn("❌ No currentServerId for subscribeToPresence");
+    return;
+  }
 
+  console.log("📡 Setting up presence subscription for server:", currentServerId);
   presenceSubscription = supabaseClient
     .channel(`presence-${currentServerId}`)
     .on("postgres_changes", {
@@ -3819,9 +4152,19 @@ function subscribeToPresence() {
       table: "channel_presence",
       filter: `server_id=eq.${currentServerId}`
     }, () => {
+      console.log("🔄 Presence changed, reloading members");
       loadServerMembers();
     })
     .subscribe();
+
+  // Refresh member list periodically (every 30 seconds) to catch any changes
+  memberRefreshInterval = setInterval(() => {
+    if (currentServerId) {
+      console.log("⏰ 30s refresh: reloading members for server", currentServerId);
+      loadServerMembers();
+    }
+  }, 30000);
+  console.log("✅ Presence subscription set up!");
 }
 
 async function generateInvite() {
@@ -3868,7 +4211,8 @@ async function joinServer(codeOrUrl) {
   if (!existing) {
     const { error: joinErr } = await supabaseClient.from("server_members").insert({
       server_id: invite.server_id,
-      username
+      username,
+      role: "User"  // Set default role for joined members
     });
     if (joinErr) return "❌ Failed to join: " + joinErr.message;
     await supabaseClient.from("server_invites")
@@ -3943,9 +4287,11 @@ async function createServer(name, slug) {
 
   if (error) return "❌ Failed to create server: " + error.message;
 
+  // Add creator as Admin member
   await supabaseClient.from("server_members").insert({
     server_id: newServer.id,
-    username
+    username,
+    role: "Admin"  // Server creator is admin
   });
 
   servers.push(newServer);
@@ -4164,7 +4510,13 @@ async function handleInlineConfirm() {
 
   try {
     if (mode === "channel-create") {
-      await performCreateChannel(value);
+      const catInput = row.querySelector(".extra-input");
+      const catValue = catInput ? catInput.value.trim() : "";
+      if (!catValue) {
+        alert("Please enter a category name.");
+        return;
+      }
+      await performCreateChannel(value, catValue);
     } 
     else if (mode === "channel-rename") {
       await performRenameChannel(parseInt(targetId, 10), value);

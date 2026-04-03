@@ -1096,11 +1096,10 @@ li[data-pinned="true"] {
 
 #newChannelRow {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 4px;
   padding: 4px 8px;
   background: #292b2f;
-  flex-wrap: wrap;
 }
 
 #newChannelLabel {
@@ -1112,8 +1111,8 @@ li[data-pinned="true"] {
   padding-bottom: 2px;
 }
 
-#newChannelInput {
-  flex: 1;
+#newChannelInput,
+.extra-input {
   background: #40444b;
   border: 1px solid #5865f2;
   border-radius: 4px;
@@ -1123,7 +1122,8 @@ li[data-pinned="true"] {
   outline: none;
   min-width: 0;
 }
-#newChannelInput::placeholder { color: #72767d; }
+#newChannelInput::placeholder,
+.extra-input::placeholder { color: #72767d; }
 
 #newChannelConfirm,
 #newChannelCancel {
@@ -1185,7 +1185,7 @@ li[data-pinned="true"] {
   cursor: grab;
   padding: 0 2px;
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 1; /* Always visible for debugging */
   transition: opacity 0.15s;
   line-height: 1;
 }
