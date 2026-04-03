@@ -2182,16 +2182,18 @@ body.sidebar-open .sidebar-overlay {
   }
 }
 
-/* Fallback: If the username text itself contains "Admin" (unlikely but safe) */
-.username:contains("Admin") { color: var(--accent) !important; } /* Note: :contains is non-standard, better to rely on classes */
+/* Admin styling */
+li.admin .username {
+  color: #ed4245;
+  font-weight: bold;
+}
 
-/* Better Fallback: Ensure the variable is used correctly */
-#messages li .username {
-  color: var(--text-main); /* Default */
+/* Manager styling */
+li.manager .username {
+  color: #faa61a;
 }
-#messages li.admin .username {
-  color: var(--accent) !important; /* Force override */
-}
-#messages li.manager .username {
-  color: var(--success) !important; /* Force override */
+
+/* User styling (default) */
+li:not(.admin):not(.manager) .username {
+  color: #fff;
 }

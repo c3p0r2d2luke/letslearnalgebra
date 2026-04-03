@@ -4108,46 +4108,61 @@ function initServerModals() {
 async function refreshServerRole() {
   if (!currentServerId || !username) return;
 
-  // 1. Check Global Roles first (SysAdmin/SysManager)
+  // 1. Check Global SysAdmin Flag FIRST for PERMISSIONS
   const isSysAdmin = localStorage.getItem("chatSysAdmin") === "true";
   const isSysManager = localStorage.getItem("chatSysManager") === "true";
 
+  let displayRole = "User"; // Default display role
+  let effectivePermissions = {};
+
   if (isSysAdmin) {
-    currentRole = "SysAdmin";
-    userPermissions = { manage_roles: true, send_messages: true, /* all true */ };
-    console.log("👑 SysAdmin detected. Full access granted.");
-    updateRoleUI();
-    return;
+    // SysAdmin gets ALL permissions
+    effectivePermissions = {
+      manage_roles: true,
+      send_messages: true,
+      delete_messages: true,
+      rename_channels: true,
+      create_channels: true,
+      mute_users: true,
+      ban_users: true,
+      // ... all true
+    };
+    // BUT display role should come from DB if available, otherwise "SysAdmin"
+    displayRole = "Admin"; // Force "Admin" for styling consistency
+  } else if (isSysManager) {
+    effectivePermissions = {
+      manage_roles: true,
+      send_messages: true,
+      delete_messages: false, // Managers can't delete others' messages
+      rename_channels: false,
+      create_channels: false,
+      mute_users: false,
+      ban_users: false,
+    };
+    displayRole = "Manager";
+  } else {
+    // 2. Check Per-Server Role from DB
+    const { data: memberData, error } = await supabaseClient
+      .from("server_members")
+      .select("role")
+      .eq("server_id", currentServerId)
+      .eq("username", username)
+      .maybeSingle();
+
+    displayRole = (memberData?.role || "User").toLowerCase();
+    
+    // Load permissions based on this role
+    await loadUserPermissions(displayRole);
+    effectivePermissions = userPermissions;
   }
 
-  // 2. Check Per-Server Role
-  const { data: memberData, error } = await supabaseClient
-    .from("server_members")
-    .select("role")
-    .eq("server_id", currentServerId)
-    .eq("username", username)
-    .maybeSingle();
-
-  let serverRole = (memberData?.role || "User").toLowerCase(); // Force lowercase
-
-  // 3. Special Logic for SysManager
-  if (isSysManager) {
-    // SysManager can talk everywhere, but only has 'manage_roles' in servers they joined
-    // Or maybe they are 'Manager' in joined servers?
-    // Let's assume: If joined, they are 'Manager'. If not joined, they are 'User' (can't talk).
-    if (memberData) {
-      serverRole = "Manager"; // Override to Manager if joined
-    } else {
-      serverRole = "User"; // Not joined, can't talk
-    }
-  }
-
-  currentRole = serverRole;
+  // 3. Set global state
+  currentRole = displayRole; // This is what gets used for CSS classes
   localStorage.setItem("chatRole", currentRole);
-  
-  await loadUserPermissions(currentRole); // Loads permissions based on 'roles' table or hardcoded logic
+  userPermissions = effectivePermissions;
+
+  console.log(`✅ Role resolved: ${currentRole} (SysAdmin: ${isSysAdmin})`);
   updateRoleUI();
-  console.log(`✅ Role for server ${currentServerId}: ${currentRole}`);
 }
 
 function updateRoleUI() {
