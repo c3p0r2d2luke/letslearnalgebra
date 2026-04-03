@@ -41,11 +41,7 @@ input.addEventListener("input", () => {
   }, 2000);
 });
 
-document.getElementById("createChannelBtn").addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  tryCreateChannel();
-});
+// Channel creation is handled by the IIFE below (openInlineRow)
 
 const channelSidebar = document.querySelector(".channel-sidebar");
 const categoryMenu = document.getElementById("categoryMenu");
@@ -165,7 +161,6 @@ document.addEventListener("contextmenu", (e) => {
     addButton("Pin / Unpin", () => pinMessage(messageId));
     addButton("Change Name", () => changeName(author));
     addButton("Promote / Demote", () => promote(author));
-    addButton("Create Custom Role", createCustomRole);
     addButton("Give Custom Role", () => giveCustomRole(author));
     addButton("Mute User", () => muteUser(author));
     addButton("Block User", () => blockUser(author));
@@ -174,7 +169,6 @@ document.addEventListener("contextmenu", (e) => {
 
     addSection("Server");
     addButton("Generate Invite Link", () => generateInvite());
-    addButton("Create Role Form", () => createRoleForm());
   }
 
   // ================= SCREEN BOUNDARY DETECTION =================
@@ -242,7 +236,7 @@ async function handleAuthSuccess(user) {
   // 2. CRITICAL: Set Global State & Save to LocalStorage IMMEDIATELY
   username = userData.username;
   localStorage.setItem("chatUsername", username); // <--- This is the key
-  
+
   // Store flags
   localStorage.setItem("chatSysAdmin", userData.sys_admin ? "true" : "false");
   localStorage.setItem("chatSysManager", userData.sys_manager ? "true" : "false");
@@ -253,9 +247,9 @@ async function handleAuthSuccess(user) {
 
   // 4. Hide Auth Gate
   hideAuthGate();
-  
+
   console.log("✅ Logged in as:", username);
-  
+
   // 5. Load the App (This will now see the username in localStorage)
   await loadUser(); 
 }
@@ -434,51 +428,40 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 // ------------------------ User data ------------------------
 let username = localStorage.getItem("chatUsername") || "";
-let currentRole = "User";
+let currentRole = localStorage.getItem("chatRole") || "User";
+let currentSystemRole = localStorage.getItem("chatSysAdmin") === "true"
+  ? "SysAdmin"
+  : localStorage.getItem("chatSysManager") === "true"
+    ? "SysManager"
+    : "User";
 let userPermissions = {};
 
-async function loadUserPermissions(roleName) {
-  // 1. SysAdmin Override
-  if (localStorage.getItem("chatSysAdmin") === "true") {
-    userPermissions = {
-      manage_roles: true,
-      send_messages: true,
-      delete_messages: true,
-      rename_channels: true,
-      create_channels: true,
-      mute_users: true,
-      ban_users: true,
-      // ... all true
-    };
-    return;
+function loadUserPermissions(roleName) {
+  const name = (roleName || "user").toLowerCase();
+  switch (name) {
+    case "admin":
+      userPermissions = {
+        read_messages: true, send_messages: true, delete_messages: true,
+        rename_channels: true, create_channels: true, manage_roles: true,
+        mute_users: true, manage_messages: true, manage_reports: true
+      };
+      break;
+    case "teacher":
+    case "moderator":
+    case "mod":
+      userPermissions = {
+        read_messages: true, send_messages: true, delete_messages: true,
+        rename_channels: false, create_channels: false, manage_roles: false,
+        mute_users: true, manage_messages: true, manage_reports: true
+      };
+      break;
+    default:
+      userPermissions = {
+        read_messages: true, send_messages: true, delete_messages: false,
+        rename_channels: false, create_channels: false, manage_roles: false,
+        mute_users: false, manage_messages: false, manage_reports: false
+      };
   }
-
-  // 2. SysManager Override (Partial)
-  if (localStorage.getItem("chatSysManager") === "true") {
-    // If currentRole is 'Manager' (because they joined), load Manager perms
-    // If currentRole is 'User' (not joined), they can only read?
-    // Let's assume standard Manager perms if they are acting as Manager
-    if (currentRole === "Manager") {
-       // Load Manager perms from DB or hardcode
-       userPermissions = { manage_roles: true, send_messages: true, /* ... */ };
-       return;
-    }
-  }
-
-  // 3. Standard Role Lookup
-  const { data, error } = await supabaseClient
-    .from("roles")
-    .select("permissions")
-    .eq("name", roleName)
-    .maybeSingle();
-
-  if (error || !data) {
-    // Default User permissions
-    userPermissions = { send_messages: true, manage_roles: false, /* ... */ };
-    return;
-  }
-
-  userPermissions = data.permissions || {};
 }
 const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
@@ -603,19 +586,19 @@ function renderChannelList() {
 
   channelList.innerHTML = "";
 
-  // Group channels by category text field
+  // Group channels by category_id → resolved category name
   const grouped = {};
   channels.forEach(ch => {
-    const cat = ch.category || "General";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(ch);
+    const cat = categories.find(c => c.id === ch.category_id);
+    const catName = cat ? cat.name : "General";
+    if (!grouped[catName]) grouped[catName] = [];
+    grouped[catName].push(ch);
   });
   Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
 
-  // Build ordered list of category names: DB-ordered categories first, then any orphan names
+  // Build ordered list of category names by DB sort_order, then any uncategorised orphans
   const catNames = categories.map(c => c.name);
   Object.keys(grouped).forEach(cat => { if (!catNames.includes(cat)) catNames.push(cat); });
-  // Always include "General" if no categories at all
   if (catNames.length === 0) catNames.push("General");
 
   catNames.forEach(catName => {
@@ -719,10 +702,13 @@ function renderChannelList() {
           const ch = channels.find(c => c.id === channelId);
           const updates = [];
 
-          if (ch && ch.category !== newCatName) {
-            ch.category = newCatName;
+          const newCat = categories.find(c => c.name === newCatName);
+          const newCatId = newCat ? newCat.id : null;
+          const oldCat = categories.find(c => c.id === ch?.category_id);
+          if (ch && (oldCat?.name || "General") !== newCatName) {
+            ch.category_id = newCatId;
             updates.push(
-              supabaseClient.from("channels").update({ category: newCatName }).eq("id", channelId)
+              supabaseClient.from("channels").update({ category_id: newCatId }).eq("id", channelId)
             );
           }
 
@@ -925,22 +911,49 @@ function showInlineDeleteCategory(catName) {
 }
 
 // ---- Channel CRUD ----
-async function performCreateChannel(name) {
+async function performCreateChannel(name, categoryId) {
   const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
   if (!trimmed) return;
 
+  if (!currentServerId) {
+    console.error("❌ No server selected");
+    return;
+  }
+
+  // Ensure category exists or fallback safely
+  let effectiveCatId = null;
+
+  if (categoryId) {
+    effectiveCatId = categoryId;
+  } else {
+    const firstCategory = categories.find(c => c.server_id === currentServerId);
+    effectiveCatId = firstCategory ? firstCategory.id : null;
+  }
+
+  const sortOrder = channels.filter(
+    c => c.server_id === currentServerId && c.category_id === effectiveCatId
+  ).length;
+
   const { data, error } = await supabaseClient
     .from("channels")
-    .insert({ name: trimmed, created_by: username, category: "General", sort_order: channels.length })
+    .insert({
+      name: trimmed,
+      created_by: username,
+      sort_order: sortOrder,
+      server_id: currentServerId,
+      category_id: effectiveCatId
+    })
     .select()
-    .maybeSingle();
+    .single();
 
-  if (error) { console.error("❌ Create channel:", error.message); return; }
-  if (data) {
-    channels.push(data);
-    renderChannelList();
-    switchChannel(data.id);
+  if (error) {
+    console.error("❌ Create channel:", error.message);
+    return;
   }
+
+  channels.push(data);
+  renderChannelList();
+  switchChannel(data.id);
 }
 
 async function performRenameChannel(channelId, newName) {
@@ -972,15 +985,32 @@ async function performDeleteChannel(channelId) {
 async function performCreateCategory(name) {
   const trimmed = name.trim();
   if (!trimmed) return;
-  const sortOrder = categories.length;
+
+  if (!currentServerId) {
+    console.error("❌ No server selected");
+    return;
+  }
+
+  const sortOrder = categories.filter(c => c.server_id === currentServerId).length;
+
   const { data, error } = await supabaseClient
     .from("categories")
-    .insert({ name: trimmed, sort_order: sortOrder, created_by: username, server_id: currentServerId })
+    .insert({
+      name: trimmed,
+      sort_order: sortOrder,
+      created_by: username,
+      server_id: currentServerId
+    })
     .select()
-    .maybeSingle();
+    .single();
 
-  if (error) { console.error("❌ Create category:", error.message); return; }
-  if (data) { categories.push(data); renderChannelList(); }
+  if (error) {
+    console.error("❌ Create category:", error.message);
+    return;
+  }
+
+  categories.push(data);
+  renderChannelList();
 }
 
 async function performRenameCategory(oldName, newName) {
@@ -993,31 +1023,35 @@ async function performRenameCategory(oldName, newName) {
     if (error) { console.error("❌ Rename category:", error.message); return; }
     cat.name = trimmed;
   }
-
-  // Update all channels in this category
-  await supabaseClient.from("channels").update({ category: trimmed }).eq("category", oldName);
-  channels.filter(c => c.category === oldName).forEach(c => c.category = trimmed);
+  // Channels reference the category by category_id (uuid), not by name text — no channel update needed
   renderChannelList();
 }
 
 async function performDeleteCategory(catName) {
   const cat = categories.find(c => c.name === catName);
-  if (cat) {
-    await supabaseClient.from("categories").delete().eq("id", cat.id);
-    categories = categories.filter(c => c.id !== cat.id);
-  }
-  // Move channels in deleted category to "General"
-  await supabaseClient.from("channels").update({ category: "General" }).eq("category", catName);
-  channels.filter(c => c.category === catName).forEach(c => c.category = "General");
-  // Ensure "General" is in categories
-  if (!categories.find(c => c.name === "General")) {
-    const { data } = await supabaseClient
+  if (!cat) return;
+
+  // Find or create a "General" fallback category for orphaned channels
+  let generalCat = categories.find(c => c.name === "General" && c.id !== cat.id);
+  if (!generalCat) {
+    const { data: genData } = await supabaseClient
       .from("categories")
-      .insert({ name: "General", sort_order: 0, created_by: username })
+      .insert({ name: "General", sort_order: 0, created_by: username, server_id: currentServerId })
       .select()
       .maybeSingle();
-    if (data) categories.push(data);
+    if (genData) { categories.push(genData); generalCat = genData; }
   }
+
+  // Reassign orphaned channels by category_id
+  const orphans = channels.filter(c => c.category_id === cat.id);
+  if (orphans.length > 0) {
+    const newCatId = generalCat ? generalCat.id : null;
+    await supabaseClient.from("channels").update({ category_id: newCatId }).eq("category_id", cat.id);
+    orphans.forEach(c => { c.category_id = newCatId; });
+  }
+
+  await supabaseClient.from("categories").delete().eq("id", cat.id);
+  categories = categories.filter(c => c.id !== cat.id);
   renderChannelList();
 }
 
@@ -1028,63 +1062,6 @@ async function deleteChannel(channelId, channelName) {
 
 }
 
-async function tryCreateChannel() {
-  console.log("🔥 create channel clicked");
-
-  // ✅ Admin check
-  if (!currentRole || currentRole.toLowerCase() !== "admin") {
-    alert("❌ Only admins can create channels");
-    return;
-  }
-
-  const btn = document.getElementById("createChannelBtn");
-
-  // ✅ 1. Get name
-  const name = prompt("Enter new channel name:");
-  if (!name || !name.trim()) return;
-
-  // ✅ 2. DEFINE trimmedName (THIS is what you're missing)
-  const trimmedName = name.trim();
-
-  // ✅ 3. Get category
-  const category = prompt("Enter category (e.g. Text, Voice, School):");
-
-  if (btn) {
-    btn.textContent = "⏳";
-    btn.disabled = true;
-  }
-
-  try {
-    // ✅ 4. USE trimmedName AFTER defining it
-    const { data, error } = await supabaseClient
-      .from("channels")
-      .insert({
-        name: trimmedName,
-        created_by: username,
-        category: category || "General",
-        server_id: currentServerId
-      })
-      .select()
-      .maybeSingle();
-
-    if (error) {
-      alert("❌ Failed: " + error.message);
-      console.error(error);
-      return;
-    }
-
-    await loadChannels();
-    switchChannel(data.id);
-
-  } catch (err) {
-    alert("❌ Unexpected: " + err.message);
-  } finally {
-    if (btn) {
-      btn.textContent = "+";
-      btn.disabled = false;
-    }
-  }
-}
 
 function switchChannel(channelId) {
   // 🔥 CRITICAL: Set this IMMEDIATELY
@@ -1167,7 +1144,7 @@ async function loadUser() {
 
   // 1. Get username from LocalStorage (Set by handleAuthSuccess or Session Restore)
   const storedName = localStorage.getItem("chatUsername");
-  
+
   if (!storedName) {
     // This should ONLY happen if the user is NOT logged in (no session)
     // But if we are here, it means the session check passed but localStorage is missing.
@@ -1186,42 +1163,39 @@ async function loadUser() {
   nameInput.value = username;
   // HIDE the name prompt if it exists (it shouldn't be visible anyway)
   if (namePrompt) namePrompt.style.display = "none";
-  
+
   const controls = document.getElementById("controls");
   if (controls) controls.classList.add("visible");
-  
+
   input.disabled = false;
   button.disabled = false;
 
-  // 3. Fetch global blocked/muted status
+  // 3. Fetch sys role, blocked, and muted status from DB (new schema uses boolean flags)
   try {
     const { data } = await supabaseClient
       .from("users")
-      .select("blocked, muted_until")
+      .select("sys_admin, sys_manager, blocked, muted_until")
       .eq("username", username)
       .maybeSingle();
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
+    if (data?.sys_admin) {
+      currentSystemRole = "SysAdmin";
+    } else if (data?.sys_manager) {
+      currentSystemRole = "SysManager";
+    } else {
+      currentSystemRole = "User";
+    }
+    localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
+    localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
+    console.log("🔐 System role:", currentSystemRole);
   } catch (err) {
-    console.error("Error fetching mute/block status:", err);
+    console.error("Error fetching user data:", err);
   }
 
-  // 4. Load Permissions (SysAdmin/SysManager checks)
-  const isSysAdmin = localStorage.getItem("chatSysAdmin") === "true";
-  const isSysManager = localStorage.getItem("chatSysManager") === "true";
-  
-  // Load role permissions based on currentRole (which will be set later per server)
-  // For now, set default to User until we switch servers
-  currentRole = "User"; 
-  await loadUserPermissions(currentRole);
-
-  // 5. Show/Hide Admin Buttons based on Global Flags
-  const createChannelBtn = document.getElementById("createChannelBtn");
-  const createCategoryBtnEl = document.getElementById("createCategoryBtn");
-  
-  // Note: These buttons will be toggled again in refreshServerRole() per server
-  if (createChannelBtn) createChannelBtn.style.display = (isSysAdmin || isSysManager) ? "inline-block" : "none";
-  if (createCategoryBtnEl) createCategoryBtnEl.style.display = (isSysAdmin || isSysManager) ? "inline-block" : "none";
+  // 4. Default per-server permissions until refreshServerRole() runs after switchServer
+  currentRole = "User";
+  loadUserPermissions("user");
 
   // 6. Initialize Realtime & Typing
   initRealtime();
@@ -1236,7 +1210,6 @@ async function loadUser() {
   watchForceLogout(username);
   subscribeToUserStatus();
   applyMuteBlockUI();
-  loadCustomEmojis();
 
   console.log("🎉 loadUser() completed successfully.");
 }
@@ -1262,19 +1235,18 @@ async function saveName() {
 
     const { data, error } = await supabaseClient
       .from("users")
-      .upsert({ 
-        username: name,
-        role: existingUser?.role || "User"
-      }, { 
+      .upsert({
+        username: name
+      }, {
         onConflict: ["username"]
       })
-      .select("role");
+      .select("system_role");
 
     if (error) {
       console.error("Failed to save user:", error);
       currentRole = "User";
     } else {
-      currentRole = data?.[0]?.role || "User";
+      currentRole = data?.[0]?.system_role || "User";
     }
 
     localStorage.setItem("chatRole", currentRole);
@@ -1462,7 +1434,7 @@ async function buildLinkPreview(url) {
     // Race between fetch and timeout
     const res = await Promise.race([fetchPromise, timeoutPromise]);
     const json = await res.json();
-    
+
     if (!json.data) return null;
 
     const preview = `
@@ -1511,7 +1483,7 @@ async function renderMessage(msg) {
   li.dataset.user = msg.username;
   // Normalize role to lowercase to prevent case mismatches
   const roleLower = (msg.role || "").toLowerCase();
-  
+
   if (roleLower === "admin") li.classList.add("admin");
   else if (roleLower === "manager") li.classList.add("manager");
   li.dataset.pinned = msg.is_pinned ? "true" : "false";
@@ -1543,17 +1515,8 @@ async function renderMessage(msg) {
   const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
-  // --- ROLE FORM CARD ---
-  if (cleanContent.startsWith("ROLEFORM::")) {
-    try {
-      const formData = JSON.parse(cleanContent.slice("ROLEFORM::".length));
-      const card = buildRoleFormCard(formData, msg.username);
-      contentDiv.appendChild(card);
-      li.appendChild(contentDiv);
-      requestAnimationFrame(() => enhanceMessage(li, msg));
-      return;
-    } catch {}
-  }
+  // ROLEFORM messages are no longer supported — skip rendering
+  if (cleanContent.startsWith("ROLEFORM::")) return;
 
   // --- FILE / LINK PARSING ---
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
@@ -1816,18 +1779,6 @@ let customEmojis = []; // { id, name, url }
 let pickerBuilt = false;
 let currentPickerMessageId = null;
 
-async function loadCustomEmojis() {
-  const { data, error } = await supabaseClient
-    .from("custom_emojis")
-    .select("*")
-    .order("name");
-  if (!error && data) {
-    customEmojis = data;
-    const cat = EMOJI_CATEGORIES.find(c => c.name === "Custom");
-    if (cat) cat.emojis = data.map(e => e.url);
-    if (pickerBuilt) rebuildCustomGrid();
-  }
-}
 
 function rebuildCustomGrid() {
   const picker = document.getElementById("emojiPicker");
@@ -2085,7 +2036,6 @@ async function addCustomEmoji() {
   if (error) {
     alert("❌ Failed to add custom emoji: " + error.message);
   } else {
-    await loadCustomEmojis();
     alert("✅ Custom emoji added successfully!");
   }
 }
@@ -2096,14 +2046,14 @@ async function uploadCustomEmojiFile() {
     const fileInput = document.createElement("input");
     fileInput.type = "file";
     fileInput.accept = "image/*";
-    
+
     // 2. Append it to the body (required for some browsers to allow programmatic click)
     document.body.appendChild(fileInput);
 
     // 3. Define the change handler BEFORE clicking
     fileInput.onchange = async () => {
       const file = fileInput.files[0];
-      
+
       // Clean up: remove the input from DOM
       document.body.removeChild(fileInput);
 
@@ -2183,16 +2133,7 @@ async function uploadCustomEmojiFile() {
 async function deleteCustomEmoji(id) {
   const { error } = await supabaseClient.from("custom_emojis").delete().eq("id", id);
   if (error) { alert("❌ " + error.message); return; }
-  await loadCustomEmojis();
 }
-
-// Subscribe to custom_emojis table for real-time updates
-supabaseClient
-  .channel("custom-emojis-channel")
-  .on("postgres_changes", { event: "*", schema: "public", table: "custom_emojis" }, () => {
-    loadCustomEmojis();
-  })
-  .subscribe();
 
 // ------------------------ ADMIN MENU FUNCTIONS ------------------------
 
@@ -2494,7 +2435,7 @@ async function userInfo(author) {
 
     alert(
       `👤 User: ${author}\n` +
-      `🎭 Role: ${data.role || "User"}\n` +
+      `🎭 System Role: ${data.system_role || "User"}\n` +
       `🚫 Blocked: ${data.blocked ? "Yes" : "No"}\n` +
       `🔇 Muted Until: ${data.muted_until || "Not muted"}\n` +
       `🌐 Last IP: ${data.ip || "Unknown"}\n` +
@@ -3546,26 +3487,38 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
   }
 }
 
-supabaseClient
-  .channel("channels-realtime")
-  .on(
-    "postgres_changes",
-    { event: "*", schema: "public", table: "channels" },
-    (payload) => {
-      const deletedId = payload.eventType === "DELETE" ? payload.old?.id : null;
-      reloadChannelsRealtime(deletedId);
-    }
-  )
-  .subscribe();
+// Server-scoped realtime for channels & categories — set up per switchServer()
+let _channelRealtimeSub = null;
+let _categoryRealtimeSub = null;
 
-supabaseClient
-  .channel("categories-realtime")
-  .on(
-    "postgres_changes",
-    { event: "*", schema: "public", table: "categories" },
-    () => reloadChannelsRealtime()
-  )
-  .subscribe();
+function subscribeToServerRealtime(serverId) {
+  // Clean up previous server's subscriptions
+  if (_channelRealtimeSub) { try { _channelRealtimeSub.unsubscribe(); } catch {} _channelRealtimeSub = null; }
+  if (_categoryRealtimeSub) { try { _categoryRealtimeSub.unsubscribe(); } catch {} _categoryRealtimeSub = null; }
+
+  if (!serverId) return;
+
+  _channelRealtimeSub = supabaseClient
+    .channel(`channels-realtime-${serverId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "channels", filter: `server_id=eq.${serverId}` },
+      (payload) => {
+        const deletedId = payload.eventType === "DELETE" ? payload.old?.id : null;
+        reloadChannelsRealtime(deletedId);
+      }
+    )
+    .subscribe();
+
+  _categoryRealtimeSub = supabaseClient
+    .channel(`categories-realtime-${serverId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "categories", filter: `server_id=eq.${serverId}` },
+      () => reloadChannelsRealtime()
+    )
+    .subscribe();
+}
 
 async function giveCustomRole(targetUser) {
   const roleName = prompt("Enter role name to give:");
@@ -3587,33 +3540,6 @@ async function giveCustomRole(targetUser) {
   loadServerMembers();
 }
 
-async function createCustomRole() {
-
-  const roleName = prompt("Role name?");
-  if (!roleName) return;
-
-  const permissions = {
-    read_messages: confirm("Can read messages?"),
-    send_messages: confirm("Can send messages?"),
-    delete_messages: confirm("Can delete messages?"),
-    rename_channels: confirm("Can rename channels?"),
-    create_channels: confirm("Can create channels?"),
-    manage_roles: confirm("Can manage roles?"),
-    mute_users: confirm("Can mute users?")
-  };
-
-  const { error } = await supabaseClient
-    .from("roles")
-    .insert([{ name: roleName, permissions }]);
-
-  if (error) {
-    alert("❌ Failed to create role");
-    console.error(error);
-    return;
-  }
-
-  alert("✅ Role created!");
-}
 
 function sendTyping(status) {
   if (isTyping === status) return;
@@ -3653,13 +3579,20 @@ function closeModal(id) {
 
 async function loadServers() {
   if (!username) return;
-  const { data, error } = await supabaseClient
-    .from("server_members")
-    .select("server_id, servers(*)")
-    .eq("username", username);
 
-  if (error) { console.error("loadServers error:", error); servers = []; }
-  else { servers = (data || []).map(d => d.servers).filter(Boolean); }
+  if (currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager") {
+    const { data, error } = await supabaseClient
+      .from("servers").select("*").order("created_at", { ascending: true });
+    if (error) { console.error("loadServers error:", error); servers = []; }
+    else { servers = data || []; }
+  } else {
+    const { data, error } = await supabaseClient
+      .from("server_members")
+      .select("server_id, servers(*)")
+      .eq("username", username);
+    if (error) { console.error("loadServers error:", error); servers = []; }
+    else { servers = (data || []).map(d => d.servers).filter(Boolean); }
+  }
 
   renderServerList();
 
@@ -3718,6 +3651,7 @@ async function switchServer(serverId, updateUrl = true) {
   }
 
   await refreshServerRole();
+  subscribeToServerRealtime(serverId);
   loadServerMembers();
   subscribeToPresence();
 }
@@ -4108,60 +4042,30 @@ function initServerModals() {
 async function refreshServerRole() {
   if (!currentServerId || !username) return;
 
-  // 1. Check Global SysAdmin Flag FIRST for PERMISSIONS
-  const isSysAdmin = localStorage.getItem("chatSysAdmin") === "true";
-  const isSysManager = localStorage.getItem("chatSysManager") === "true";
-
-  let displayRole = "User"; // Default display role
-  let effectivePermissions = {};
-
-  if (isSysAdmin) {
-    // SysAdmin gets ALL permissions
-    effectivePermissions = {
-      manage_roles: true,
-      send_messages: true,
-      delete_messages: true,
-      rename_channels: true,
-      create_channels: true,
-      mute_users: true,
-      ban_users: true,
-      // ... all true
+  if (currentSystemRole === "SysAdmin") {
+    currentRole = "Admin";
+    loadUserPermissions("admin");
+  } else if (currentSystemRole === "SysManager") {
+    currentRole = "Manager";
+    userPermissions = {
+      read_messages: true, send_messages: true, delete_messages: true,
+      rename_channels: false, create_channels: false, manage_roles: false,
+      mute_users: true, manage_messages: true, manage_reports: true
     };
-    // BUT display role should come from DB if available, otherwise "SysAdmin"
-    displayRole = "Admin"; // Force "Admin" for styling consistency
-  } else if (isSysManager) {
-    effectivePermissions = {
-      manage_roles: true,
-      send_messages: true,
-      delete_messages: false, // Managers can't delete others' messages
-      rename_channels: false,
-      create_channels: false,
-      mute_users: false,
-      ban_users: false,
-    };
-    displayRole = "Manager";
   } else {
-    // 2. Check Per-Server Role from DB
-    const { data: memberData, error } = await supabaseClient
+    const { data: memberData } = await supabaseClient
       .from("server_members")
       .select("role")
       .eq("server_id", currentServerId)
       .eq("username", username)
       .maybeSingle();
-
-    displayRole = (memberData?.role || "User").toLowerCase();
-    
-    // Load permissions based on this role
-    await loadUserPermissions(displayRole);
-    effectivePermissions = userPermissions;
+    const roleName = memberData?.role || "User";
+    currentRole = roleName;
+    loadUserPermissions(roleName);
   }
 
-  // 3. Set global state
-  currentRole = displayRole; // This is what gets used for CSS classes
   localStorage.setItem("chatRole", currentRole);
-  userPermissions = effectivePermissions;
-
-  console.log(`✅ Role resolved: ${currentRole} (SysAdmin: ${isSysAdmin})`);
+  console.log(`✅ Server role: ${currentRole} | System: ${currentSystemRole}`);
   updateRoleUI();
 }
 
@@ -4215,92 +4119,6 @@ function resolveGifUrl(url) {
   }
 }
 
-// ======================== ROLE FORM SYSTEM ========================
-
-function createRoleForm() {
-  const role = prompt("Role name to grant (e.g. Teacher, Moderator):");
-  if (!role || !role.trim()) return;
-  const label = prompt("Form title (e.g. Apply to be a Teacher):", `Apply to be a ${role.trim()}`);
-  if (!label) return;
-  const description = prompt("Description — what does this role do?", "");
-
-  const formData = {
-    role: role.trim(),
-    label: label.trim(),
-    description: (description || "").trim()
-  };
-
-  const content = `ROLEFORM::${JSON.stringify(formData)}`;
-
-  supabaseClient.from("messages").insert({
-    username,
-    content,
-    role: currentRole,
-    is_pinned: false,
-    ip: "unknown",
-    channel_id: currentChannelId
-  }).then(({ error }) => {
-    if (error) alert("❌ Failed to post form: " + error.message);
-  });
-}
-
-function buildRoleFormCard(formData, posterUsername) {
-  const card = document.createElement("div");
-  card.className = "role-form-card";
-
-  const alreadyApplied = localStorage.getItem(`roleApplied_${formData.role}`) === "true";
-  const isSelf = posterUsername === username;
-
-  card.innerHTML = `
-    <div class="role-form-header">
-      <span class="role-form-icon">📋</span>
-      <div>
-        <div class="role-form-title">${escapeHTML(formData.label)}</div>
-        <div class="role-form-sub">Posted by ${escapeHTML(posterUsername)}</div>
-      </div>
-    </div>
-    ${formData.description ? `<div class="role-form-desc">${escapeHTML(formData.description)}</div>` : ""}
-    <button class="role-form-btn ${alreadyApplied ? "applied" : ""}"
-            id="rfbtn_${escapeHTML(formData.role)}"
-            ${(alreadyApplied || isSelf) ? "disabled" : ""}>
-      ${alreadyApplied ? "✅ Applied" : isSelf ? "You posted this" : `Apply for ${escapeHTML(formData.role)}`}
-    </button>
-  `;
-
-  if (!alreadyApplied && !isSelf) {
-    card.querySelector(".role-form-btn").addEventListener("click", () => applyForRole(formData.role, card));
-  }
-
-  return card;
-}
-
-async function applyForRole(roleName, cardEl) {
-  const btn = cardEl?.querySelector(".role-form-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Applying…"; }
-
-  const { error } = await supabaseClient
-    .from("server_members")
-    .update({ role: roleName })
-    .eq("server_id", currentServerId)
-    .eq("username", username);
-
-  if (error) {
-    alert("❌ Failed to apply: " + error.message);
-    if (btn) { btn.disabled = false; btn.textContent = `Apply for ${roleName}`; }
-    return;
-  }
-
-  currentRole = roleName;
-  localStorage.setItem("chatRole", roleName);
-  localStorage.setItem(`roleApplied_${roleName}`, "true");
-  await loadUserPermissions(roleName);
-  updateRoleUI();
-
-  if (btn) {
-    btn.textContent = "✅ Applied";
-    btn.classList.add("applied");
-  }
-}
 
 window.addEventListener("beforeunload", () => {
   navigator.sendBeacon(
