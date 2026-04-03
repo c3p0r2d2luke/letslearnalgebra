@@ -635,6 +635,16 @@ li[data-pinned="true"] {
   background: rgba(250, 168, 26, 0.5);
 }
 
+.mention.everyone {
+  background: rgba(237, 66, 69, 0.3);
+  color: #ed4245;
+}
+
+.mention.everyone:hover {
+  background: rgba(237, 66, 69, 0.6);
+  color: #fff;
+}
+
 /* ===============================
    REPLY / THREAD BANNERS
    =============================== */

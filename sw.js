@@ -5,7 +5,7 @@ self.addEventListener("push", event => {
   const isMention = data.mention === true;
 
   const options = {
-    body: data.body,
+    body: data.serverName ? `${data.serverName} #${data.channelName}: ${data.body}` : data.body,
     icon: "/download (1).png",
     badge: isMention ? "/mention-badge.png" : "/badge.png", // Different badge for mentions
     requireInteraction: isImportant,
@@ -16,7 +16,9 @@ self.addEventListener("push", event => {
         : [100],
     silent: !isImportant,
     tag: isMention ? "mention" : (isImportant ? "important" : "message"),
+    data: data, // Pass the data for use in click handler
     actions: isMention ? [
+      { action: "jump", title: "Jump to Server" },
       { action: "open", title: "Open Chat" },
       { action: "dismiss", title: "Dismiss" }
     ] : []
@@ -30,9 +32,14 @@ self.addEventListener("push", event => {
 // Handle notification click
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  if (event.action === "open" || !event.action) {
+  const data = event.notification.data;
+  if (event.action === "jump" && data.serverSlug && data.channelId) {
     event.waitUntil(
-      clients.openWindow("/") // Opens your chat app
+      clients.openWindow(`/?server=${data.serverSlug}&channel=${data.channelId}`)
+    );
+  } else if (event.action === "open" || !event.action) {
+    event.waitUntil(
+      clients.openWindow("/")
     );
   }
 });

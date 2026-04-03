@@ -431,6 +431,7 @@ let mutedUntil = null;
 let muteInterval = null;
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
+const NO_MENTION_PHRASE = "petsunited";
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -1335,6 +1336,20 @@ async function loadUser() {
   subscribeToUserStatus();
   applyMuteBlockUI();
 
+  // Handle URL params for jumping to server/channel
+  const urlParams = new URLSearchParams(window.location.search);
+  const serverSlug = urlParams.get('server');
+  const channelParam = urlParams.get('channel');
+  if (serverSlug && channelParam) {
+    const server = servers.find(s => s.slug === serverSlug);
+    if (server) {
+      await switchServer(server.id, false);
+      if (channels.find(c => c.id === channelParam)) {
+        switchChannel(channelParam);
+      }
+    }
+  }
+
   console.log("🎉 loadUser() completed successfully.");
 }
 
@@ -1493,6 +1508,7 @@ const messageData = {
 
 // Add this near your sendMessage function
 async function processMentions(content) {
+  if (content.includes(NO_MENTION_PHRASE)) return;
   const mentionRegex = /@(\w+)/g;
 
   const mentionedUsers = [...content.matchAll(mentionRegex)]
@@ -1501,17 +1517,68 @@ async function processMentions(content) {
 
   if (mentionedUsers.length === 0) return;
 
-  // Get valid users
+  const mentionSet = new Set(mentionedUsers);
+  const everyoneMentioned = mentionSet.has("everyone");
+
+  const canUseEveryone = currentSystemRole === "SysAdmin" || currentRole === "Admin";
+  if (everyoneMentioned && !canUseEveryone) {
+    alert("Only server Admins / SysAdmins can use @everyone.");
+    mentionSet.delete("everyone");
+  }
+
+  const notifyUsernames = new Set();
+
+  // If @everyone is allowed, notify all members of the current server (except sender)
+  if (everyoneMentioned && canUseEveryone && currentServerId) {
+    const { data: allMembers, error: allError } = await supabaseClient
+      .from("server_members")
+      .select("username")
+      .eq("server_id", currentServerId);
+
+    if (!allError && Array.isArray(allMembers)) {
+      allMembers.forEach(m => {
+        if (m.username && m.username !== username) {
+          notifyUsernames.add(m.username);
+        }
+      });
+    }
+  }
+
+  // Add explicit user mentions (never includes @everyone here)
+  mentionSet.forEach(name => {
+    if (name === "everyone") return;
+    notifyUsernames.add(name);
+  });
+
+  if (notifyUsernames.size === 0) return;
+
+  // Get server and channel names
+  let serverName = "Unknown Server";
+  let serverSlug = "";
+  let channelName = "general";
+  if (currentServerId) {
+    const { data: srv } = await supabaseClient.from("servers").select("name, slug").eq("id", currentServerId).single();
+    if (srv) {
+      serverName = srv.name;
+      serverSlug = srv.slug;
+    }
+  }
+  if (currentChannelId) {
+    const ch = channels.find(c => c.id === currentChannelId);
+    if (ch) channelName = ch.name;
+  }
+
+  // Validate users and fetch subscriptions for everyone in notifyUsernames
+  const targetUsers = Array.from(notifyUsernames);
   const { data: users } = await supabaseClient
     .from("users")
     .select("username")
-    .in("username", mentionedUsers);
+    .in("username", targetUsers);
 
   if (!users) return;
 
   const validUsers = users.map(u => u.username);
 
-  // Get subscriptions
   const { data: subs } = await supabaseClient
     .from("push_subscriptions")
     .select("*")
@@ -1530,7 +1597,12 @@ async function processMentions(content) {
           body: content.substring(0, 100),
           subscription: sub.subscription,
           mention: true,
-          important: true
+          important: true,
+          serverId: currentServerId,
+          channelId: currentChannelId,
+          serverName,
+          channelName,
+          serverSlug
         })
       });
     } catch (e) {
@@ -1637,7 +1709,7 @@ async function renderMessage(msg) {
   contentDiv.className = "content";
 
   const wrapper = document.createElement("div");
-  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "").replaceAll(NO_MENTION_PHRASE, "");
 
   // ROLEFORM messages are no longer supported — skip rendering
   if (cleanContent.startsWith("ROLEFORM::")) return;
@@ -1726,11 +1798,14 @@ if (msg.role === "Admin") {
   contentDiv.appendChild(wrapper);
 
   // --- Mention Styling — convert @name to colored pill spans ---
-  if (!fileMatch && msg.role !== "Admin") {
+  if (!fileMatch) {
     wrapper.innerHTML = wrapper.innerHTML.replace(
       /@(\w+)/g,
       (match, name) => {
-        const cls = name === username ? "mention mine" : "mention";
+        const lowerName = name.toLowerCase();
+        let cls = "mention";
+        if (lowerName === username.toLowerCase()) cls += " mine";
+        if (lowerName === "everyone") cls += " everyone";
         return `<span class="${cls}">@${name}</span>`;
       }
     );
@@ -2649,6 +2724,11 @@ async function changeName(author) {
 // Promote or demote a user
 async function promote(author) {
   try {
+    if (currentSystemRole !== "SysAdmin" && currentRole !== "Admin") {
+      alert("❌ Only server Admin or SysAdmin can promote/demote users.");
+      return;
+    }
+
     const { data, error } = await supabaseClient
       .from("server_members")
       .select("role")
