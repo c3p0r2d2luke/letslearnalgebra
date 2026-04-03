@@ -2181,3 +2181,17 @@ body.sidebar-open .sidebar-overlay {
     align-items: center;
   }
 }
+
+/* Fallback: If the username text itself contains "Admin" (unlikely but safe) */
+.username:contains("Admin") { color: var(--accent) !important; } /* Note: :contains is non-standard, better to rely on classes */
+
+/* Better Fallback: Ensure the variable is used correctly */
+#messages li .username {
+  color: var(--text-main); /* Default */
+}
+#messages li.admin .username {
+  color: var(--accent) !important; /* Force override */
+}
+#messages li.manager .username {
+  color: var(--success) !important; /* Force override */
+}

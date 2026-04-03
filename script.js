@@ -428,7 +428,7 @@ const nameInput = document.getElementById("nameInput");
 const saveNameBtn = document.getElementById("saveNameButton");
 
 // ------------------------ Supabase Setup ------------------------
-const supabaseUrl = "https://supabase-relay.frenchwizz.workers.dev";
+const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
@@ -1509,8 +1509,11 @@ async function renderMessage(msg) {
   li.className = "";
   li.dataset.id = msg.id;
   li.dataset.user = msg.username;
-  if (msg.role === "Admin") li.classList.add("admin");
-  else if (msg.role === "Manager") li.classList.add("manager");
+  // Normalize role to lowercase to prevent case mismatches
+  const roleLower = (msg.role || "").toLowerCase();
+  
+  if (roleLower === "admin") li.classList.add("admin");
+  else if (roleLower === "manager") li.classList.add("manager");
   li.dataset.pinned = msg.is_pinned ? "true" : "false";
   li.style.border = msg.is_pinned ? "2px solid red" : "";
 
@@ -3815,8 +3818,9 @@ function renderMemberList(presence) {
       item.className = "member-item";
       const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
       const role = m.role || "User";
-      const roleLower = role.toLowerCase();
-      item.innerHTML = `
+  // Ensure role is a string and normalize
+  const roleStr = String(role || "User").toLowerCase();
+  const isSpecialRole = (roleStr === "admin" || roleStr === "manager");      item.innerHTML = `
         <div class="member-avatar">
           ${escapeHTML(m.username.charAt(0).toUpperCase())}
           <span class="status-dot ${label === "Online" ? "online" : ""}"></span>
@@ -3825,7 +3829,7 @@ function renderMemberList(presence) {
           <div class="member-name">${escapeHTML(m.username)}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
-        ${(roleLower === "admin" || roleLower === "manager") ? `<span class="member-role-badge ${roleLower}">${role}</span>` : ""}
+          ${isSpecialRole ? `<span class="member-role-badge $${roleStr}">$${role}</span>` : ""}
       `;
       content.appendChild(item);
     });
@@ -4124,7 +4128,7 @@ async function refreshServerRole() {
     .eq("username", username)
     .maybeSingle();
 
-  let serverRole = memberData?.role || "User";
+  let serverRole = (memberData?.role || "User").toLowerCase(); // Force lowercase
 
   // 3. Special Logic for SysManager
   if (isSysManager) {
