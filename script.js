@@ -1,4 +1,4 @@
-/* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
+/* global AbortController, URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
 document.addEventListener("DOMContentLoaded", () => {
   const confirmBtn = document.getElementById("newChannelConfirm");
@@ -431,7 +431,7 @@ let mutedUntil = null;
 let muteInterval = null;
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
-const NO_MENTION_PHRASE = "petsunited";
+let unreadMentions = JSON.parse(localStorage.getItem('unreadMentions') || '{}');
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -1329,10 +1329,10 @@ async function loadUser() {
   // 7. Load Servers (This triggers switchServer -> refreshServerRole -> loadChannels)
   initServerModals();
   await loadServers();
+  updateServerBadges();
   await checkInviteOnLoad();
 
   // 8. Initialize Other Listeners
-  watchForceLogout(username);
   subscribeToUserStatus();
   applyMuteBlockUI();
 
@@ -1450,6 +1450,17 @@ if (isUserBlockedOrMutedSync()) {
     return;
   }
 
+  let serverName = "Unknown";
+  let channelName = "general";
+  if (currentServerId) {
+    const srv = servers.find(s => s.id === currentServerId);
+    if (srv) serverName = srv.name;
+  }
+  if (currentChannelId) {
+    const ch = channels.find(c => c.id === currentChannelId);
+    if (ch) channelName = ch.name;
+  }
+
   let ip = "unknown";
   try {
     const res = await fetch("https://api.ipify.org?format=json");
@@ -1491,7 +1502,7 @@ const messageData = {
         headers: { "Content-Type": "application/json" }, // FIXED TYPO HERE
         body: JSON.stringify({
           title: isImportant ? "🚨 IMPORTANT ANNOUNCEMENT" : "New message",
-          body: `${username}: ${content.replace("!important!", "")}`,
+          body: `${serverName} #${channelName}: ${content.replace("!important!", "")}`,
           important: isImportant
         })
       });
@@ -1508,7 +1519,6 @@ const messageData = {
 
 // Add this near your sendMessage function
 async function processMentions(content) {
-  if (content.includes(NO_MENTION_PHRASE)) return;
   const mentionRegex = /@(\w+)/g;
 
   const mentionedUsers = [...content.matchAll(mentionRegex)]
@@ -1620,18 +1630,23 @@ async function buildLinkPreview(url) {
   }
 
   try {
-    // Timeout handling (works in all browsers)
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Request timeout")), 3000);
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-    const fetchPromise = fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`);
+    const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
 
-    // Race between fetch and timeout
-    const res = await Promise.race([fetchPromise, timeoutPromise]);
+    if (!res.ok) {
+      console.warn("⚠️ Link preview fetch failed with HTTP status", res.status);
+      return null;
+    }
+
     const json = await res.json();
 
-    if (!json.data) return null;
+    if (!json || !json.data) {
+      console.warn("⚠️ Link preview response missing data for", url);
+      return null;
+    }
 
     const preview = `
 <div class="link-preview">
@@ -1649,6 +1664,7 @@ async function buildLinkPreview(url) {
     return preview;
   } catch (e) {
     console.warn("Preview failed for", url, e);
+    alert(`Link preview failed for ${url}: ${e.message || e}`);
     return null;
   }
 }
@@ -1709,7 +1725,7 @@ async function renderMessage(msg) {
   contentDiv.className = "content";
 
   const wrapper = document.createElement("div");
-  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "").replaceAll(NO_MENTION_PHRASE, "");
+  const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
 
   // ROLEFORM messages are no longer supported — skip rendering
   if (cleanContent.startsWith("ROLEFORM::")) return;
@@ -1765,32 +1781,49 @@ if (urlMatch && msg.role === "Admin") {
     gifImg.style.display = "block";
     gifImg.addEventListener("click", (ev) => { ev.stopPropagation(); openLightbox(gifUrl); });
     wrapper.appendChild(gifImg);
-  } else if (!msg.content.includes(NO_EMBED_PHRASE)) {
-    const previewContainer = document.createElement("div");
-    previewContainer.className = "link-preview-container";
-    previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
-    wrapper.appendChild(previewContainer);
-    setTimeout(async () => {
-      const preview = await buildLinkPreview(urlMatch[0]);
-      if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
-      else { previewContainer.remove(); }
-    }, 100);
   }
-} else if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
+}
+
+if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
   const previewContainer = document.createElement("div");
   previewContainer.className = "link-preview-container";
   previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
   wrapper.appendChild(previewContainer);
-  setTimeout(async () => {
-    const preview = await buildLinkPreview(urlMatch[0]);
-    if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
-    else { previewContainer.remove(); }
-  }, 100);
-}
 
-// Admin-only script execution stays separate
-if (msg.role === "Admin") {
-  executeScripts(wrapper);
+  let resolved = false;
+  const finalizePreview = (html) => {
+    if (resolved) return;
+    resolved = true;
+    previewContainer.innerHTML = html;
+    previewContainer.classList.add("loaded");
+  };
+
+  const fallbackRender = () => {
+    if (resolved) return;
+    resolved = true;
+    previewContainer.innerHTML = `<div class="link-preview"><a href="${urlMatch[0]}" target="_blank" style="color: #00b0f4;">${urlMatch[0]}</a></div>`;
+    previewContainer.classList.add("loaded");
+    alert(`Link preview could not load for ${urlMatch[0]}. Showing plain link instead.`);
+  };
+
+  const previewTimeout = setTimeout(() => {
+    fallbackRender();
+  }, 5000);
+
+  (async () => {
+    try {
+      const preview = await buildLinkPreview(urlMatch[0]);
+      clearTimeout(previewTimeout);
+      if (preview) {
+        finalizePreview(preview);
+      } else {
+        fallbackRender();
+      }
+    } catch {} {
+      clearTimeout(previewTimeout);
+      fallbackRender();
+    }
+  })();
 }
 }
 
@@ -1849,6 +1882,12 @@ function handleRealtimeMessage(newMsg, eventType) {
       messagesList.scrollTop = messagesList.scrollHeight;
     }, 100);
 
+    if (newMsg.username !== username && newMsg.content.toLowerCase().includes(`@${username.toLowerCase()}`)) {
+      unreadMentions[currentServerId] = (unreadMentions[currentServerId] || 0) + 1;
+      localStorage.setItem('unreadMentions', JSON.stringify(unreadMentions));
+      updateServerBadges();
+    }
+
     if (newMsg.content.includes(`@${username}`)) {
   showMentionToast(newMsg);
 
@@ -1883,6 +1922,38 @@ function handleRealtimeMessage(newMsg, eventType) {
       messagesMap.delete(newMsg.id);
     }
   }
+}
+
+function updateServerBadges() {
+  document.querySelectorAll('.server-icon').forEach(icon => {
+    const serverId = icon.dataset.serverId;
+    const count = unreadMentions[serverId] || 0;
+    let badge = icon.querySelector('.unread-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'unread-badge';
+        badge.style.position = 'absolute';
+        badge.style.top = '-5px';
+        badge.style.right = '-5px';
+        badge.style.background = '#f04747';
+        badge.style.color = 'white';
+        badge.style.borderRadius = '50%';
+        badge.style.width = '18px';
+        badge.style.height = '18px';
+        badge.style.display = 'flex';
+        badge.style.alignItems = 'center';
+        badge.style.justifyContent = 'center';
+        badge.style.fontSize = '10px';
+        badge.style.fontWeight = 'bold';
+        icon.style.position = 'relative';
+        icon.appendChild(badge);
+      }
+      badge.textContent = count > 99 ? '99+' : count;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
 }
 
 // ------------------------ Send / Name Handlers ------------------------
@@ -2960,6 +3031,7 @@ async function startReply(messageId) {
     `Replying to ${author}: ${content.substring(0, 50)}${content.length > 50 ? "…" : ""}`;
   document.getElementById("replyBanner").style.display = "flex";
   input.placeholder = `Replying to ${author}…`;
+  input.value = `@${author} ` + input.value;
   input.focus();
 }
 
@@ -3101,49 +3173,6 @@ function displayName(u) {
 
 
 // ===================== Force Logout Logic =====================
-function watchForceLogout(currentUsername) {
-  supabaseClient
-    .channel('force-logout')
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'users',
-        filter: `username=eq.${currentUsername}`
-      },
-      (payload) => {
-        if (payload.new.forceLogout) {
-          handleForcedLogout();
-        }
-      }
-    )
-    .subscribe();
-}
-
-function handleForcedLogout() {
-  console.log("💀 You have been force logged out");
-
-  // 🔥 Clear EVERYTHING
-  localStorage.clear();
-  sessionStorage.clear();
-
-  // Optional: clear cookies too
-  document.cookie.split(";").forEach(c => {
-    document.cookie = c
-      .replace(/^ +/, "")
-      .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-  });
-
-  // Supabase logout
-  supabaseClient.auth.signOut();
-
-  alert("You have been logged out by an admin.");
-
-  // Reload or redirect
-  location.reload() // or just location.reload()
-}
-
 // ======================== FILE UPLOAD ========================
 const fileInput = document.getElementById("fileInput");
 const uploadBtn = document.getElementById("uploadBtn");
@@ -3897,6 +3926,13 @@ async function switchServer(serverId, updateUrl = true) {
     if (nameEl) nameEl.textContent = server.name;
   }
 
+  // Ensure member panel is visible when server is selected
+  const memberPanel = document.getElementById('memberList');
+  if (memberPanel) {
+    memberPanel.style.display = 'flex';
+    memberPanel.classList.remove('open');
+  }
+
   document.querySelectorAll(".server-icon[data-server-id]").forEach(el => {
     el.classList.toggle("active", el.dataset.serverId === serverId);
   });
@@ -3938,6 +3974,10 @@ async function switchServer(serverId, updateUrl = true) {
   
   console.log("🔔 Subscribing to presence...");
   subscribeToPresence();
+  
+  unreadMentions[serverId] = 0;
+  localStorage.setItem('unreadMentions', JSON.stringify(unreadMentions));
+  updateServerBadges();
   
   console.log("✅ switchServer complete!");
 }
@@ -4068,6 +4108,8 @@ async function loadServerMembers() {
 
     if (error) { 
       console.error("❌ loadServerMembers error:", error);
+      const msg = `Error loading members: ${error.message || "Unknown error"}`;
+      alert(msg);
       console.error("   Error code:", error.code);
       console.error("   Error hint:", error.hint);
       console.error("   Error details:", error.details);
@@ -4077,15 +4119,63 @@ async function loadServerMembers() {
           Code: ${error.code}<br/>
           Message: ${error.message}<br/>
           ${error.hint ? `Hint: ${error.hint}<br/>` : ''}
-          Server ID: ${currentServerId.substring(0, 8)}...<br/>
-          Username: ${username}
+          Server ID: ${currentServerId ? currentServerId.substring(0, 8) + '...' : 'N/A'}<br/>
+          Username: ${username || 'N/A'}
         </div>`;
       }
       return; 
     }
     
-    serverMembers = members || [];
+    serverMembers = Array.isArray(members) ? members : [];
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
+
+    if (serverMembers.length === 0 && currentServerId) {
+      console.warn("⚠️ server_members returned empty, trying fallback query");
+      const { data: serversCache, error: fallbackError } = await supabaseClient
+        .from("server_members")
+        .select("username, role")
+        .eq("server_id", currentServerId);
+      if (!fallbackError && Array.isArray(serversCache) && serversCache.length > 0) {
+        serverMembers = serversCache;
+        console.log("✅ Fallback server_members query found", serverMembers.length, "members");
+      }
+    }
+
+    // If still empty, fallback to owner + current user
+    if (serverMembers.length === 0 && currentServerId) {
+      const { data: serverInfo, error: serverError } = await supabaseClient
+        .from("servers")
+        .select("id, owner_username")
+        .eq("id", currentServerId)
+        .maybeSingle();
+      if (!serverError && serverInfo) {
+        const fallback = [];
+        if (serverInfo.owner_username) fallback.push({ username: serverInfo.owner_username, role: "Admin" });
+        if (username && username !== serverInfo.owner_username) {
+          fallback.push({ username, role: "User" });
+        }
+        if (fallback.length > 0) {
+          serverMembers = fallback;
+          console.warn("⚠️ server_members empty; using owner/user fallback:", serverMembers);
+        }
+      }
+    }
+
+    // If still no members, use channel messages authors as a last resort
+    if (serverMembers.length === 0 && currentChannelId) {
+      const { data: messages } = await supabaseClient
+        .from("messages")
+        .select("username")
+        .eq("channel_id", currentChannelId)
+        .order("inserted_at", { ascending: false })
+        .limit(50);
+
+      const messageUsers = [...new Set((messages || []).map(m => m.username))].slice(0, 20);
+      serverMembers = messageUsers.map(u => ({ username: u, role: u === username ? "User" : "User" }));
+      if (serverMembers.length > 0) {
+        console.warn("⚠️ server_members empty; using message authors fallback:", serverMembers);
+      }
+    }
 
     // Fetch presence data
     console.log("📡 Fetching channel_presence for server:", currentServerId);
@@ -4102,9 +4192,10 @@ async function loadServerMembers() {
     renderMemberList(presence || []);
   } catch (err) {
     console.error("❌ Unexpected error in loadServerMembers:", err);
+    alert(`Member list load failed: ${err.message || err}`);
     if (content) {
       content.innerHTML = `<div style='padding:10px;color:#ff6b6b;font-size:11px;'>
-        Unexpected error: ${err.message}
+        Unexpected error: ${err.message || err}
       </div>`;
     }
   }
@@ -4123,15 +4214,36 @@ function renderMemberList(presence) {
   // Make sure we have serverMembers data
   if (!serverMembers || serverMembers.length === 0) {
     console.warn("⚠️ No server members to display. serverMembers:", serverMembers);
+    alert("No server members found. This may be a database/permissions issue.");
     const debugInfo = currentServerId ? `Server ID: ${currentServerId.substring(0, 8)}...` : "No server selected";
     content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>
       No members found.<br/>
       <span style='font-size:10px;color:#666;'>(${debugInfo})</span>
     </div>`;
+
+    // Keep member panel visible on mobile if this is the active server
+    const memberPanel = document.getElementById('memberList');
+    if (memberPanel) {
+      memberPanel.style.display = 'flex';
+      memberPanel.classList.add('open');
+    }
+
     return;
   }
 
   console.log("✅ Starting to render", serverMembers.length, "members");
+
+  // Ensure panel is visible (desktop + mobile after toggle)
+  const memberPanel = document.getElementById('memberList');
+  if (memberPanel) {
+    if (window.innerWidth > 768) {
+      memberPanel.style.display = 'flex';
+    } else if (!memberPanel.classList.contains('open')) {
+      // Keep mobile hidden until user toggles
+      memberPanel.style.display = 'none';
+    }
+  }
+
   content.innerHTML = "";
 
   const presenceMap = new Map((presence || []).map(p => [p.username, p]));
@@ -4141,25 +4253,28 @@ function renderMemberList(presence) {
   const offline = [];
 
   serverMembers.forEach(m => {
-    const p = presenceMap.get(m.username);
+    const usernameKey = String(m.username || "").trim();
+    const p = usernameKey ? presenceMap.get(usernameKey) : null;
     const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
+
     if (isOnline) {
-      console.log(`  ✅ ${m.username} is ONLINE`);
-      online.push({ ...m, presence: p });
-    }
-    else {
-      console.log(`  ⚫ ${m.username} is OFFLINE`);
-      offline.push({ ...m, presence: null });
+      console.log(`  ✅ ${usernameKey || '<unknown>'} is ONLINE`);
+      online.push({ ...m, username: usernameKey || '<unknown>', presence: p });
+    } else {
+      console.log(`  ⚫ ${usernameKey || '<unknown>'} is OFFLINE`);
+      offline.push({ ...m, username: usernameKey || '<unknown>', presence: p });
     }
   });
 
   console.log(`📊 Final split: ${online.length} online, ${offline.length} offline`);
 
+  let renderedAnyGroup = false;
   const renderGroup = (label, members) => {
     if (members.length === 0) {
       console.log(`  (${label} group is empty, skipping)`);
       return;
     }
+    renderedAnyGroup = true;
     console.log(`📌 Rendering ${label} group with ${members.length} members`);
     const groupLabel = document.createElement("div");
     groupLabel.className = "member-group-label";
@@ -4175,23 +4290,45 @@ function renderMemberList(presence) {
       const isSpecialRole = (roleStr === "admin" || roleStr === "manager");
       item.innerHTML = `
         <div class="member-avatar">
-          ${escapeHTML(m.username.charAt(0).toUpperCase())}
+          ${escapeHTML(String(m.username || "?").charAt(0).toUpperCase())}
           <span class="status-dot ${label === "Online" ? "online" : ""}"></span>
         </div>
         <div class="member-info">
-          <div class="member-name">${escapeHTML(m.username)}</div>
+          <div class="member-name">${escapeHTML(String(m.username || "?") )}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
         ${isSpecialRole ? `<span class="member-role-badge ${roleStr}">${role}</span>` : ""}
       `;
       content.appendChild(item);
-      console.log(`    ✏️ Added ${m.username}`);
+      console.log(`    ✏️ Added ${m.username || '<unknown>'}`);
     });
   };
 
   renderGroup("Online", online);
   renderGroup("Offline", offline);
-  console.log("✅ renderMemberList complete!");
+
+  if (!renderedAnyGroup) {
+    console.warn("⚠️ No groups rendered, falling back to raw member list");
+    content.innerHTML = "";
+    const groupLabel = document.createElement("div");
+    groupLabel.className = "member-group-label";
+    groupLabel.textContent = `Members — ${serverMembers.length}`;
+    content.appendChild(groupLabel);
+
+    serverMembers.forEach(m => {
+      const item = document.createElement("div");
+      item.className = "member-item";
+      item.innerHTML = `
+        <div class="member-avatar">${escapeHTML(String(m.username || "?").charAt(0).toUpperCase())}</div>
+        <div class="member-info">
+          <div class="member-name">${escapeHTML(String(m.username || "?") )}</div>
+        </div>
+      `;
+      content.appendChild(item);
+    });
+  }
+
+  console.log("✅ renderMemberList complete! (renderedAnyGroup=", renderedAnyGroup, ")");
 }
 
 async function updateChannelPresence(channelId) {
@@ -4368,11 +4505,60 @@ async function createServer(name, slug) {
   if (error) return "❌ Failed to create server: " + error.message;
 
   // Add creator as Admin member
-  await supabaseClient.from("server_members").insert({
+  const { data: memberRecord, error: memberError } = await supabaseClient.from("server_members").insert({
     server_id: newServer.id,
     username,
     role: "Admin"  // Server creator is admin
-  });
+  }).select().maybeSingle();
+
+  if (memberError) {
+    // If member insert fails, delete the server
+    await supabaseClient.from("servers").delete().eq("id", newServer.id);
+    return "❌ Failed to add you to the server: " + memberError.message;
+  }
+
+  // Create server role entry (for permission system)
+  const rolePayload = {
+    server_id: newServer.id,
+    role: "Admin",
+    name: "Admin",
+    permissions: {
+      manage_roles: true,
+      create_channels: true,
+      delete_messages: true,
+      manage_messages: true
+    },
+    color: "#5865f2",
+    description: "Server owner/admin role"
+  };
+
+  const { data: roleRecord, error: roleError } = await supabaseClient
+    .from("server_roles")
+    .insert(rolePayload)
+    .select()
+    .maybeSingle();
+
+  if (roleError) {
+    console.warn("⚠️ server_roles insert failed:", roleError.message);
+  } else if (roleRecord && memberRecord) {
+    const { error: memberRoleError } = await supabaseClient
+      .from("server_member_roles")
+      .insert({
+        server_id: newServer.id,
+        member_id: memberRecord.id,
+        role_id: roleRecord.id
+      });
+
+    if (memberRoleError) {
+      if (memberRoleError.code === "42P01" || /does not exist/.test(String(memberRoleError.message))) {
+        console.warn("⚠️ server_member_roles table missing, skipping member-role mapping");
+      } else {
+        // Cleanup on fatal errors
+        await supabaseClient.from("servers").delete().eq("id", newServer.id);
+        return "❌ Failed to map member role: " + memberRoleError.message;
+      }
+    }
+  }
 
   servers.push(newServer);
   renderServerList();
