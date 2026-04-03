@@ -1,4 +1,4 @@
-/* global loadUserPermissionsGlobal, URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
+/* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
 // Add this near the top with your other constants
 const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
@@ -428,7 +428,7 @@ const nameInput = document.getElementById("nameInput");
 const saveNameBtn = document.getElementById("saveNameButton");
 
 // ------------------------ Supabase Setup ------------------------
-const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
+const supabaseUrl = "https://supabase-relay.frenchwizz.workers.dev";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
