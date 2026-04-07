@@ -1113,9 +1113,59 @@ async function performRenameChannel(channelId, newName) {
 }
 
 async function performDeleteChannel(channelId) {
-  await supabaseClient.from("messages").delete().eq("channel_id", channelId);
+  // Collect message ids first so we can clear dependent rows safely.
+  const { data: channelMessages, error: msgFetchErr } = await supabaseClient
+    .from("messages")
+    .select("id")
+    .eq("channel_id", channelId);
+  if (msgFetchErr) {
+    console.error("❌ Delete channel (fetch messages):", msgFetchErr.message);
+    alert("❌ Failed to delete channel: " + msgFetchErr.message);
+    return;
+  }
+
+  const messageIds = (channelMessages || []).map(m => m.id);
+
+  if (messageIds.length) {
+    // Remove reaction rows that reference messages in this channel.
+    const { error: reactionsErr } = await supabaseClient
+      .from("reactions")
+      .delete()
+      .in("message_id", messageIds);
+    if (reactionsErr) {
+      console.error("❌ Delete channel (reactions):", reactionsErr.message);
+      alert("❌ Failed to delete channel reactions: " + reactionsErr.message);
+      return;
+    }
+
+    // Clear reply pointers in any message that references soon-to-be deleted messages.
+    const { error: clearRepliesErr } = await supabaseClient
+      .from("messages")
+      .update({ reply_to: null })
+      .in("reply_to", messageIds);
+    if (clearRepliesErr) {
+      console.error("❌ Delete channel (clear reply pointers):", clearRepliesErr.message);
+      alert("❌ Failed to clear message replies: " + clearRepliesErr.message);
+      return;
+    }
+  }
+
+  const { error: deleteMsgsErr } = await supabaseClient
+    .from("messages")
+    .delete()
+    .eq("channel_id", channelId);
+  if (deleteMsgsErr) {
+    console.error("❌ Delete channel (messages):", deleteMsgsErr.message);
+    alert("❌ Failed to delete channel messages: " + deleteMsgsErr.message);
+    return;
+  }
+
   const { error } = await supabaseClient.from("channels").delete().eq("id", channelId);
-  if (error) { console.error("❌ Delete channel:", error.message); return; }
+  if (error) {
+    console.error("❌ Delete channel:", error.message);
+    alert("❌ Failed to delete channel: " + error.message);
+    return;
+  }
 
   channels = channels.filter(c => c.id !== channelId);
   renderChannelList();
@@ -3705,6 +3755,75 @@ async function loadDefaultChannel() {
   }, 200);
 }
 
+async function ensureGeneralCategoryAndFixOrphans(serverId, options = {}) {
+  const createGeneralChannelIfMissing = options.createGeneralChannelIfMissing !== false;
+  if (!serverId) return { changed: false };
+
+  let changed = false;
+
+  const { data: serverCategories, error: catErr } = await supabaseClient
+    .from("categories")
+    .select("id, name, sort_order, server_id")
+    .eq("server_id", serverId)
+    .order("sort_order", { ascending: true });
+  if (catErr) {
+    console.warn("⚠️ Could not read categories:", catErr.message);
+    return { changed: false };
+  }
+
+  let generalCategory = (serverCategories || []).find(c => String(c.name || "").toLowerCase() === "general");
+  if (!generalCategory) {
+    const nextSort = Math.max(0, ...(serverCategories || []).map(c => Number(c.sort_order) || 0)) + 1;
+    const { data: createdCategory, error: createCatErr } = await supabaseClient
+      .from("categories")
+      .insert({ name: "General", sort_order: nextSort, created_by: username, server_id: serverId })
+      .select("id, name, sort_order, server_id")
+      .maybeSingle();
+    if (createCatErr) {
+      console.warn("⚠️ Could not create General category:", createCatErr.message);
+      return { changed: false };
+    }
+    generalCategory = createdCategory;
+    changed = true;
+  }
+
+  const { data: serverChannels, error: chErr } = await supabaseClient
+    .from("channels")
+    .select("id, name, category_id, sort_order, server_id")
+    .eq("server_id", serverId)
+    .order("sort_order", { ascending: true });
+  if (chErr) {
+    console.warn("⚠️ Could not read channels:", chErr.message);
+    return { changed };
+  }
+
+  const orphanIds = (serverChannels || [])
+    .filter(ch => !ch.category_id)
+    .map(ch => ch.id);
+  if (orphanIds.length) {
+    const { error: moveErr } = await supabaseClient
+      .from("channels")
+      .update({ category_id: generalCategory.id })
+      .in("id", orphanIds);
+    if (!moveErr) changed = true;
+    else console.warn("⚠️ Could not move orphan channels:", moveErr.message);
+  }
+
+  if (createGeneralChannelIfMissing && (!serverChannels || serverChannels.length === 0)) {
+    const { error: newGeneralErr } = await supabaseClient.from("channels").insert({
+      name: "general",
+      created_by: username,
+      sort_order: 0,
+      server_id: serverId,
+      category_id: generalCategory.id
+    });
+    if (!newGeneralErr) changed = true;
+    else console.warn("⚠️ Could not create #general channel:", newGeneralErr.message);
+  }
+
+  return { changed, generalCategoryId: generalCategory.id };
+}
+
 
 // ======================== REALTIME FOR CHANNELS & CATEGORIES ========================
 
@@ -3916,19 +4035,16 @@ async function switchServer(serverId, updateUrl = true) {
 
   console.log("📂 Loading channels...");
   await loadChannels();
+  await ensureGeneralCategoryAndFixOrphans(currentServerId, { createGeneralChannelIfMissing: true });
+  await loadChannels();
 
   if (channels.length > 0) {
     console.log("📝 Loading default channel...");
     await loadDefaultChannel();
   } else {
-    console.log("🆕 No channels, creating 'general'...");
-    await supabaseClient.from("channels").insert({
-      name: "general",
-      created_by: username,
-      server_id: currentServerId
-    });
+    console.log("🆕 No channels after migration, retrying channel load...");
     await loadChannels();
-    await loadDefaultChannel();
+    if (channels.length > 0) await loadDefaultChannel();
   }
 
   console.log("🔐 Refreshing server role...");
@@ -4435,12 +4551,10 @@ async function createServer(name, slug) {
 
   if (error) return "❌ Failed to create server: " + error.message;
 
-  // Add creator as Admin member
-  await supabaseClient.from("server_members").insert({
-    server_id: newServer.id,
-    username,
-    role: "Admin"  // Server creator is admin
-  });
+  // Ensure structure exists for new servers:
+  // - real "General" category
+  // - #general channel inside that category
+  await ensureGeneralCategoryAndFixOrphans(newServer.id, { createGeneralChannelIfMissing: true });
 
   servers.push(newServer);
   renderServerList();
