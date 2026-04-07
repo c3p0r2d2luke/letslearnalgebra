@@ -23,7 +23,7 @@
     "eslint": "^10.0.3"
   },
   "dependencies": {
-    "supabase": "^2.84.10",
+    "supabase": "^2.85.0",
     "surge": "^0.27.3"
   }
 }

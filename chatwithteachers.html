@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Chat With Teachers</title>
 
   <link rel="icon" type="image/x-icon" href="logo.png">
@@ -67,6 +67,7 @@
     <div class="channel-sidebar">
       <div class="channel-header">
         <span id="serverNameDisplay">Server</span>
+        <button id="serverSwitchBtn" title="Switch server">🧭</button>
         <button id="createChannelBtn" style="display:none;">+</button>
       </div>
       <div id="channelList"></div>
@@ -192,6 +193,9 @@
 
 <!-- CHANNEL RIGHT-CLICK CONTEXT MENU (admin only) -->
 <div id="channelMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:160px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
+
+<!-- MEMBER RIGHT-CLICK CONTEXT MENU -->
+<div id="memberMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:200px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
 
 <!-- EMOJI PICKER (built dynamically by script.js) -->
 <div id="emojiPicker" style="display:none;"></div>

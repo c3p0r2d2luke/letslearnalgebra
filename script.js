@@ -171,7 +171,6 @@ document.addEventListener("contextmenu", (e) => {
     addSection("Delete");
     addButton("Delete", () => deleteMessage(messageId));
     addButton("Delete By Keyword", () => deleteKeyword());
-    addButton("Delete User + Messages", () => deleteUser(author));
 
     addSection("Info");
     addButton("User Info", () => userInfo(author));
@@ -609,13 +608,12 @@ async function loadChannels() {
 let _sortableInstances = [];
 
 function renderChannelList() {
-  // Destroy old SortableJS instances
   _sortableInstances.forEach(s => { try { s.destroy(); } catch {} });
   _sortableInstances = [];
 
-  channelList.innerHTML = "";
-
-  // Group channels by category_id → resolved category name
+  const fragment = document.createDocumentFragment();
+  
+  // Group channels by category
   const grouped = {};
   channels.forEach(ch => {
     const cat = categories.find(c => c.id === ch.category_id);
@@ -623,22 +621,10 @@ function renderChannelList() {
     if (!grouped[catName]) grouped[catName] = [];
     grouped[catName].push(ch);
   });
-  Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
 
-  // Build ordered list of category names by saved order, then any uncategorised orphans
-  const catNames = categories.map(c => c.name);
-  Object.keys(grouped).forEach(cat => { if (!catNames.includes(cat)) catNames.push(cat); });
-  if (catNames.length === 0) catNames.push("General");
-
-  // Sort categories based on saved order
-  catNames.sort((a, b) => {
-    const aIndex = categoryOrder.indexOf(a);
-    const bIndex = categoryOrder.indexOf(b);
-    if (aIndex === -1 && bIndex === -1) return 0;
-    if (aIndex === -1) return 1;
-    if (bIndex === -1) return -1;
-    return aIndex - bIndex;
-  });
+  // Sort categories based on order
+  const catNames = [...new Set([...categoryOrder, ...Object.keys(grouped)])]
+    .filter(name => grouped[name] || categories.some(c => c.name === name));
 
   catNames.forEach(catName => {
     const catChannels = grouped[catName] || [];
@@ -648,162 +634,111 @@ function renderChannelList() {
     block.className = "category-block";
     block.dataset.categoryName = catName;
 
-    // Header
     const header = document.createElement("div");
     header.className = "category-header";
+    header.innerHTML = `
+      <span class="cat-arrow">${isCollapsed ? "▸" : "▾"}</span>
+      <span class="cat-name">${catName.toUpperCase()}</span>
+      <span style="flex:1"></span>
+      <span class="cat-drag-handle">☰</span>
+    `;
 
-    const arrow = document.createElement("span");
-    arrow.className = "cat-arrow";
-    arrow.textContent = isCollapsed ? "▸" : "▾";
-    arrow.addEventListener("mousedown", (e) => {
+    header.querySelector(".cat-arrow").onclick = (e) => {
       e.stopPropagation();
-    });
-
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "cat-name";
-    nameSpan.textContent = catName.toUpperCase();
-
-    const spacer = document.createElement("span");
-    spacer.style.flex = "1";
-
-    const dragHandle = document.createElement("span");
-    dragHandle.className = "cat-drag-handle";
-    dragHandle.innerHTML = "☰";
-    dragHandle.title = "Drag to reorder category";
-    dragHandle.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-    });
-
-    header.appendChild(arrow);
-    header.appendChild(nameSpan);
-    header.appendChild(spacer);
-    header.appendChild(dragHandle);
-
-    arrow.addEventListener("click", () => {
       const nowCollapsed = !collapsedCategories.has(catName);
       if (nowCollapsed) collapsedCategories.add(catName);
       else collapsedCategories.delete(catName);
       localStorage.setItem("collapsedCategories", JSON.stringify([...collapsedCategories]));
-      arrow.textContent = nowCollapsed ? "▸" : "▾";
-      itemsContainer.style.display = nowCollapsed ? "none" : "block";
-    });
+      renderChannelList(); // Fast re-render
+    };
 
     if (userPermissions.manage_roles) {
-      header.addEventListener("contextmenu", (e) => {
+      header.oncontextmenu = (e) => {
         e.preventDefault();
         e.stopPropagation();
         showCategoryContextMenu(catName, e.clientX, e.clientY);
-      });
+      };
     }
 
     block.appendChild(header);
 
-    // Channel items container
     const itemsContainer = document.createElement("div");
     itemsContainer.className = "channel-items";
     itemsContainer.dataset.categoryName = catName;
     itemsContainer.style.display = isCollapsed ? "none" : "block";
 
-    catChannels.forEach(ch => {
-      itemsContainer.appendChild(buildChannelItem(ch));
+    catChannels.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(ch => {
+      const div = document.createElement("div");
+      div.className = `channel ${ch.id === currentChannelId ? 'active' : ''}`;
+      div.dataset.id = ch.id;
+      div.textContent = "# " + ch.name;
+      div.onclick = () => {
+        switchChannel(ch.id);
+        if (window.innerWidth <= 768) closeSidebar();
+      };
+      itemsContainer.appendChild(div);
     });
 
     block.appendChild(itemsContainer);
-    channelList.appendChild(block);
+    fragment.appendChild(block);
   });
 
-  // Init SortableJS for admins
-  console.log("Checking sortable init:", { currentSystemRole, currentRole, Sortable: typeof Sortable });
-  if (typeof Sortable !== "undefined") {
-    console.log("Creating category sortable");
-    // Outer: reorder category blocks by dragging their drag handle
-    const outerSort = Sortable.create(channelList, {
-      handle: ".category-header",
+  channelList.innerHTML = "";
+  channelList.appendChild(fragment);
+
+  // Re-init Sortable if admin
+  if (userPermissions.manage_roles && typeof Sortable !== "undefined") {
+    initSortables();
+  }
+}
+
+function initSortables() {
+  // Category Sortable
+  const outerSort = Sortable.create(channelList, {
+    handle: ".cat-drag-handle",
+    animation: 150,
+    draggable: ".category-block",
+    onEnd: async () => {
+      const categoryBlocks = Array.from(channelList.querySelectorAll('.category-block'));
+      const newOrder = categoryBlocks.map(block => block.dataset.categoryName);
+      localStorage.setItem('categoryOrder', JSON.stringify(newOrder));
+      
+      const updates = newOrder.map((catName, index) => {
+        const category = categories.find(c => c.name === catName);
+        return category ? supabaseClient.from('categories').update({ sort_order: index }).eq('id', category.id) : null;
+      }).filter(Boolean);
+      
+      await Promise.all(updates);
+    }
+  });
+  _sortableInstances.push(outerSort);
+
+  // Channels Sortable
+  document.querySelectorAll(".channel-items").forEach(container => {
+    const innerSort = Sortable.create(container, {
+      group: "channels",
       animation: 150,
-      draggable: ".category-block",
-      onEnd: async () => {
-        console.log("Category drag end triggered");
-        // Save category order to localStorage and database
-        const categoryBlocks = Array.from(channelList.querySelectorAll('.category-block'));
-        const newOrder = categoryBlocks.map(block => block.dataset.categoryName);
-        
-        // Update localStorage
-        localStorage.setItem('categoryOrder', JSON.stringify(newOrder));
-        
-        // Update database sort_order for each category
+      draggable: ".channel",
+      onEnd: async (evt) => {
+        const channelId = parseInt(evt.item.dataset.id, 10);
+        const newCatName = evt.to.dataset.categoryName;
         const updates = [];
-        newOrder.forEach((catName, index) => {
-          const category = categories.find(c => c.name === catName);
-          if (category) {
-            updates.push(
-              supabaseClient.from('categories').update({ sort_order: index }).eq('id', category.id)
-            );
-          }
+
+        const newCat = categories.find(c => c.name === newCatName);
+        const newCatId = newCat ? newCat.id : null;
+        
+        updates.push(supabaseClient.from("channels").update({ category_id: newCatId }).eq("id", channelId));
+
+        const items = evt.to.querySelectorAll(".channel");
+        items.forEach((el, i) => {
+          updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", parseInt(el.dataset.id, 10)));
         });
-        
-        if (updates.length > 0) {
-          try {
-            await Promise.all(updates);
-          } catch (error) {
-            console.log("Failed to update category order in database:", error);
-          }
-        }
-        
-        // Trigger real-time update for other users
-        console.log('Category order updated:', newOrder);
+
+        await Promise.all(updates);
       }
     });
-    console.log("Category sortable created:", outerSort);
-    _sortableInstances.push(outerSort);
-
-    // Inner: reorder and move channels between categories
-    document.querySelectorAll(".channel-items").forEach(container => {
-      const innerSort = Sortable.create(container, {
-        group: "channels",
-        animation: 150,
-        draggable: ".channel",
-        onEnd: async (evt) => {
-          const channelId = parseInt(evt.item.dataset.id, 10);
-          const newCatName = evt.to.dataset.categoryName;
-          const ch = channels.find(c => c.id === channelId);
-          const updates = [];
-
-          const newCat = categories.find(c => c.name === newCatName);
-          const newCatId = newCat ? newCat.id : null;
-          const oldCat = categories.find(c => c.id === ch?.category_id);
-          if (ch && (oldCat?.name || "General") !== newCatName) {
-            ch.category_id = newCatId;
-            updates.push(
-              supabaseClient.from("channels").update({ category_id: newCatId }).eq("id", channelId)
-            );
-          }
-
-          // Update sort_order for all channels in destination container
-          const items = evt.to.querySelectorAll(".channel");
-          items.forEach((el, i) => {
-            const id = parseInt(el.dataset.id, 10);
-            const c = channels.find(x => x.id === id);
-            if (c) c.sort_order = i;
-            updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", id));
-          });
-
-          // Also update source container if different
-          if (evt.from !== evt.to) {
-            const srcItems = evt.from.querySelectorAll(".channel");
-            srcItems.forEach((el, i) => {
-              const id = parseInt(el.dataset.id, 10);
-              const c = channels.find(x => x.id === id);
-              if (c) c.sort_order = i;
-              updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", id));
-            });
-          }
-
-          await Promise.all(updates);
-        }
-      });
-      _sortableInstances.push(innerSort);
-    });
-  }
+    _sortableInstances.push(innerSort);
+  });
 }
 
 function buildChannelItem(ch) {
@@ -837,32 +772,52 @@ channelList.addEventListener("contextmenu", (e) => {
 // Close channel/category menus on any click
 document.addEventListener("click", () => {
   document.getElementById("channelMenu").style.display = "none";
+  const mm = document.getElementById("memberMenu");
+  if (mm) mm.style.display = "none";
   const cm = document.getElementById("categoryMenu");
   if (cm) cm.style.display = "none";
 });
 
 function showContextMenu(menuEl, x, y, items) {
   menuEl.innerHTML = "";
+  const isMobile = window.innerWidth <= 768;
+
+  const fragment = document.createDocumentFragment();
   items.forEach(({ label, color, action }) => {
     const btn = document.createElement("button");
     btn.textContent = label;
-    Object.assign(btn.style, {
-      display: "block", width: "100%", padding: "7px 10px",
-      border: "none", background: "transparent", cursor: "pointer",
-      color: color || "white", textAlign: "left", fontSize: "13px", borderRadius: "3px"
-    });
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
-    btn.onclick = (ev) => { ev.stopPropagation(); menuEl.style.display = "none"; action(); };
-    menuEl.appendChild(btn);
+    btn.className = "context-menu-item";
+    if (color) btn.style.color = color;
+    btn.onclick = (ev) => { 
+      ev.stopPropagation(); 
+      menuEl.style.display = "none"; 
+      action(); 
+    };
+    fragment.appendChild(btn);
   });
+  menuEl.appendChild(fragment);
 
-  const mw = 160, mh = items.length * 34;
-  let left = x + 4, top = y + 4;
-  if (left + mw > window.innerWidth) left = x - mw;
-  if (top + mh > window.innerHeight) top = y - mh;
-  menuEl.style.left = left + "px";
-  menuEl.style.top = top + "px";
+  if (isMobile) {
+    // Mobile "Bottom Sheet" style
+    menuEl.style.left = "0";
+    menuEl.style.right = "0";
+    menuEl.style.bottom = "0";
+    menuEl.style.top = "auto";
+    menuEl.style.width = "100%";
+    menuEl.style.borderRadius = "12px 12px 0 0";
+    menuEl.classList.add("mobile-sheet");
+  } else {
+    // Desktop positioning with boundary detection
+    const mw = 180, mh = items.length * 34;
+    let left = x + 4, top = y + 4;
+    if (left + mw > window.innerWidth) left = x - mw;
+    if (top + mh > window.innerHeight) top = y - mh;
+    menuEl.style.left = left + "px";
+    menuEl.style.top = top + "px";
+    menuEl.style.bottom = "auto";
+    menuEl.style.width = "auto";
+    menuEl.classList.remove("mobile-sheet");
+  }
   menuEl.style.display = "block";
 }
 
@@ -872,6 +827,93 @@ function showCategoryContextMenu(catName, x, y) {
     { label: "Rename Category", color: "white", action: () => openInlineRow("category-rename", catName, null) },
     { label: "Delete Category", color: "#ed4245", action: () => showInlineDeleteCategory(catName) }
   ]);
+}
+
+async function setMemberServerRole(targetMember, nextRole) {
+  if (!targetMember?.id || !currentServerId) return;
+  const cleanedRole = String(nextRole || "").trim();
+  if (!cleanedRole) return;
+
+  const { data: roleRow } = await supabaseClient
+    .from("server_roles")
+    .select("id")
+    .eq("server_id", currentServerId)
+    .or(`name.eq.${cleanedRole},role.eq.${cleanedRole}`)
+    .limit(1)
+    .maybeSingle();
+
+  const updateData = { role: cleanedRole };
+  if (roleRow?.id) updateData.primary_role_id = roleRow.id;
+
+  const { error } = await supabaseClient
+    .from("server_members")
+    .update(updateData)
+    .eq("id", targetMember.id)
+    .eq("server_id", currentServerId);
+
+  if (error) {
+    alert("❌ Failed to update role: " + error.message);
+    return;
+  }
+  await loadServerMembers();
+}
+
+async function addMemberToAnotherServer(targetMember) {
+  if (!targetMember?.username) return;
+  if (!servers.length) {
+    alert("❌ No servers available.");
+    return;
+  }
+
+  const serverChoices = servers
+    .filter(s => s.id !== currentServerId)
+    .map((s, i) => `${i + 1}. ${s.name} (${s.slug})`)
+    .join("\n");
+  if (!serverChoices) {
+    alert("ℹ️ No other servers available.");
+    return;
+  }
+
+  const picked = prompt(
+    `Add ${targetMember.username} to which server?\n\n${serverChoices}\n\nEnter the number or server slug:`
+  );
+  if (!picked) return;
+
+  const trimmed = picked.trim();
+  let targetServer = null;
+  const byNumber = Number(trimmed);
+  if (Number.isInteger(byNumber) && byNumber > 0) {
+    targetServer = servers.filter(s => s.id !== currentServerId)[byNumber - 1] || null;
+  }
+  if (!targetServer) {
+    targetServer = servers.find(s => s.slug === trimmed || s.name === trimmed || s.id === trimmed) || null;
+  }
+  if (!targetServer) {
+    alert("❌ Server not found.");
+    return;
+  }
+
+  const { data: existing } = await supabaseClient
+    .from("server_members")
+    .select("id")
+    .eq("server_id", targetServer.id)
+    .eq("username", targetMember.username)
+    .maybeSingle();
+  if (existing) {
+    alert(`ℹ️ ${targetMember.username} is already in ${targetServer.name}.`);
+    return;
+  }
+
+  const { error } = await supabaseClient.from("server_members").insert({
+    server_id: targetServer.id,
+    username: targetMember.username,
+    role: targetMember.role || "User"
+  });
+  if (error) {
+    alert("❌ Failed to add member: " + error.message);
+    return;
+  }
+  alert(`✅ Added ${targetMember.username} to ${targetServer.name}.`);
 }
 
 // ======================== CHANNEL + CATEGORY ADMIN ACTIONS ========================
@@ -1201,39 +1243,40 @@ function switchChannel(channelId) {
 }
 // ------------------------ Load Messages ------------------------
 async function loadMessages() {
-  // 🔥 CHECK AGAIN: If still null, something is very wrong
-  if (!currentChannelId) {
-    console.error("❌ CRITICAL ERROR: currentChannelId is still NULL in loadMessages!");
-    messagesList.innerHTML = "<li style='color:red;'>⚠️ Critical Error: No channel selected. Check console.</li>";
-    return;
-  }
+  if (!currentChannelId) return;
 
-  // Show loading indicator
-  messagesList.innerHTML = "<li style='color:#aaa;'>⏳ Loading messages...</li>";
+  // Faster loading UI
+  messagesList.innerHTML = '<div class="loading-shimmer"></div>';
+  messagesMap.clear();
+  messageDataMap.clear();
 
   const { data, error } = await supabaseClient
     .from("messages")
     .select("*")
     .eq("channel_id", currentChannelId)
-    .order("inserted_at", { ascending: true });
+    .order("inserted_at", { ascending: true })
+    .limit(50); // Limit initial load for speed
 
   if (error) {
-    messagesList.innerHTML = "<li style='color:red;'>❌ Error loading messages: " + error.message + "</li>";
-    console.error("Supabase Error:", error);
+    messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
     return;
   }
 
-  // Clear loading and show messages
   messagesList.innerHTML = "";
-  data.forEach(msg => renderMessage(msg));
+  const fragment = document.createDocumentFragment();
+  data.forEach(msg => {
+    const li = createMessageElement(msg);
+    messagesMap.set(msg.id, li);
+    messageDataMap.set(msg.id, msg);
+    fragment.appendChild(li);
+  });
+  messagesList.appendChild(fragment);
 
-  // Force reflow
-  void messagesList.offsetWidth;
+  scrollToBottom();
+}
 
-  // Scroll to bottom
-  setTimeout(() => {
-    messagesList.scrollTop = messagesList.scrollHeight;
-  }, 100);
+function scrollToBottom() {
+  messagesList.scrollTop = messagesList.scrollHeight;
 }
 
 
@@ -1582,183 +1625,147 @@ async function buildLinkPreview(url) {
 }
 
 // ------------------------ Render Message ------------------------
-async function renderMessage(msg) {
-  messageDataMap.set(msg.id, msg);
-
-  let li = messagesMap.get(msg.id);
-  if (!li) {
-    li = document.createElement("li");
-    messagesMap.set(msg.id, li);
-    if (msg.reply_to) {
-      const parentLi = messagesMap.get(msg.reply_to);
-      if (parentLi && parentLi.parentNode === messagesList) {
-        parentLi.insertAdjacentElement("afterend", li);
-      } else {
-        messagesList.appendChild(li);
-      }
+function renderMessage(msg) {
+  const li = createMessageElement(msg);
+  const existingLi = messagesMap.get(msg.id);
+  
+  if (existingLi) {
+    existingLi.replaceWith(li);
+  } else if (msg.reply_to) {
+    const parentLi = messagesMap.get(msg.reply_to);
+    if (parentLi && parentLi.parentNode === messagesList) {
+      parentLi.insertAdjacentElement("afterend", li);
     } else {
       messagesList.appendChild(li);
     }
+  } else {
+    messagesList.appendChild(li);
   }
+  
+  messagesMap.set(msg.id, li);
+  messageDataMap.set(msg.id, msg);
+  
+  // Only auto-scroll if user is already near bottom
+  const isNearBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight < 150;
+  if (isNearBottom) scrollToBottom();
+}
 
-  li.innerHTML = "";
-  li.className = "";
+function createMessageElement(msg) {
+  const li = document.createElement("li");
   li.dataset.id = msg.id;
   li.dataset.user = msg.username;
-  // Normalize role to lowercase to prevent case mismatches
+  
   const roleLower = (msg.role || "").toLowerCase();
-
   if (roleLower === "admin") li.classList.add("admin");
   else if (roleLower === "manager") li.classList.add("manager");
-  li.dataset.pinned = msg.is_pinned ? "true" : "false";
-  li.style.border = msg.is_pinned ? "2px solid red" : "";
+  if (msg.is_pinned) li.dataset.pinned = "true";
+  if (msg.reply_to) li.classList.add("is-reply");
 
-   // --- Username + Timestamp Row ---
-  const uname = document.createElement("div");
-  uname.className = "username";
-  uname.textContent = msg.username === "Frenchwizz" ? "Takeo" : msg.username;
-
-  const ts = document.createElement("span");
-  ts.className = "msg-timestamp";
-  if (msg.inserted_at) {
-    const d = new Date(msg.inserted_at);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-    ts.textContent = isToday
-      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
-        d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-  uname.appendChild(ts);
-  li.appendChild(uname);
-
-  // --- Content ---
-  const contentDiv = document.createElement("div");
-  contentDiv.className = "content";
-
-  const wrapper = document.createElement("div");
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
-
-  // ROLEFORM messages are no longer supported — skip rendering
-  if (cleanContent.startsWith("ROLEFORM::")) return;
-
-  // --- FILE / LINK PARSING ---
-  const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
-if (fileMatch) {
-  const fileName = fileMatch[1];
-  const url = fileMatch[2].trim();
-  const type = getFileType(url);
-
-  if (type === "image") {
-    const imgEl = document.createElement("img");
-    imgEl.src = url;
-    imgEl.className = "msg-image";
-    imgEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openLightbox(url);
-    });
-    wrapper.appendChild(imgEl);
-  } else if (type === "video") {
-    wrapper.innerHTML = `
-      <video controls style="max-width:300px;border-radius:8px;">
-        <source src="${url}">
-      </video>
-    `;
-  } else if (type === "audio") {
-    wrapper.innerHTML = `
-      <audio controls>
-        <source src="${url}">
-      </audio>
-    `;
-  } else {
-    wrapper.innerHTML = `
-      <a href="${url}" target="_blank">📄 ${fileName}</a>
-    `;
-  }
-} else {
-wrapper.innerHTML = formatMessageContent(cleanContent, msg.role);
-
-const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
-
-// --- GIF / IMAGE URL inline rendering (admin-posted) ---
-if (urlMatch && msg.role === "Admin") {
-  const gifUrl = resolveGifUrl(urlMatch[0]);
-  if (gifUrl) {
-    const gifImg = document.createElement("img");
-    gifImg.src = gifUrl;
-    gifImg.className = "msg-image gif-embed";
-    gifImg.style.maxWidth = "400px";
-    gifImg.style.borderRadius = "8px";
-    gifImg.style.marginTop = "6px";
-    gifImg.style.display = "block";
-    gifImg.addEventListener("click", (ev) => { ev.stopPropagation(); openLightbox(gifUrl); });
-    wrapper.appendChild(gifImg);
-  } else if (!msg.content.includes(NO_EMBED_PHRASE)) {
-    const previewContainer = document.createElement("div");
-    previewContainer.className = "link-preview-container";
-    previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
-    wrapper.appendChild(previewContainer);
-    setTimeout(async () => {
-      const preview = await buildLinkPreview(urlMatch[0]);
-      if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
-      else { previewContainer.remove(); }
-    }, 100);
-  }
-} else if (urlMatch && !msg.content.includes(NO_EMBED_PHRASE)) {
-  const previewContainer = document.createElement("div");
-  previewContainer.className = "link-preview-container";
-  previewContainer.innerHTML = `<div class="link-preview-loading"><span class="loader"></span> Loading preview...</div>`;
-  wrapper.appendChild(previewContainer);
-  setTimeout(async () => {
-    const preview = await buildLinkPreview(urlMatch[0]);
-    if (preview) { previewContainer.innerHTML = preview; previewContainer.classList.add("loaded"); }
-    else { previewContainer.remove(); }
-  }, 100);
-}
-
-// Admin-only script execution stays separate
-if (msg.role === "Admin") {
-  executeScripts(wrapper);
-}
-}
-
-
-  contentDiv.appendChild(wrapper);
-
-  // --- Mention Styling — convert @name to colored pill spans ---
-  if (!fileMatch && msg.role !== "Admin") {
-    wrapper.innerHTML = wrapper.innerHTML.replace(
-      /@(\w+)/g,
-      (match, name) => {
-        const cls = name === username ? "mention mine" : "mention";
-        return `<span class="${cls}">@${name}</span>`;
-      }
-    );
-  }
-
-  li.appendChild(contentDiv);
-
-  // --- Reactions ---
-  renderReactions(msg.id, li);
-
-  // --- Hover Controls & Enhancements ---
-  requestAnimationFrame(() => enhanceMessage(li, msg));
-
-  // --- Admin / Manager Controls Containers ---
-  const adminDiv = document.createElement("div");
-  adminDiv.className = "adminControls";
-  adminDiv.style.display = "none";
-
-  const managerDiv = document.createElement("div");
-  managerDiv.className = "managerControls";
-  managerDiv.style.display = "none";
-
-  if (userPermissions.manage_roles) li.appendChild(adminDiv);
-  else if (currentRole === "Manager") li.appendChild(managerDiv);
+  const timestamp = msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
   if (msg.reply_to) {
-  li.classList.add("is-reply");
-}
+    const parentMsg = messageDataMap.get(msg.reply_to);
+    if (parentMsg) {
+      const replyContext = document.createElement("div");
+      replyContext.className = "reply-context";
+      replyContext.innerHTML = `
+        <span class="reply-context-user">${escapeHTML(displayName(parentMsg.username))}</span>
+        <span class="reply-context-content">${escapeHTML((parentMsg.content || "").replaceAll(NO_EMBED_PHRASE, "").slice(0, 120))}</span>
+      `;
+      replyContext.onclick = (e) => {
+        e.stopPropagation();
+        const parentEl = messagesMap.get(parentMsg.id);
+        if (!parentEl) return;
+        parentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        parentEl.classList.add("highlighted");
+        setTimeout(() => parentEl.classList.remove("highlighted"), 1400);
+      };
+      li.appendChild(replyContext);
+    }
+  }
+
+  // Header Row
+  const header = document.createElement("div");
+  header.className = "username";
+  header.innerHTML = `${msg.username === "Frenchwizz" ? "Takeo" : escapeHTML(msg.username)}<span class="msg-timestamp">${timestamp}</span>`;
+  li.appendChild(header);
+
+  // Content Row
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "content";
+  
+  const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+  if (fileMatch) {
+    const url = fileMatch[2].trim();
+    const type = getFileType(url);
+    if (type === "image") {
+      const img = document.createElement("img");
+      img.src = url;
+      img.className = "msg-image";
+      img.loading = "lazy";
+      img.onclick = () => openLightbox(url);
+      contentDiv.appendChild(img);
+    } else if (type === "video") {
+      contentDiv.innerHTML = `<video controls style="max-width:100%;border-radius:8px;"><source src="${url}"></video>`;
+    } else {
+      contentDiv.innerHTML = `<a href="${url}" target="_blank">📄 ${escapeHTML(fileMatch[1])}</a>`;
+    }
+  } else {
+    let formatted = formatMessageContent(cleanContent, msg.role);
+    // Mentions
+    if (msg.role !== "Admin") {
+      formatted = formatted.replace(/@(\w+)/g, (match, name) => {
+        const cls = name === username ? "mention mine" : "mention";
+        return `<span class="${cls}">@${name}</span>`;
+      });
+    }
+    contentDiv.innerHTML = formatted;
+
+    // Link Previews & GIFS (Post-render to avoid blocking)
+    const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      const url = urlMatch[0];
+      const gifUrl = resolveGifUrl(url);
+      if (gifUrl && msg.role === "Admin") {
+        const gif = document.createElement("img");
+        gif.src = gifUrl;
+        gif.className = "msg-image gif-embed";
+        gif.loading = "lazy";
+        gif.onclick = () => openLightbox(gifUrl);
+        contentDiv.appendChild(gif);
+      } else if (!cleanContent.includes(NO_EMBED_PHRASE)) {
+        const previewContainer = document.createElement("div");
+        previewContainer.className = "link-preview-container";
+        contentDiv.appendChild(previewContainer);
+        setTimeout(async () => {
+          const preview = await buildLinkPreview(url);
+          if (preview) {
+            previewContainer.innerHTML = preview;
+            previewContainer.classList.add("loaded");
+          } else {
+            previewContainer.remove();
+          }
+        }, 50);
+      }
+    }
+  }
+  
+  li.appendChild(contentDiv);
+  
+  // Reactions
+  const reactionsBar = document.createElement("div");
+  reactionsBar.className = "reactionBar";
+  li.appendChild(reactionsBar);
+  renderReactions(msg.id, li);
+
+  // Scripts (Admin only)
+  if (msg.role === "Admin") {
+    executeScripts(contentDiv);
+  }
+
+  attachHoverControls(li, msg);
+  return li;
 }
 
 // ------------------------ Realtime Handler ------------------------
@@ -1847,6 +1854,7 @@ document.addEventListener("click", () => {
 // ======================== MOBILE SIDEBAR TOGGLE ========================
 const menuToggleBtn = document.getElementById("menuToggle");
 const sidebarOverlay = document.getElementById("sidebarOverlay");
+const serverSwitchBtn = document.getElementById("serverSwitchBtn");
 
 function openSidebar() {
   document.body.classList.add("sidebar-open");
@@ -1854,16 +1862,33 @@ function openSidebar() {
 function closeSidebar() {
   document.body.classList.remove("sidebar-open");
 }
+function closeServerSidebar() {
+  document.body.classList.remove("server-switch-open");
+}
 
 if (menuToggleBtn) {
   menuToggleBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     document.body.classList.toggle("sidebar-open");
+    closeServerSidebar();
+  });
+}
+
+if (serverSwitchBtn) {
+  serverSwitchBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.body.classList.toggle("server-switch-open");
+    closeSidebar();
   });
 }
 
 if (sidebarOverlay) {
-  sidebarOverlay.addEventListener("click", closeSidebar);
+  sidebarOverlay.addEventListener("click", () => {
+    closeSidebar();
+    closeServerSidebar();
+    const ml = document.getElementById("memberList");
+    if (ml) ml.classList.remove("open");
+  });
 }
 
 // Close sidebar on mobile when a channel is selected
@@ -2532,29 +2557,101 @@ async function deleteUser(author) {
   if (!confirm(`Delete user "${author}" and ALL their messages? This cannot be undone.`)) return;
 
   try {
+    const aliases = [...new Set([
+      String(author || "").trim(),
+      "Frenchwizz",
+      "frenchwizz",
+      "FRENCHWIZZ"
+    ].filter(Boolean))];
+
     const { error: msgError } = await supabaseClient
       .from("messages")
       .delete()
-      .eq("username", author);
+      .in("username", aliases);
 
     if (msgError) throw msgError;
+
+    const { error: reactionsError } = await supabaseClient
+      .from("reactions")
+      .delete()
+      .in("username", aliases);
+    if (reactionsError) throw reactionsError;
+
+    const { error: membersError } = await supabaseClient
+      .from("server_members")
+      .delete()
+      .in("username", aliases);
+    if (membersError) throw membersError;
+
+    const { error: presenceError } = await supabaseClient
+      .from("channel_presence")
+      .delete()
+      .in("username", aliases);
+    if (presenceError) throw presenceError;
+
+    const { error: typingError } = await supabaseClient
+      .from("typing")
+      .delete()
+      .in("username", aliases);
+    if (typingError) throw typingError;
+
+    const { error: pushError } = await supabaseClient
+      .from("push_subscriptions")
+      .delete()
+      .in("username", aliases);
+    if (pushError) throw pushError;
+
+    const { error: reportsByError } = await supabaseClient
+      .from("reports")
+      .delete()
+      .in("reporter", aliases);
+    if (reportsByError) throw reportsByError;
+
+    const { error: reportsAgainstError } = await supabaseClient
+      .from("reports")
+      .delete()
+      .in("reported_user", aliases);
+    if (reportsAgainstError) throw reportsAgainstError;
 
     const { error: userError } = await supabaseClient
       .from("users")
       .delete()
-      .eq("username", author);
+      .in("username", aliases);
 
     if (userError) throw userError;
 
     messagesMap.forEach((li, id) => {
-      if (li.dataset.user === author) { li.remove(); messagesMap.delete(id); }
+      if (aliases.includes(li.dataset.user)) { li.remove(); messagesMap.delete(id); }
     });
 
-    alert(`✅ User "${author}" and their messages have been deleted.`);
+    // Refresh member list in case this user existed in the current server.
+    await loadServerMembers();
+
+    alert(`✅ Deleted user aliases (${aliases.join(", ")}) and related data.`);
   } catch (err) {
     console.error("deleteUser failed", err);
     alert("❌ Failed: " + err.message);
   }
+}
+
+async function kickMemberFromCurrentServer(targetMember) {
+  if (!targetMember?.username || !currentServerId) return;
+  if (!confirm(`Kick "${targetMember.username}" from this server?`)) return;
+
+  const q = supabaseClient
+    .from("server_members")
+    .delete()
+    .eq("server_id", currentServerId)
+    .eq("username", targetMember.username);
+  const { error } = targetMember.id ? await q.eq("id", targetMember.id) : await q;
+
+  if (error) {
+    alert("❌ Failed to kick member: " + error.message);
+    return;
+  }
+
+  await loadServerMembers();
+  alert(`✅ Kicked ${targetMember.username} from this server.`);
 }
 
 // Show info about a user
@@ -3512,22 +3609,28 @@ function applyMuteBlockUI() {
   const confirmBtn = document.getElementById("newChannelConfirm");
   const cancelBtn = document.getElementById("newChannelCancel");
 
-  createChannelBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openInlineRow("channel-create", "", null);
-  });
+  if (createChannelBtn) {
+    createChannelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openInlineRow("channel-create", "", null);
+    });
+  }
 
-  createCategoryBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openInlineRow("category-create", "", null);
-  });
+  if (createCategoryBtn) {
+    createCategoryBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openInlineRow("category-create", "", null);
+    });
+  }
 
-  cancelBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeInlineRow();
-  });
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeInlineRow();
+    });
+  }
 
   async function dispatch() {
     const mode = row.dataset.mode;
@@ -3559,11 +3662,15 @@ function applyMuteBlockUI() {
     }
   }
 
-  confirmBtn.addEventListener("click", (e) => { e.stopPropagation(); dispatch(); });
-  inp.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); dispatch(); }
-    else if (e.key === "Escape") { closeInlineRow(); }
-  });
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", (e) => { e.stopPropagation(); dispatch(); });
+  }
+  if (inp) {
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); dispatch(); }
+      else if (e.key === "Escape") { closeInlineRow(); }
+    });
+  }
 })();
 
 async function loadDefaultChannel() {
@@ -3630,8 +3737,8 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
 }
 
 // Server-scoped realtime for channels & categories — set up per switchServer()
-let _channelRealtimeSub = null;
-let _categoryRealtimeSub = null;
+var _channelRealtimeSub = null;
+var _categoryRealtimeSub = null;
 
 function subscribeToServerRealtime(serverId) {
   // Clean up previous server's subscriptions
@@ -3722,81 +3829,59 @@ function closeModal(id) {
 async function loadServers() {
   if (!username) return;
 
-  // First, ensure user is added to the "main" server
   try {
-    // Find or create "main" server
-    const { data: mainServer, error: findError } = await supabaseClient
-      .from("servers")
-      .select("*")
-      .eq("slug", "main")
-      .maybeSingle();
+    // 1. Check user sys_admin status from the users table
+    const { data: profile } = await supabaseClient
+      .from("users")
+      .select("sys_admin, sys_manager")
+      .eq("username", username)
+      .single();
 
-    if (!findError && mainServer) {
-      // Check if user is already a member
-      const { data: isMember } = await supabaseClient
-        .from("server_members")
-        .select("id")
-        .eq("server_id", mainServer.id)
-        .eq("username", username)
-        .maybeSingle();
+    const isSysAdmin = profile?.sys_admin || false;
 
-      if (!isMember) {
-        // Add user to main server
-        await supabaseClient.from("server_members").insert({
-          server_id: mainServer.id,
-          username,
-          role: "User"
-        });
-        console.log("✅ Added user to main server");
-      }
-    }
-  } catch (err) {
-    console.error("❌ Error adding to main server:", err);
-  }
-
-  try {
-    if (currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager") {
-      console.log("📡 Loading ALL servers (SysAdmin/SysManager)");
+    if (isSysAdmin) {
+      // SysAdmins see EVERY server
       const { data, error } = await supabaseClient
-        .from("servers").select("*").order("created_at", { ascending: true });
-      if (error) {
-        console.error("❌ loadServers error:", error);
-        servers = [];
-      } else {
-        servers = data || [];
-        console.log(`✅ Loaded ${servers.length} servers`);
-      }
+        .from("servers")
+        .select("*")
+        .order("created_at", { ascending: true });
+      
+      if (!error) servers = data || [];
     } else {
-      console.log("📡 Loading user servers");
+      // Regular users only see servers they are members of
       const { data, error } = await supabaseClient
         .from("server_members")
-        .select("server_id, servers(*)")
+        .select(`
+          server_id,
+          servers (
+            id,
+            name,
+            slug,
+            icon_url,
+            owner_username
+          )
+        `)
         .eq("username", username);
-      if (error) {
-        console.error("❌ loadServers error:", error);
-        servers = [];
-      } else {
-        servers = (data || []).map(d => d.servers).filter(Boolean);
-        console.log(`✅ Loaded ${servers.length} servers`);
+
+      if (!error) {
+        servers = data.map(d => d.servers).filter(Boolean);
       }
     }
   } catch (err) {
-    console.error("❌ Unexpected error in loadServers:", err);
-    servers = [];
+    console.error("❌ loadServers error:", err);
   }
 
   renderServerList();
 
+  // Handle URL navigation or default server
   const urlParams = new URLSearchParams(window.location.search);
   const serverSlug = urlParams.get("server");
   let target = serverSlug ? servers.find(s => s.slug === serverSlug) : null;
   if (!target && servers.length > 0) target = servers[0];
 
   if (target) {
-    console.log("🎯 Switching to server:", target.id, target.name);
     await switchServer(target.id, false);
   } else {
-    console.warn("⚠️ No servers found");
     showNoServerScreen();
   }
 }
@@ -3840,7 +3925,6 @@ async function switchServer(serverId, updateUrl = true) {
     await supabaseClient.from("channels").insert({
       name: "general",
       created_by: username,
-      category: "General",
       server_id: currentServerId
     });
     await loadChannels();
@@ -3867,52 +3951,26 @@ function renderServerList() {
   if (!serverList) return;
   serverList.innerHTML = "";
 
-  // Get server order from localStorage
-  let serverOrder = [];
-  try {
-    serverOrder = JSON.parse(localStorage.getItem("serverOrder") || "[]");
-  } catch {}
-
-  // Sort servers based on order
-  const sortedServers = servers.slice().sort((a, b) => {
-    const aIndex = serverOrder.indexOf(a.id);
-    const bIndex = serverOrder.indexOf(b.id);
-    if (aIndex === -1 && bIndex === -1) return 0;
-    if (aIndex === -1) return 1;
-    if (bIndex === -1) return -1;
-    return aIndex - bIndex;
-  });
-
-  sortedServers.forEach(server => {
+  servers.forEach(server => {
     const icon = document.createElement("div");
-    icon.className = "server-icon";
+    icon.className = `server-icon ${server.id === currentServerId ? 'active' : ''}`;
     icon.dataset.serverId = server.id;
     icon.title = server.name;
-    if (server.id === currentServerId) icon.classList.add("active");
+
     if (server.icon_url) {
-      const img = document.createElement("img");
-      img.src = server.icon_url;
-      img.alt = server.name;
-      icon.appendChild(img);
+      icon.innerHTML = `<img src="${server.icon_url}" alt="${server.name}">`;
     } else {
       icon.textContent = server.name.charAt(0).toUpperCase();
     }
-    icon.addEventListener("click", () => switchServer(server.id));
+
+    icon.onclick = (e) => {
+      e.stopPropagation();
+      switchServer(server.id);
+      if (window.innerWidth <= 768) closeServerSidebar();
+    };
+    
     serverList.appendChild(icon);
   });
-
-  // Make servers draggable
-  if (typeof Sortable !== "undefined") {
-    Sortable.create(serverList, {
-      animation: 150,
-      draggable: ".server-icon",
-      onEnd: () => {
-        const icons = serverList.querySelectorAll(".server-icon");
-        const newOrder = Array.from(icons).map(icon => icon.dataset.serverId);
-        localStorage.setItem("serverOrder", JSON.stringify(newOrder));
-      }
-    });
-  }
 }
 
 function showNoServerScreen() {
@@ -3979,12 +4037,41 @@ async function loadServerMembers() {
       .maybeSingle();
     console.log("   My membership:", myMembership);
     
-    // Always fetch fresh member data
+    // Always fetch fresh member data (paged so we don't hit row caps)
     console.log("📡 Fetching server_members for server:", currentServerId);
-    const { data: members, error } = await supabaseClient
-      .from("server_members")
-      .select("username, role")
-      .eq("server_id", currentServerId);
+    const members = [];
+    let membersError = null;
+    const PAGE_SIZE = 1000;
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const { data: page, error: pageError } = await supabaseClient
+        .from("server_members")
+        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id")
+        .eq("server_id", currentServerId)
+        .order("sort_order", { ascending: true })
+        .order("username", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (pageError) {
+        membersError = pageError;
+        break;
+      }
+      if (!page || page.length === 0) break;
+      members.push(...page);
+      if (page.length < PAGE_SIZE) break;
+    }
+    // Fallback path if pagination returns nothing unexpectedly.
+    if (!membersError && members.length === 0) {
+      const { data: fallbackMembers, error: fallbackError } = await supabaseClient
+        .from("server_members")
+        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id")
+        .eq("server_id", currentServerId);
+      if (fallbackError) {
+        membersError = fallbackError;
+      } else if (fallbackMembers?.length) {
+        members.push(...fallbackMembers);
+      }
+    }
+    const error = membersError;
 
     if (error) { 
       console.error("❌ loadServerMembers error:", error);
@@ -4004,7 +4091,40 @@ async function loadServerMembers() {
       return; 
     }
     
-    serverMembers = members || [];
+    const memberIds = (members || []).map(m => m.id).filter(Boolean);
+    const [{ data: roleLinks, error: roleLinksError }, { data: roles, error: rolesError }] = await Promise.all([
+      memberIds.length
+        ? supabaseClient
+            .from("server_member_roles")
+            .select("member_id, role_id")
+            .eq("server_id", currentServerId)
+            .in("member_id", memberIds)
+        : Promise.resolve({ data: [] }),
+      supabaseClient
+        .from("server_roles")
+        .select("id, role, name, color")
+        .eq("server_id", currentServerId)
+    ]);
+    if (roleLinksError) console.warn("⚠️ role link fetch failed, falling back to server_members.role:", roleLinksError.message);
+    if (rolesError) console.warn("⚠️ role fetch failed, falling back to server_members.role:", rolesError.message);
+
+    const roleNameById = new Map((roles || []).map(r => [r.id, r.name || r.role || "User"]));
+    const roleColorById = new Map((roles || []).map(r => [r.id, r.color || "#5865f2"]));
+    const linkedRoleByMember = new Map();
+    (roleLinks || []).forEach(link => {
+      if (!linkedRoleByMember.has(link.member_id)) linkedRoleByMember.set(link.member_id, link.role_id);
+    });
+
+    serverMembers = (members || []).map(m => {
+      const linkedRoleId = linkedRoleByMember.get(m.id);
+      const effectiveRoleId = linkedRoleId || m.primary_role_id || null;
+      const effectiveRoleName = effectiveRoleId ? (roleNameById.get(effectiveRoleId) || m.role || "User") : (m.role || "User");
+      return {
+        ...m,
+        role: effectiveRoleName,
+        role_color: effectiveRoleId ? roleColorById.get(effectiveRoleId) : null
+      };
+    });
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
     // Fetch presence data
@@ -4031,68 +4151,45 @@ async function loadServerMembers() {
 }
 
 function renderMemberList(presence) {
-  console.log("🎨 renderMemberList called, presence:", presence);
   const content = document.getElementById("memberListContent");
-  console.log("📍 memberListContent element:", content);
+  if (!content) return;
   
-  if (!content) {
-    console.error("❌ memberListContent element not found!");
-    return;
-  }
-  
-  // Make sure we have serverMembers data
   if (!serverMembers || serverMembers.length === 0) {
-    console.warn("⚠️ No server members to display. serverMembers:", serverMembers);
-    const debugInfo = currentServerId ? `Server ID: ${currentServerId.substring(0, 8)}...` : "No server selected";
-    content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>
-      No members found.<br/>
-      <span style='font-size:10px;color:#666;'>(${debugInfo})</span>
-    </div>`;
+    content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>No members found.</div>`;
     return;
   }
 
-  console.log("✅ Starting to render", serverMembers.length, "members");
-  content.innerHTML = "";
-
-  const presenceMap = new Map((presence || []).map(p => [p.username, p]));
+  const fragment = document.createDocumentFragment();
+  const normalizedPresence = (presence || []).filter(Boolean);
+  const presenceMap = new Map(normalizedPresence.map(p => [String(p.username || "").toLowerCase(), p]));
   const now = Date.now();
   const ONLINE_THRESHOLD = 5 * 60 * 1000;
+  
   const online = [];
   const offline = [];
 
   serverMembers.forEach(m => {
-    const p = presenceMap.get(m.username);
+    const p = presenceMap.get(String(m.username || "").toLowerCase());
     const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
-    if (isOnline) {
-      console.log(`  ✅ ${m.username} is ONLINE`);
-      online.push({ ...m, presence: p });
-    }
-    else {
-      console.log(`  ⚫ ${m.username} is OFFLINE`);
-      offline.push({ ...m, presence: null });
-    }
+    if (isOnline) online.push({ ...m, presence: p });
+    else offline.push({ ...m, presence: null });
   });
 
-  console.log(`📊 Final split: ${online.length} online, ${offline.length} offline`);
-
   const renderGroup = (label, members) => {
-    if (members.length === 0) {
-      console.log(`  (${label} group is empty, skipping)`);
-      return;
-    }
-    console.log(`📌 Rendering ${label} group with ${members.length} members`);
+    if (members.length === 0) return;
+    
     const groupLabel = document.createElement("div");
     groupLabel.className = "member-group-label";
     groupLabel.textContent = `${label} — ${members.length}`;
-    content.appendChild(groupLabel);
+    fragment.appendChild(groupLabel);
 
     members.forEach(m => {
       const item = document.createElement("div");
       item.className = "member-item";
       const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
-      const role = m.role || "User";
-      const roleStr = String(role || "User").toLowerCase();
+      const roleStr = String(m.role || "User").toLowerCase();
       const isSpecialRole = (roleStr === "admin" || roleStr === "manager");
+      
       item.innerHTML = `
         <div class="member-avatar">
           ${escapeHTML(m.username.charAt(0).toUpperCase())}
@@ -4102,16 +4199,67 @@ function renderMemberList(presence) {
           <div class="member-name">${escapeHTML(m.username)}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
-        ${isSpecialRole ? `<span class="member-role-badge ${roleStr}">${role}</span>` : ""}
+        ${isSpecialRole ? `<span class="member-role-badge ${roleStr}" ${m.role_color ? `style="background:${escapeHTML(m.role_color)};"` : ""}>${escapeHTML(m.role)}</span>` : ""}
       `;
-      content.appendChild(item);
-      console.log(`    ✏️ Added ${m.username}`);
+
+      if (currentSystemRole === "SysAdmin" || userPermissions.manage_roles) {
+        item.oncontextmenu = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const memberMenu = document.getElementById("memberMenu");
+          if (!memberMenu) return;
+          showContextMenu(memberMenu, e.clientX, e.clientY, [
+            {
+              label: "Change Server Role",
+              color: "white",
+              action: async () => {
+                const nextRole = prompt(`Set role for ${m.username}:`, m.role || "User");
+                if (!nextRole) return;
+                await setMemberServerRole(m, nextRole);
+              }
+            },
+            {
+              label: "Add To Another Server",
+              color: "white",
+              action: async () => {
+                await addMemberToAnotherServer(m);
+              }
+            },
+            {
+              label: "Kick From This Server",
+              color: "#ed4245",
+              action: async () => {
+                await kickMemberFromCurrentServer(m);
+              }
+            },
+            {
+              label: "Delete User + Messages",
+              color: "#ed4245",
+              action: async () => {
+                await deleteUser(m.username);
+              }
+            }
+          ]);
+        };
+      }
+      fragment.appendChild(item);
     });
   };
 
+  // Sort alphabetically so the full member list is predictable.
+  online.sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), undefined, { sensitivity: "base" }));
+  offline.sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), undefined, { sensitivity: "base" }));
+
+  const total = document.createElement("div");
+  total.className = "member-group-label";
+  total.textContent = `Total — ${serverMembers.length}`;
+  fragment.appendChild(total);
+
   renderGroup("Online", online);
   renderGroup("Offline", offline);
-  console.log("✅ renderMemberList complete!");
+  
+  content.innerHTML = "";
+  content.appendChild(fragment);
 }
 
 async function updateChannelPresence(channelId) {
@@ -4121,7 +4269,7 @@ async function updateChannelPresence(channelId) {
     channel_id: channelId,
     server_id: currentServerId,
     updated_at: new Date().toISOString()
-  }, { onConflict: ["username"] });
+  }, { onConflict: "username,server_id" });
 }
 
 function subscribeToPresence() {
@@ -4422,13 +4570,37 @@ async function refreshServerRole() {
   } else {
     const { data: memberData } = await supabaseClient
       .from("server_members")
-      .select("role")
+      .select("id, role, primary_role_id")
       .eq("server_id", currentServerId)
       .eq("username", username)
       .maybeSingle();
-    const roleName = memberData?.role || "User";
-    currentRole = roleName;
-    loadUserPermissions(roleName);
+    let resolvedRole = memberData?.role || "User";
+    if (memberData?.primary_role_id) {
+      const { data: primaryRole } = await supabaseClient
+        .from("server_roles")
+        .select("name, role")
+        .eq("id", memberData.primary_role_id)
+        .maybeSingle();
+      resolvedRole = primaryRole?.name || primaryRole?.role || resolvedRole;
+    } else if (memberData?.id) {
+      const { data: memberRoleLink } = await supabaseClient
+        .from("server_member_roles")
+        .select("role_id")
+        .eq("server_id", currentServerId)
+        .eq("member_id", memberData.id)
+        .limit(1)
+        .maybeSingle();
+      if (memberRoleLink?.role_id) {
+        const { data: linkedRole } = await supabaseClient
+          .from("server_roles")
+          .select("name, role")
+          .eq("id", memberRoleLink.role_id)
+          .maybeSingle();
+        resolvedRole = linkedRole?.name || linkedRole?.role || resolvedRole;
+      }
+    }
+    currentRole = resolvedRole;
+    loadUserPermissions(resolvedRole);
   }
 
   localStorage.setItem("chatRole", currentRole);
