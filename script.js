@@ -417,14 +417,12 @@ let channels = [];
 let categories = [];
 let collapsedCategories = new Set();
 try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
-let categoryOrder = [];
-try { categoryOrder = JSON.parse(localStorage.getItem("categoryOrder") || "[]"); } catch {}
 let currentChannelId = null;
 let currentServerId = null;
 let servers = [];
 let serverMembers = [];
-let presenceSubscription = null;
-let memberRefreshInterval = null;
+let memberPresence = [];
+let memberRealtimeSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -583,9 +581,6 @@ async function loadCategories() {
   const { data, error } = await q;
   if (!error && data) {
     categories = data;
-    // Update categoryOrder based on database order
-    categoryOrder = categories.map(c => c.name);
-    localStorage.setItem("categoryOrder", JSON.stringify(categoryOrder));
   }
 }
 
@@ -622,9 +617,14 @@ function renderChannelList() {
     grouped[catName].push(ch);
   });
 
-  // Sort categories based on order
-  const catNames = [...new Set([...categoryOrder, ...Object.keys(grouped)])]
-    .filter(name => grouped[name] || categories.some(c => c.name === name));
+  const sortedCategories = [...categories].sort((a, b) => {
+    const orderDiff = (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0);
+    if (orderDiff !== 0) return orderDiff;
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+  });
+  const catNames = sortedCategories.map(cat => cat.name);
+  const uncategorizedNames = Object.keys(grouped).filter(name => !categories.some(c => c.name === name));
+  catNames.push(...uncategorizedNames);
 
   catNames.forEach(catName => {
     const catChannels = grouped[catName] || [];
@@ -700,10 +700,8 @@ function initSortables() {
     draggable: ".category-block",
     onEnd: async () => {
       const categoryBlocks = Array.from(channelList.querySelectorAll('.category-block'));
-      const newOrder = categoryBlocks.map(block => block.dataset.categoryName);
-      localStorage.setItem('categoryOrder', JSON.stringify(newOrder));
-      
-      const updates = newOrder.map((catName, index) => {
+      const updates = categoryBlocks.map((block, index) => {
+        const catName = block.dataset.categoryName;
         const category = categories.find(c => c.name === catName);
         return category ? supabaseClient.from('categories').update({ sort_order: index }).eq('id', category.id) : null;
       }).filter(Boolean);
@@ -729,7 +727,7 @@ function initSortables() {
         
         updates.push(supabaseClient.from("channels").update({ category_id: newCatId }).eq("id", channelId));
 
-        const items = evt.to.querySelectorAll(".channel");
+        const items = channelList.querySelectorAll(".channel");
         items.forEach((el, i) => {
           updates.push(supabaseClient.from("channels").update({ sort_order: i }).eq("id", parseInt(el.dataset.id, 10)));
         });
@@ -1051,7 +1049,9 @@ async function performCreateChannel(name, categoryName) {
   let cat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase() && c.server_id === currentServerId);
   if (!cat) {
     // Create new category
-    const sortOrder = categories.filter(c => c.server_id === currentServerId).length;
+    const sortOrder = categories
+      .filter(c => c.server_id === currentServerId)
+      .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
     const { data: newCat, error: catError } = await supabaseClient
       .from("categories")
       .insert({
@@ -1071,9 +1071,9 @@ async function performCreateChannel(name, categoryName) {
     cat = newCat;
   }
 
-  const sortOrder = channels.filter(
-    c => c.server_id === currentServerId && c.category_id === cat.id
-  ).length;
+  const sortOrder = channels
+    .filter(c => c.server_id === currentServerId)
+    .reduce((maxOrder, channel) => Math.max(maxOrder, Number(channel.sort_order) || 0), -1) + 1;
 
   const { data, error } = await supabaseClient
     .from("channels")
@@ -1150,6 +1150,17 @@ async function performDeleteChannel(channelId) {
     }
   }
 
+  const { error: presenceErr } = await supabaseClient
+    .from("channel_presence")
+    .delete()
+    .eq("server_id", currentServerId)
+    .eq("channel_id", channelId);
+  if (presenceErr) {
+    console.error("❌ Delete channel (presence):", presenceErr.message);
+    alert("❌ Failed to delete channel presence: " + presenceErr.message);
+    return;
+  }
+
   const { error: deleteMsgsErr } = await supabaseClient
     .from("messages")
     .delete()
@@ -1182,7 +1193,9 @@ async function performCreateCategory(name) {
     return;
   }
 
-  const sortOrder = categories.filter(c => c.server_id === currentServerId).length;
+  const sortOrder = categories
+    .filter(c => c.server_id === currentServerId)
+    .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
 
   const { data, error } = await supabaseClient
     .from("categories")
@@ -1225,9 +1238,12 @@ async function performDeleteCategory(catName) {
   // Find or create a "General" fallback category for orphaned channels
   let generalCat = categories.find(c => c.name === "General" && c.id !== cat.id);
   if (!generalCat) {
+    const generalSortOrder = categories
+      .filter(c => c.server_id === currentServerId)
+      .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
     const { data: genData } = await supabaseClient
       .from("categories")
-      .insert({ name: "General", sort_order: 0, created_by: username, server_id: currentServerId })
+      .insert({ name: "General", sort_order: generalSortOrder, created_by: username, server_id: currentServerId })
       .select()
       .maybeSingle();
     if (genData) { categories.push(genData); generalCat = genData; }
@@ -1890,8 +1906,11 @@ async function enablePush() {
   const permission = await Notification.requestPermission();
   if(permission!=="granted") return;
   const registration = await navigator.serviceWorker.register("/sw.js");
-  const subscription = await registration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: VAPID_PUBLIC_KEY });
-  await supabaseClient.from("push_subscriptions").upsert({ username, subscription });
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: VAPID_PUBLIC_KEY });
+  }
+  await supabaseClient.from("push_subscriptions").upsert({ username, subscription }, { onConflict: "username" });
   console.log("🔔 Push enabled");
 }
 enablePush();
@@ -3731,18 +3750,8 @@ async function loadDefaultChannel() {
     return;
   }
 
-  let q2 = supabaseClient.from("channels").select("*").eq("name", "general");
-  if (currentServerId) q2 = q2.eq("server_id", currentServerId);
-  const { data, error } = await q2.maybeSingle();
-
-  let targetChannelId;
-
-  if (error) {
-    console.warn("⚠️ 'general' not found. Using first channel.");
-    targetChannelId = channels[0].id;
-  } else {
-    targetChannelId = data.id;
-  }
+  const generalChannel = channels.find(ch => String(ch.name || "").toLowerCase() === "general");
+  const targetChannelId = generalChannel ? generalChannel.id : channels[0].id;
 
   console.log("🎯 Target channel ID:", targetChannelId);
 
@@ -3837,6 +3846,7 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
   if (error) return;
   channels = data;
   renderChannelList();
+  renderMemberList();
 
   // If the channel the user was viewing was deleted, switch away
   if (deletedChannelId && currentChannelId === deletedChannelId) {
@@ -4035,8 +4045,10 @@ async function switchServer(serverId, updateUrl = true) {
 
   console.log("📂 Loading channels...");
   await loadChannels();
-  await ensureGeneralCategoryAndFixOrphans(currentServerId, { createGeneralChannelIfMissing: true });
-  await loadChannels();
+  const ensureResult = await ensureGeneralCategoryAndFixOrphans(currentServerId, { createGeneralChannelIfMissing: true });
+  if (ensureResult?.changed) {
+    await loadChannels();
+  }
 
   if (channels.length > 0) {
     console.log("📝 Loading default channel...");
@@ -4047,17 +4059,18 @@ async function switchServer(serverId, updateUrl = true) {
     if (channels.length > 0) await loadDefaultChannel();
   }
 
-  console.log("🔐 Refreshing server role...");
-  await refreshServerRole();
-  
   console.log("🌐 Subscribing to server realtime...");
   subscribeToServerRealtime(serverId);
-  
-  console.log("👥 Loading server members...");
-  await loadServerMembers();
-  
+
   console.log("🔔 Subscribing to presence...");
   subscribeToPresence();
+
+  console.log("🔐 Refreshing server role...");
+  console.log("👥 Loading server members...");
+  await Promise.all([
+    refreshServerRole(),
+    loadServerMembers()
+  ]);
   
   console.log("✅ switchServer complete!");
 }
@@ -4143,16 +4156,6 @@ async function loadServerMembers() {
   if (content) content.innerHTML = "<div style='padding:10px;color:#999;font-size:12px;'>Loading members...</div>";
   
   try {
-    // Debug: Check if current user is in server_members
-    console.log("📡 Debugging: Checking if current user exists in server_members...");
-    const { data: myMembership } = await supabaseClient
-      .from("server_members")
-      .select("*")
-      .eq("server_id", currentServerId)
-      .eq("username", username)
-      .maybeSingle();
-    console.log("   My membership:", myMembership);
-    
     // Always fetch fresh member data (paged so we don't hit row caps)
     console.log("📡 Fetching server_members for server:", currentServerId);
     const members = [];
@@ -4243,19 +4246,8 @@ async function loadServerMembers() {
     });
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
-    // Fetch presence data
-    console.log("📡 Fetching channel_presence for server:", currentServerId);
-    const { data: presence, error: presenceError } = await supabaseClient
-      .from("channel_presence")
-      .select("*")
-      .eq("server_id", currentServerId);
-
-    if (presenceError) {
-      console.error("❌ Presence fetch error:", presenceError);
-    }
-
-    console.log("👥 Got", (presence || []).length, "presence records:", presence);
-    renderMemberList(presence || []);
+    await loadMemberPresence();
+    renderMemberList();
   } catch (err) {
     console.error("❌ Unexpected error in loadServerMembers:", err);
     if (content) {
@@ -4266,7 +4258,25 @@ async function loadServerMembers() {
   }
 }
 
-function renderMemberList(presence) {
+async function loadMemberPresence() {
+  if (!currentServerId) return;
+
+  console.log("📡 Fetching channel_presence for server:", currentServerId);
+  const { data: presence, error: presenceError } = await supabaseClient
+    .from("channel_presence")
+    .select("*")
+    .eq("server_id", currentServerId);
+
+  if (presenceError) {
+    console.error("❌ Presence fetch error:", presenceError);
+    return;
+  }
+
+  memberPresence = presence || [];
+  console.log("👥 Got", memberPresence.length, "presence records:", memberPresence);
+}
+
+function renderMemberList() {
   const content = document.getElementById("memberListContent");
   if (!content) return;
   
@@ -4276,7 +4286,7 @@ function renderMemberList(presence) {
   }
 
   const fragment = document.createDocumentFragment();
-  const normalizedPresence = (presence || []).filter(Boolean);
+  const normalizedPresence = (memberPresence || []).filter(Boolean);
   const presenceMap = new Map(normalizedPresence.map(p => [String(p.username || "").toLowerCase(), p]));
   const now = Date.now();
   const ONLINE_THRESHOLD = 5 * 60 * 1000;
@@ -4390,45 +4400,60 @@ async function updateChannelPresence(channelId) {
 
 function subscribeToPresence() {
   console.log("🔔 subscribeToPresence called, currentServerId:", currentServerId);
-  
-  if (presenceSubscription) {
-    try { presenceSubscription.unsubscribe(); } catch {}
-    presenceSubscription = null;
+
+  if (memberRealtimeSubscription) {
+    try { memberRealtimeSubscription.unsubscribe(); } catch {}
+    memberRealtimeSubscription = null;
   }
-  
-  // Clear old refresh interval if exists
-  if (memberRefreshInterval) {
-    clearInterval(memberRefreshInterval);
-    memberRefreshInterval = null;
-  }
-  
+
   if (!currentServerId) {
     console.warn("❌ No currentServerId for subscribeToPresence");
     return;
   }
 
-  console.log("📡 Setting up presence subscription for server:", currentServerId);
-  presenceSubscription = supabaseClient
-    .channel(`presence-${currentServerId}`)
+  console.log("📡 Setting up member realtime for server:", currentServerId);
+  memberRealtimeSubscription = supabaseClient
+    .channel(`members-realtime-${currentServerId}`)
     .on("postgres_changes", {
       event: "*",
       schema: "public",
       table: "channel_presence",
       filter: `server_id=eq.${currentServerId}`
-    }, () => {
-      console.log("🔄 Presence changed, reloading members");
-      loadServerMembers();
+    }, async () => {
+      console.log("🔄 Presence changed, refreshing member presence");
+      await loadMemberPresence();
+      renderMemberList();
+    })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "server_members",
+      filter: `server_id=eq.${currentServerId}`
+    }, async () => {
+      console.log("🔄 server_members changed, reloading member list");
+      await loadServerMembers();
+    })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "server_member_roles",
+      filter: `server_id=eq.${currentServerId}`
+    }, async () => {
+      console.log("🔄 server_member_roles changed, reloading member list");
+      await loadServerMembers();
+    })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "server_roles",
+      filter: `server_id=eq.${currentServerId}`
+    }, async () => {
+      console.log("🔄 server_roles changed, reloading member list");
+      await loadServerMembers();
     })
     .subscribe();
 
-  // Refresh member list periodically (every 30 seconds) to catch any changes
-  memberRefreshInterval = setInterval(() => {
-    if (currentServerId) {
-      console.log("⏰ 30s refresh: reloading members for server", currentServerId);
-      loadServerMembers();
-    }
-  }, 30000);
-  console.log("✅ Presence subscription set up!");
+  console.log("✅ Member realtime subscription set up!");
 }
 
 async function generateInvite() {

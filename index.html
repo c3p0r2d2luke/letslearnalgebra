@@ -7,18 +7,13 @@ document.addEventListener("keydown", function(event) {
     // Shift + X → learn.html
     if (event.shiftKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "x") {
         event.preventDefault();
-        window.location.href = "learn.html";
+        window.location.href = "learn";
     }
 
     // Ctrl + Alt + C → chatwithteachers.html (kept as-is)
     if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "c") {
         event.preventDefault();
-        window.location.href = "chatwithteachers.html";
-    }
-     // Shift + S -> s.html
-    if (event.shiftKey && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        window.location.href = "s.html";
+        window.location.href = "chatwithteachers";
     }
 });
 </script>
