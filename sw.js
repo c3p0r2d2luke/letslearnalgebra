@@ -7,15 +7,15 @@ self.addEventListener("push", event => {
 
   const options = {
     body: data.body,
-    icon: "/download (1).png",
-    badge: isMention ? "/mention-badge.png" : "/badge.png", // Different badge for mentions
-    requireInteraction: isImportant,
+    icon: "/logo.png",
+    badge: "/logo.png",
+    requireInteraction: isMention || isImportant,
     vibrate: isMention 
       ? [200, 100, 200, 100, 200, 100, 400] // Longer vibration for mentions
       : isImportant 
         ? [200, 100, 200, 100, 400] 
         : [100],
-    silent: !isImportant,
+    silent: false,
     tag: isMention ? "mention" : (isImportant ? "important" : "message"),
     data: { url: targetUrl },
     actions: isMention ? [

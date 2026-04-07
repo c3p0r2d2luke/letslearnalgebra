@@ -11,6 +11,12 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json"
+};
 
 webpush.setVapidDetails(
   VAPID_EMAIL,
@@ -19,8 +25,15 @@ webpush.setVapidDetails(
 );
 
 serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+    return new Response(JSON.stringify({ ok: false, error: "Method Not Allowed" }), {
+      status: 405,
+      headers: corsHeaders
+    });
   }
 
   try {
@@ -40,7 +53,7 @@ serve(async (req: Request) => {
 
     if (subscriptions.length === 0) {
       return new Response(JSON.stringify({ ok: true, delivered: 0 }), {
-        headers: { "Content-Type": "application/json" }
+        headers: corsHeaders
       });
     }
 
@@ -59,13 +72,13 @@ serve(async (req: Request) => {
     const delivered = results.filter(result => result.status === "fulfilled").length;
 
     return new Response(JSON.stringify({ ok: true, delivered }), {
-      headers: { "Content-Type": "application/json" }
+      headers: corsHeaders
     });
   } catch (error) {
     console.error("send-push error", error);
     return new Response(JSON.stringify({ ok: false, error: String(error) }), {
       status: 500,
-      headers: { "Content-Type": "application/json" }
+      headers: corsHeaders
     });
   }
 });

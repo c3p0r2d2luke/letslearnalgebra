@@ -456,6 +456,7 @@ const avatarUrlByUsername = new Map();
 let currentUserAvatarUrl = "";
 const channelServerMap = new Map();
 const unreadMentionCounts = new Map();
+const deliveredMentionNotifications = new Set();
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -562,6 +563,86 @@ function updateCurrentAvatarButton() {
     changeAvatarBtn.appendChild(img);
   } else {
     changeAvatarBtn.classList.remove("has-image");
+  }
+}
+
+async function notifyMentionClientSide(msg, serverId = null) {
+  if (!msg?.id) return;
+  if (deliveredMentionNotifications.has(msg.id)) return;
+
+  const pageVisible = document.visibilityState === "visible" && document.hasFocus();
+  if (pageVisible) return;
+  if (Notification.permission !== "granted") return;
+
+  deliveredMentionNotifications.add(msg.id);
+
+  const title = /@(everyone|here)\b/i.test(String(msg.content || ""))
+    ? `${msg.username} pinged everyone`
+    : `${msg.username} mentioned you`;
+  const body = String(msg.content || "").slice(0, 140) || "Open chat to view the message.";
+  const targetServer = serverId || channelServerMap.get(Number(msg.channel_id));
+  const url = targetServer
+    ? `/chatwithteachers?server=${encodeURIComponent((servers.find(server => server.id === targetServer)?.slug) || "")}`
+    : "/chatwithteachers";
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(title, {
+        body,
+        tag: `mention-${msg.id}`,
+        icon: "/logo.png",
+        badge: "/logo.png",
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200, 100, 400],
+        silent: false,
+        data: { url }
+      });
+      return;
+    }
+  } catch (notificationError) {
+    console.warn("⚠️ Service worker notification fallback failed:", notificationError);
+  }
+
+  try {
+    new Notification(title, {
+      body,
+      tag: `mention-${msg.id}`
+    });
+  } catch (notificationError) {
+    console.warn("⚠️ Direct Notification fallback failed:", notificationError);
+  }
+}
+
+async function showLocalTestNotification() {
+  if (Notification.permission !== "granted") return;
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification("Notifications enabled", {
+        body: "Local notification test successful.",
+        tag: "local-notification-test",
+        icon:  "/logo.png",
+        badge: "/logo.png",
+        requireInteraction: true,
+        silent: false,
+        vibrate: [120, 60, 120],
+        data: { url: window.location.pathname + window.location.search }
+      });
+      return;
+    }
+  } catch (error) {
+    console.warn("⚠️ Local service worker notification test failed:", error);
+  }
+
+  try {
+    new Notification("Notifications enabled", {
+      body: "Local notification test successful.",
+      tag: "local-notification-test"
+    });
+  } catch (error) {
+    console.warn("⚠️ Direct local notification test failed:", error);
   }
 }
 
@@ -693,14 +774,10 @@ async function sendPushToUsers(targetUsernames, payload) {
 
   await Promise.all((subs || []).map(async (sub) => {
     try {
-      await fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          subscription: sub.subscription,
-          url: window.location.pathname + window.location.search
-        })
+      await invokeSendPush({
+        ...payload,
+        subscription: sub.subscription,
+        url: window.location.pathname + window.location.search
       });
     } catch (pushError) {
       console.error("Push failed:", pushError);
@@ -832,12 +909,14 @@ function subscribeToGlobalMentions() {
         if (!serverId) return;
 
         if (serverId === currentServerId && Number(message.channel_id) === Number(currentChannelId)) {
+          await notifyMentionClientSide(message, serverId);
           markServerMentionsRead(serverId);
           return;
         }
 
         unreadMentionCounts.set(serverId, (unreadMentionCounts.get(serverId) || 0) + 1);
         renderServerList();
+        await notifyMentionClientSide(message, serverId);
       }
     )
     .subscribe();
@@ -996,6 +1075,23 @@ const saveNameBtn = document.getElementById("saveNameButton");
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+async function invokeSendPush(payload) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: supabaseKey
+  };
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  return fetch(`${supabaseUrl}/functions/v1/send-push`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  });
+}
 
 // ------------------------ User data ------------------------
 let username = localStorage.getItem("chatUsername") || "";
@@ -2020,6 +2116,7 @@ async function loadUser() {
   watchForceLogout(username);
   subscribeToUserStatus();
   applyMuteBlockUI();
+  await enablePush();
 
   console.log("🎉 loadUser() completed successfully.");
 }
@@ -2424,6 +2521,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
 
     if (messageMentionsUser(newMsg.content, username)) {
   showMentionToast(newMsg);
+  await notifyMentionClientSide(newMsg);
 
   const el = messagesMap.get(newMsg.id);
   if (el) {
@@ -2439,6 +2537,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
     renderMessage(newMsg);
     if (messageMentionsUser(newMsg.content, username)) {
   showMentionToast(newMsg);
+  await notifyMentionClientSide(newMsg);
 
   const el = messagesMap.get(newMsg.id);
   if (el) {
@@ -2522,18 +2621,37 @@ document.addEventListener("keydown", async e => {
 // ------------------------ Push ------------------------
 const VAPID_PUBLIC_KEY = "BASYo0tS0nRAG504ReCj95aY9QacgW9vPLQKkMJRU8LXPDMtYIg-oeA__TvgyDJlop9mQqeRC1j_7ydtlKCk0zA";
 async function enablePush() {
+  if (!username) return;
   if(!("serviceWorker" in navigator)) return;
   const permission = await Notification.requestPermission();
   if(permission!=="granted") return;
-  const registration = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.register("/sw.js");
+  const registration = await navigator.serviceWorker.ready;
+  await showLocalTestNotification();
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: VAPID_PUBLIC_KEY });
   }
   await supabaseClient.from("push_subscriptions").upsert({ username, subscription }, { onConflict: "username" });
+  try {
+    const response = await invokeSendPush({
+      title: "Notifications enabled",
+      body: "Test push successful.",
+      subscription,
+      important: true,
+      mention: false,
+      url: window.location.pathname + window.location.search
+    });
+    let responseBody = "";
+    try {
+      responseBody = await response.text();
+    } catch {}
+    console.log("🧪 Test push response:", response.status, responseBody || "(empty)");
+  } catch (testPushError) {
+    console.warn("⚠️ Test push failed:", testPushError);
+  }
   console.log("🔔 Push enabled");
 }
-enablePush();
 
 document.addEventListener("click", () => {
   const menu = document.getElementById("adminMenu");
