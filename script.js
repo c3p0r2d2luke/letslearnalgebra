@@ -53,6 +53,15 @@ function setPreviewCache(url, data) {
 }
 
 const input = document.getElementById("messageInput");
+const messageSearchInput = document.getElementById("messageSearchInput");
+const memberSearchInput = document.getElementById("memberSearchInput");
+const mentionSuggestionsEl = document.getElementById("mentionSuggestions");
+const avatarInput = document.getElementById("avatarInput");
+const changeAvatarBtn = document.getElementById("changeAvatarBtn");
+let messageSearchTerm = "";
+let memberSearchTerm = "";
+let mentionSuggestionItems = [];
+let mentionSelectedIndex = 0;
 
 input.addEventListener("input", () => {
   sendTyping(true);
@@ -60,6 +69,7 @@ input.addEventListener("input", () => {
   typingTimeout = setTimeout(() => {
     sendTyping(false);
   }, 2000);
+  updateMentionSuggestions();
 });
 
 // Channel creation is handled by the IIFE below (openInlineRow)
@@ -237,7 +247,7 @@ async function handleAuthSuccess(user) {
   // 1. Fetch the linked username from your 'users' table
   const { data: userData, error: fetchError } = await supabaseClient
     .from("users")
-    .select("username, sys_admin, sys_manager, blocked, muted_until")
+    .select("username, sys_admin, sys_manager, blocked, muted_until, avatar_url")
     .eq("auth_id", authId)
     .maybeSingle();
 
@@ -255,6 +265,7 @@ async function handleAuthSuccess(user) {
 
   // 2. CRITICAL: Set Global State & Save to LocalStorage IMMEDIATELY
   username = userData.username;
+  setAvatarUrl(username, userData.avatar_url || "");
   localStorage.setItem("chatUsername", username); // <--- This is the key
 
   // Store flags
@@ -278,6 +289,7 @@ async function doSignUp() {
   const usernameVal = document.getElementById("signUpUsername").value.trim();
   const email = document.getElementById("signUpEmail").value.trim();
   const password = document.getElementById("signUpPassword").value;
+  const avatarFile = document.getElementById("signUpAvatar")?.files?.[0] || null;
   const errorEl = document.getElementById("signUpError");
   errorEl.style.display = "none";
 
@@ -324,7 +336,8 @@ async function doSignUp() {
       sys_admin: false,
       sys_manager: false,
       blocked: false,
-      forceLogout: false
+      forceLogout: false,
+      avatar_url: null
     });
 
   if (profileError) {
@@ -334,6 +347,15 @@ async function doSignUp() {
     errorEl.textContent = "❌ Failed to create profile. Check console.";
     errorEl.style.display = "block";
     return;
+  }
+
+  if (avatarFile) {
+    const avatarResult = await uploadAvatarFile(avatarFile, usernameVal, userId);
+    if (avatarResult.error) {
+      errorEl.textContent = avatarResult.error;
+      errorEl.style.display = "block";
+      return;
+    }
   }
 
   // 4. Auto Sign In
@@ -428,6 +450,8 @@ let mutedUntil = null;
 let muteInterval = null;
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
+const avatarUrlByUsername = new Map();
+let currentUserAvatarUrl = "";
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -436,6 +460,360 @@ function escapeHTML(str) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getInitials(name) {
+  return String(name || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function getAvatarUrl(usernameValue) {
+  return avatarUrlByUsername.get(String(usernameValue || "").toLowerCase()) || "";
+}
+
+function bustAvatarUrl(url) {
+  if (!url) return "";
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}t=${Date.now()}`;
+}
+
+function setAvatarUrl(usernameValue, url) {
+  if (!usernameValue) return;
+  avatarUrlByUsername.set(String(usernameValue).toLowerCase(), url || "");
+  if (String(usernameValue).toLowerCase() === String(username || "").toLowerCase()) {
+    currentUserAvatarUrl = url || "";
+    updateCurrentAvatarButton();
+  }
+}
+
+async function loadAvatarMapForUsernames(usernames) {
+  const unique = [...new Set((usernames || []).filter(Boolean))];
+  if (unique.length === 0) return;
+
+  const missing = unique.filter(name => !avatarUrlByUsername.has(String(name).toLowerCase()));
+  if (missing.length === 0) return;
+
+  const { data, error } = await supabaseClient
+    .from("users")
+    .select("username, avatar_url")
+    .in("username", missing);
+  if (error) {
+    console.warn("⚠️ Failed to load avatars:", error.message);
+    return;
+  }
+
+  (data || []).forEach(row => setAvatarUrl(row.username, row.avatar_url || ""));
+  missing.forEach(name => {
+    if (!avatarUrlByUsername.has(String(name).toLowerCase())) {
+      avatarUrlByUsername.set(String(name).toLowerCase(), "");
+    }
+  });
+}
+
+function buildAvatarElement(usernameValue, className) {
+  const avatar = document.createElement("div");
+  avatar.className = className;
+  const avatarUrl = getAvatarUrl(usernameValue);
+  const initials = document.createElement("span");
+  initials.className = "avatar-fallback";
+  initials.textContent = getInitials(usernameValue);
+  avatar.appendChild(initials);
+
+  if (avatarUrl) {
+    const img = document.createElement("img");
+    img.className = "avatar-image";
+    img.alt = `${usernameValue} avatar`;
+    img.loading = "lazy";
+    img.src = avatarUrl;
+    img.onerror = () => {
+      img.remove();
+      avatar.classList.remove("has-image");
+    };
+    img.onload = () => {
+      avatar.classList.add("has-image");
+    };
+    avatar.appendChild(img);
+  }
+  return avatar;
+}
+
+function updateCurrentAvatarButton() {
+  if (!changeAvatarBtn) return;
+  const avatarUrl = currentUserAvatarUrl || getAvatarUrl(username);
+  changeAvatarBtn.innerHTML = "";
+  const fallback = document.createElement("span");
+  fallback.className = "avatar-fallback";
+  fallback.textContent = getInitials(username);
+  changeAvatarBtn.appendChild(fallback);
+
+  if (avatarUrl) {
+    const img = document.createElement("img");
+    img.className = "avatar-image";
+    img.alt = `${username} avatar`;
+    img.src = avatarUrl;
+    img.onload = () => changeAvatarBtn.classList.add("has-image");
+    img.onerror = () => {
+      img.remove();
+      changeAvatarBtn.classList.remove("has-image");
+    };
+    changeAvatarBtn.appendChild(img);
+  } else {
+    changeAvatarBtn.classList.remove("has-image");
+  }
+}
+
+async function uploadAvatarFile(file, targetUsername, authIdOverride = null) {
+  if (!file) return { error: "❌ No file selected." };
+  if (!String(file.type || "").startsWith("image/")) return { error: "❌ Avatar must be an image." };
+  if (file.size > 5 * 1024 * 1024) return { error: "❌ Avatar must be under 5MB." };
+
+  const authId = authIdOverride || (await supabaseClient.auth.getUser())?.data?.user?.id;
+  if (!authId) return { error: "❌ Could not identify your account." };
+
+  const extension = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const path = `${authId}/${Date.now()}.${extension}`;
+
+  const { error: uploadError } = await supabaseClient.storage
+    .from("avatars")
+    .upload(path, file, { upsert: true });
+  if (uploadError) return { error: "❌ Failed to upload avatar: " + uploadError.message };
+
+  const { data: publicData } = supabaseClient.storage.from("avatars").getPublicUrl(path);
+  const avatarUrl = bustAvatarUrl(publicData?.publicUrl || "");
+  if (!avatarUrl) return { error: "❌ Failed to resolve avatar URL." };
+
+  const { error: updateError } = await supabaseClient
+    .from("users")
+    .update({ avatar_url: avatarUrl })
+    .eq("username", targetUsername);
+  if (updateError) return { error: "❌ Failed to save avatar: " + updateError.message };
+
+  setAvatarUrl(targetUsername, avatarUrl);
+  return { avatarUrl };
+}
+
+async function changeMyAvatar() {
+  const file = avatarInput?.files?.[0];
+  if (!file) return;
+  const { error } = await uploadAvatarFile(file, username);
+  if (error) {
+    alert(error);
+    return;
+  }
+
+  await loadMessages();
+  renderMemberList();
+  renderServerList();
+}
+
+function normalizeSearchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function messageMentionsUser(content, targetUsername) {
+  const normalizedContent = String(content || "");
+  if (/@(everyone|here)\b/i.test(normalizedContent)) return true;
+  if (!targetUsername) return false;
+  const mentionPattern = new RegExp(`@${escapeRegExp(targetUsername)}\\b`, "i");
+  return mentionPattern.test(normalizedContent);
+}
+
+function getMessageSearchText(msg) {
+  return normalizeSearchValue(`${msg?.username || ""} ${msg?.content || ""}`);
+}
+
+async function getCurrentServerMemberUsernames() {
+  if (!currentServerId) return [];
+  if (serverMembers.length > 0) {
+    return serverMembers.map(m => m.username).filter(Boolean);
+  }
+
+  const { data, error } = await supabaseClient
+    .from("server_members")
+    .select("username")
+    .eq("server_id", currentServerId);
+  if (error) {
+    console.error("❌ Failed to fetch server members for push:", error.message);
+    return [];
+  }
+  return (data || []).map(row => row.username).filter(Boolean);
+}
+
+async function sendPushToUsers(targetUsernames, payload) {
+  const uniqueUsers = [...new Set((targetUsernames || []).filter(Boolean))]
+    .filter(name => String(name).toLowerCase() !== String(username || "").toLowerCase());
+  if (uniqueUsers.length === 0) return;
+
+  const { data: subs, error } = await supabaseClient
+    .from("push_subscriptions")
+    .select("username, subscription")
+    .in("username", uniqueUsers);
+  if (error) {
+    console.error("❌ Failed to load push subscriptions:", error.message);
+    return;
+  }
+
+  await Promise.all((subs || []).map(async (sub) => {
+    try {
+      await fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          subscription: sub.subscription,
+          url: window.location.pathname + window.location.search
+        })
+      });
+    } catch (pushError) {
+      console.error("Push failed:", pushError);
+    }
+  }));
+}
+
+function canViewMembers() {
+  return currentSystemRole === "SysAdmin" || currentRole === "Admin" || userPermissions.manage_roles;
+}
+
+function stopMemberRealtime() {
+  if (memberRealtimeSubscription) {
+    try { memberRealtimeSubscription.unsubscribe(); } catch {}
+    memberRealtimeSubscription = null;
+  }
+}
+
+function setMemberListVisibility() {
+  const memberList = document.getElementById("memberList");
+  const memberToggle = document.getElementById("memberListToggle");
+  if (memberToggle) memberToggle.style.display = canViewMembers() ? "inline-flex" : "none";
+  if (!memberList) return;
+  if (!canViewMembers()) {
+    stopMemberRealtime();
+    memberList.classList.remove("open");
+    memberList.style.display = "none";
+    const content = document.getElementById("memberListContent");
+    if (content) content.innerHTML = "";
+  } else if (window.innerWidth > 768) {
+    memberList.style.display = "flex";
+  } else {
+    memberList.style.display = "";
+  }
+}
+
+function hideMentionSuggestions() {
+  if (!mentionSuggestionsEl) return;
+  mentionSuggestionsEl.style.display = "none";
+  mentionSuggestionsEl.innerHTML = "";
+  mentionSuggestionItems = [];
+  mentionSelectedIndex = 0;
+}
+
+function getMentionContext() {
+  const cursor = input.selectionStart ?? input.value.length;
+  const beforeCursor = input.value.slice(0, cursor);
+  const match = beforeCursor.match(/(^|\s)@([a-zA-Z0-9_]*)$/);
+  if (!match) return null;
+  return {
+    query: match[2] || "",
+    start: cursor - match[2].length - 1,
+    end: cursor
+  };
+}
+
+function renderMentionSuggestions(items) {
+  if (!mentionSuggestionsEl) return;
+  if (!items.length) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  mentionSuggestionItems = items;
+  mentionSelectedIndex = Math.min(mentionSelectedIndex, items.length - 1);
+  mentionSuggestionsEl.innerHTML = "";
+
+  const fragment = document.createDocumentFragment();
+  items.forEach((item, index) => {
+    const buttonEl = document.createElement("button");
+    buttonEl.type = "button";
+    buttonEl.className = `mention-suggestion-item${index === mentionSelectedIndex ? " active" : ""}`;
+    buttonEl.innerHTML = `
+      <div>${escapeHTML(item.label)}</div>
+      <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
+    `;
+    buttonEl.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      applyMentionSuggestion(item.value);
+    });
+    fragment.appendChild(buttonEl);
+  });
+
+  mentionSuggestionsEl.appendChild(fragment);
+  mentionSuggestionsEl.style.display = "block";
+}
+
+async function updateMentionSuggestions() {
+  const context = getMentionContext();
+  if (!context) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  const allUsers = await getCurrentServerMemberUsernames();
+  const normalizedQuery = normalizeSearchValue(context.query);
+  const baseItems = [
+    { value: "everyone", label: "@everyone", meta: "Notify all server members" },
+    { value: "here", label: "@here", meta: "Notify online members" }
+  ];
+  const userItems = allUsers
+    .filter(name => !normalizedQuery || String(name).toLowerCase().includes(normalizedQuery))
+    .slice(0, 8)
+    .map(name => ({ value: name, label: `@${name}`, meta: "Server member" }));
+
+  const items = [...baseItems, ...userItems].filter((item, index, arr) => {
+    if (normalizedQuery && !item.value.toLowerCase().includes(normalizedQuery)) return false;
+    return arr.findIndex(other => other.value.toLowerCase() === item.value.toLowerCase()) === index;
+  }).slice(0, 8);
+
+  renderMentionSuggestions(items);
+}
+
+function applyMentionSuggestion(value) {
+  const context = getMentionContext();
+  if (!context) return;
+  const before = input.value.slice(0, context.start);
+  const after = input.value.slice(context.end);
+  input.value = `${before}@${value} ${after}`;
+  const nextCursor = before.length + value.length + 2;
+  input.focus();
+  input.setSelectionRange(nextCursor, nextCursor);
+  hideMentionSuggestions();
+}
+
+function applyMessageSearchFilter() {
+  if (!messagesList) return;
+
+  const term = normalizeSearchValue(messageSearchTerm);
+  let visibleCount = 0;
+
+  messagesMap.forEach((li, id) => {
+    const msg = messageDataMap.get(id);
+    const matches = !term || getMessageSearchText(msg).includes(term);
+    li.style.display = matches ? "" : "none";
+    if (matches) visibleCount += 1;
+  });
+
+  const existingEmpty = document.getElementById("messageSearchEmpty");
+  if (existingEmpty) existingEmpty.remove();
+
+  if (term && messagesMap.size > 0 && visibleCount === 0) {
+    const empty = document.createElement("li");
+    empty.id = "messageSearchEmpty";
+    empty.className = "search-empty-state";
+    empty.textContent = "No messages match your search.";
+    messagesList.appendChild(empty);
+  }
 }
 
 const namePrompt = document.getElementById("namePrompt");
@@ -496,6 +874,20 @@ function updateMessageLock() {
 }
 nameInput.addEventListener("input", updateMessageLock);
 updateMessageLock();
+
+if (messageSearchInput) {
+  messageSearchInput.addEventListener("input", () => {
+    messageSearchTerm = messageSearchInput.value || "";
+    applyMessageSearchFilter();
+  });
+}
+
+if (memberSearchInput) {
+  memberSearchInput.addEventListener("input", () => {
+    memberSearchTerm = memberSearchInput.value || "";
+    renderMemberList();
+  });
+}
 
 
 // ------------------------ Realtime ------------------------
@@ -795,28 +1187,34 @@ function showContextMenu(menuEl, x, y, items) {
   });
   menuEl.appendChild(fragment);
 
+  menuEl.style.display = "block";
+  menuEl.style.visibility = "hidden";
+
   if (isMobile) {
-    // Mobile "Bottom Sheet" style
-    menuEl.style.left = "0";
-    menuEl.style.right = "0";
-    menuEl.style.bottom = "0";
+    menuEl.style.left = "8px";
+    menuEl.style.right = "8px";
+    menuEl.style.bottom = "max(8px, env(safe-area-inset-bottom))";
     menuEl.style.top = "auto";
-    menuEl.style.width = "100%";
+    menuEl.style.width = "auto";
     menuEl.style.borderRadius = "12px 12px 0 0";
     menuEl.classList.add("mobile-sheet");
   } else {
-    // Desktop positioning with boundary detection
-    const mw = 180, mh = items.length * 34;
-    let left = x + 4, top = y + 4;
-    if (left + mw > window.innerWidth) left = x - mw;
-    if (top + mh > window.innerHeight) top = y - mh;
+    menuEl.classList.remove("mobile-sheet");
+    menuEl.style.width = "min(220px, calc(100vw - 16px))";
+    const rect = menuEl.getBoundingClientRect();
+    const margin = 8;
+    let left = x + 4;
+    let top = y + 4;
+    if (left + rect.width > window.innerWidth - margin) left = window.innerWidth - rect.width - margin;
+    if (top + rect.height > window.innerHeight - margin) top = window.innerHeight - rect.height - margin;
+    if (left < margin) left = margin;
+    if (top < margin) top = margin;
     menuEl.style.left = left + "px";
     menuEl.style.top = top + "px";
+    menuEl.style.right = "auto";
     menuEl.style.bottom = "auto";
-    menuEl.style.width = "auto";
-    menuEl.classList.remove("mobile-sheet");
   }
-  menuEl.style.display = "block";
+  menuEl.style.visibility = "visible";
 }
 
 function showCategoryContextMenu(catName, x, y) {
@@ -1292,6 +1690,8 @@ function switchChannel(channelId) {
   // 🔥 CLEAR AND LOAD MESSAGES
   messagesList.innerHTML = "";
   messagesMap.clear();
+  messageDataMap.clear();
+  hideMentionSuggestions();
 
   // 🔥 Call loadMessages
   loadMessages();
@@ -1328,6 +1728,8 @@ async function loadMessages() {
     return;
   }
 
+  await loadAvatarMapForUsernames((data || []).map(msg => msg.username));
+
   messagesList.innerHTML = "";
   const fragment = document.createDocumentFragment();
   data.forEach(msg => {
@@ -1337,6 +1739,7 @@ async function loadMessages() {
     fragment.appendChild(li);
   });
   messagesList.appendChild(fragment);
+  applyMessageSearchFilter();
 
   scrollToBottom();
 }
@@ -1377,13 +1780,14 @@ async function loadUser() {
 
   input.disabled = false;
   button.disabled = false;
+  updateCurrentAvatarButton();
 
   // 3. Fetch sys role, blocked, and muted status from DB (new schema uses boolean flags)
   try {
     console.log("📡 Fetching user data from users table for:", username);
     const { data, error } = await supabaseClient
       .from("users")
-      .select("sys_admin, sys_manager, blocked, muted_until, auth_id")
+      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url")
       .eq("username", username)
       .maybeSingle();
     
@@ -1407,6 +1811,7 @@ async function loadUser() {
     
     isBlocked = data?.blocked || false;
     mutedUntil = data?.muted_until || null;
+    setAvatarUrl(username, data?.avatar_url || "");
     
     if (data?.sys_admin) {
       currentSystemRole = "SysAdmin";
@@ -1567,6 +1972,7 @@ const messageData = {
     const { error } = await supabaseClient.from("messages").insert([messageData]);
     if (!error) {
       input.value = "";
+      hideMentionSuggestions();
       console.log("✅ Message sent to Supabase");
 
     // 🔥 ADD THIS - Scroll to bottom after sending
@@ -1578,20 +1984,17 @@ const messageData = {
   clearReply();
 }
 
-      // --- Push Notification Logic (Admin Broadcast) ---
       const isImportant = userPermissions.manage_roles && content.includes("!important!");
-      fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }, // FIXED TYPO HERE
-        body: JSON.stringify({
-          title: isImportant ? "🚨 IMPORTANT ANNOUNCEMENT" : "New message",
-          body: `${username}: ${content.replace("!important!", "")}`,
-          important: isImportant
-        })
-      });
+      if (isImportant) {
+        const memberUsernames = await getCurrentServerMemberUsernames();
+        await sendPushToUsers(memberUsernames, {
+          title: "Important announcement",
+          body: `${username}: ${content.replace("!important!", "").trim()}`,
+          important: true,
+          mention: false
+        });
+      }
 
-      // --- Mention Processing (NEW) ---
-      // Moved inside the success block so it only runs if message was sent
       await processMentions(content);
 
     }
@@ -1602,50 +2005,35 @@ const messageData = {
 
 // Add this near your sendMessage function
 async function processMentions(content) {
-  const mentionRegex = /@(\w+)/g;
+  const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+  const everyoneMentioned = /@(everyone|here)\b/i.test(content);
+  const mentionedTokens = [...content.matchAll(mentionRegex)]
+    .map(match => String(match[1] || "").toLowerCase())
+    .filter(token => token && token !== "everyone" && token !== "here");
 
-  const mentionedUsers = [...content.matchAll(mentionRegex)]
-    .map(m => m[1].toLowerCase())
-    .filter((u, i, arr) => arr.indexOf(u) === i);
+  if (!everyoneMentioned && mentionedTokens.length === 0) return;
 
-  if (mentionedUsers.length === 0) return;
+  const exactUsernames = new Set();
+  const memberUsernames = await getCurrentServerMemberUsernames();
+  const serverUsernameMap = new Map(memberUsernames.map(name => [String(name).toLowerCase(), name]));
 
-  // Get valid users
-  const { data: users } = await supabaseClient
-    .from("users")
-    .select("username")
-    .in("username", mentionedUsers);
-
-  if (!users) return;
-
-  const validUsers = users.map(u => u.username);
-
-  // Get subscriptions
-  const { data: subs } = await supabaseClient
-    .from("push_subscriptions")
-    .select("*")
-    .in("username", validUsers);
-
-  if (!subs) return;
-
-  // Send push
-  for (const sub of subs) {
-    try {
-      await fetch("https://qjajtkdchvapthnidtwj.supabase.co/functions/v1/send-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `@${username} mentioned you`,
-          body: content.substring(0, 100),
-          subscription: sub.subscription,
-          mention: true,
-          important: true
-        })
-      });
-    } catch (e) {
-      console.error("Push failed:", e);
-    }
+  if (everyoneMentioned) {
+    memberUsernames.forEach(name => exactUsernames.add(name));
   }
+
+  mentionedTokens.forEach(token => {
+    const resolved = serverUsernameMap.get(token);
+    if (resolved) exactUsernames.add(resolved);
+  });
+
+  if (exactUsernames.size === 0) return;
+
+  await sendPushToUsers([...exactUsernames], {
+    title: everyoneMentioned ? `@everyone from ${username}` : `@${username} mentioned you`,
+    body: content.substring(0, 140),
+    mention: true,
+    important: true
+  });
 }
 // Optimized preview builder with timeout
 async function buildLinkPreview(url) {
@@ -1710,6 +2098,7 @@ function renderMessage(msg) {
   
   messagesMap.set(msg.id, li);
   messageDataMap.set(msg.id, msg);
+  applyMessageSearchFilter();
   
   // Only auto-scroll if user is already near bottom
   const isNearBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight < 150;
@@ -1720,6 +2109,12 @@ function createMessageElement(msg) {
   const li = document.createElement("li");
   li.dataset.id = msg.id;
   li.dataset.user = msg.username;
+  const row = document.createElement("div");
+  row.className = "message-row";
+  const avatarEl = buildAvatarElement(msg.username, "message-avatar");
+  row.appendChild(avatarEl);
+  const body = document.createElement("div");
+  body.className = "message-body";
   
   const roleLower = (msg.role || "").toLowerCase();
   if (roleLower === "admin") li.classList.add("admin");
@@ -1747,7 +2142,7 @@ function createMessageElement(msg) {
         parentEl.classList.add("highlighted");
         setTimeout(() => parentEl.classList.remove("highlighted"), 1400);
       };
-      li.appendChild(replyContext);
+      body.appendChild(replyContext);
     }
   }
 
@@ -1755,7 +2150,7 @@ function createMessageElement(msg) {
   const header = document.createElement("div");
   header.className = "username";
   header.innerHTML = `${msg.username === "Frenchwizz" ? "Takeo" : escapeHTML(msg.username)}<span class="msg-timestamp">${timestamp}</span>`;
-  li.appendChild(header);
+  body.appendChild(header);
 
   // Content Row
   const contentDiv = document.createElement("div");
@@ -1817,12 +2212,12 @@ function createMessageElement(msg) {
     }
   }
   
-  li.appendChild(contentDiv);
+  body.appendChild(contentDiv);
   
   // Reactions
   const reactionsBar = document.createElement("div");
   reactionsBar.className = "reactionBar";
-  li.appendChild(reactionsBar);
+  body.appendChild(reactionsBar);
   renderReactions(msg.id, li);
 
   // Scripts (Admin only)
@@ -1830,16 +2225,19 @@ function createMessageElement(msg) {
     executeScripts(contentDiv);
   }
 
+  row.appendChild(body);
+  li.appendChild(row);
   attachHoverControls(li, msg);
   return li;
 }
 
 // ------------------------ Realtime Handler ------------------------
-function handleRealtimeMessage(newMsg, eventType) {
+async function handleRealtimeMessage(newMsg, eventType) {
   if (newMsg.channel_id !== currentChannelId) return;
   if (!newMsg) return;
 
   if (eventType === "INSERT") {
+    await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
     // 🔥 ADD THIS - Scroll to bottom for new messages
@@ -1847,7 +2245,7 @@ function handleRealtimeMessage(newMsg, eventType) {
       messagesList.scrollTop = messagesList.scrollHeight;
     }, 100);
 
-    if (newMsg.content.includes(`@${username}`)) {
+    if (messageMentionsUser(newMsg.content, username)) {
   showMentionToast(newMsg);
 
   const el = messagesMap.get(newMsg.id);
@@ -1859,9 +2257,10 @@ function handleRealtimeMessage(newMsg, eventType) {
   }
 
   else if (eventType === "UPDATE") {
+    await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
-    if (newMsg.content.includes(`@${username}`)) {
+    if (messageMentionsUser(newMsg.content, username)) {
   showMentionToast(newMsg);
 
   const el = messagesMap.get(newMsg.id);
@@ -1880,13 +2279,57 @@ function handleRealtimeMessage(newMsg, eventType) {
       li.remove();
       messagesMap.delete(newMsg.id);
     }
+    applyMessageSearchFilter();
   }
 }
 
 // ------------------------ Send / Name Handlers ------------------------
 saveNameBtn.addEventListener("click", saveName);
 button.addEventListener("click", sendMessage);
-input.addEventListener("keydown", e => { if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
+input.addEventListener("keydown", e => {
+  if (mentionSuggestionItems.length > 0) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      mentionSelectedIndex = (mentionSelectedIndex + 1) % mentionSuggestionItems.length;
+      renderMentionSuggestions(mentionSuggestionItems);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      mentionSelectedIndex = (mentionSelectedIndex - 1 + mentionSuggestionItems.length) % mentionSuggestionItems.length;
+      renderMentionSuggestions(mentionSuggestionItems);
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      applyMentionSuggestion(mentionSuggestionItems[mentionSelectedIndex].value);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      hideMentionSuggestions();
+      return;
+    }
+  }
+
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+input.addEventListener("click", () => updateMentionSuggestions());
+input.addEventListener("keyup", () => updateMentionSuggestions());
+input.addEventListener("blur", () => {
+  setTimeout(() => hideMentionSuggestions(), 120);
+});
+
+if (changeAvatarBtn && avatarInput) {
+  changeAvatarBtn.addEventListener("click", () => avatarInput.click());
+  avatarInput.addEventListener("change", async () => {
+    await changeMyAvatar();
+    avatarInput.value = "";
+  });
+}
 
 // Secret sign-out shortcut
 document.addEventListener("keydown", async e => {
@@ -3544,7 +3987,9 @@ function executeScripts(container) {
 
 function showMentionToast(msg) {
   const toast = document.createElement("div");
-  toast.textContent = `📣 ${msg.username} mentioned you`;
+  toast.textContent = /@(everyone|here)\b/i.test(String(msg.content || ""))
+    ? `📣 ${msg.username} pinged everyone`
+    : `📣 ${msg.username} mentioned you`;
 
   toast.style.position = "fixed";
   toast.style.bottom = "20px";
@@ -4062,15 +4507,21 @@ async function switchServer(serverId, updateUrl = true) {
   console.log("🌐 Subscribing to server realtime...");
   subscribeToServerRealtime(serverId);
 
-  console.log("🔔 Subscribing to presence...");
-  subscribeToPresence();
-
   console.log("🔐 Refreshing server role...");
-  console.log("👥 Loading server members...");
-  await Promise.all([
-    refreshServerRole(),
-    loadServerMembers()
-  ]);
+  await refreshServerRole();
+  setMemberListVisibility();
+
+  if (canViewMembers()) {
+    console.log("👥 Loading server members...");
+    await loadServerMembers();
+    console.log("🔔 Subscribing to presence...");
+    subscribeToPresence();
+  } else {
+    stopMemberRealtime();
+    serverMembers = [];
+    memberPresence = [];
+    renderMemberList();
+  }
   
   console.log("✅ switchServer complete!");
 }
@@ -4146,6 +4597,13 @@ function showNoServerScreen() {
 async function loadServerMembers() {
   console.log("🔍 loadServerMembers called, currentServerId:", currentServerId);
   console.log("   Current username:", username);
+
+  if (!canViewMembers()) {
+    serverMembers = [];
+    memberPresence = [];
+    setMemberListVisibility();
+    return;
+  }
   
   if (!currentServerId) {
     console.warn("❌ No currentServerId, aborting loadServerMembers");
@@ -4244,6 +4702,7 @@ async function loadServerMembers() {
         role_color: effectiveRoleId ? roleColorById.get(effectiveRoleId) : null
       };
     });
+    await loadAvatarMapForUsernames(serverMembers.map(member => member.username));
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
     await loadMemberPresence();
@@ -4279,6 +4738,11 @@ async function loadMemberPresence() {
 function renderMemberList() {
   const content = document.getElementById("memberListContent");
   if (!content) return;
+
+  if (!canViewMembers()) {
+    content.innerHTML = "";
+    return;
+  }
   
   if (!serverMembers || serverMembers.length === 0) {
     content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>No members found.</div>`;
@@ -4288,6 +4752,7 @@ function renderMemberList() {
   const fragment = document.createDocumentFragment();
   const normalizedPresence = (memberPresence || []).filter(Boolean);
   const presenceMap = new Map(normalizedPresence.map(p => [String(p.username || "").toLowerCase(), p]));
+  const memberSearch = normalizeSearchValue(memberSearchTerm);
   const now = Date.now();
   const ONLINE_THRESHOLD = 5 * 60 * 1000;
   
@@ -4296,9 +4761,12 @@ function renderMemberList() {
 
   serverMembers.forEach(m => {
     const p = presenceMap.get(String(m.username || "").toLowerCase());
+    const ch = p ? channels.find(c => c.id === p.channel_id) : null;
+    const searchable = normalizeSearchValue(`${m.username || ""} ${m.role || ""} ${ch?.name || ""}`);
+    if (memberSearch && !searchable.includes(memberSearch)) return;
     const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
-    if (isOnline) online.push({ ...m, presence: p });
-    else offline.push({ ...m, presence: null });
+    if (isOnline) online.push({ ...m, presence: p, activeChannel: ch });
+    else offline.push({ ...m, presence: null, activeChannel: null });
   });
 
   const renderGroup = (label, members) => {
@@ -4312,21 +4780,23 @@ function renderMemberList() {
     members.forEach(m => {
       const item = document.createElement("div");
       item.className = "member-item";
-      const ch = m.presence ? channels.find(c => c.id === m.presence.channel_id) : null;
+      const ch = m.activeChannel || null;
       const roleStr = String(m.role || "User").toLowerCase();
       const isSpecialRole = (roleStr === "admin" || roleStr === "manager");
+      const avatarHtml = buildAvatarElement(m.username, "member-avatar").outerHTML;
       
       item.innerHTML = `
-        <div class="member-avatar">
-          ${escapeHTML(m.username.charAt(0).toUpperCase())}
-          <span class="status-dot ${label === "Online" ? "online" : ""}"></span>
-        </div>
+        ${avatarHtml}
         <div class="member-info">
           <div class="member-name">${escapeHTML(m.username)}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
         ${isSpecialRole ? `<span class="member-role-badge ${roleStr}" ${m.role_color ? `style="background:${escapeHTML(m.role_color)};"` : ""}>${escapeHTML(m.role)}</span>` : ""}
       `;
+      const statusDot = document.createElement("span");
+      statusDot.className = `status-dot ${label === "Online" ? "online" : ""}`;
+      const avatarNode = item.querySelector(".member-avatar");
+      if (avatarNode) avatarNode.appendChild(statusDot);
 
       if (currentSystemRole === "SysAdmin" || userPermissions.manage_roles) {
         item.oncontextmenu = (e) => {
@@ -4336,12 +4806,68 @@ function renderMemberList() {
           if (!memberMenu) return;
           showContextMenu(memberMenu, e.clientX, e.clientY, [
             {
+              label: "User Info",
+              color: "white",
+              action: async () => {
+                await userInfo(m.username);
+              }
+            },
+            {
+              label: "Change Name",
+              color: "white",
+              action: async () => {
+                await changeName(m.username);
+              }
+            },
+            {
+              label: "Promote / Demote",
+              color: "white",
+              action: async () => {
+                await promote(m.username);
+              }
+            },
+            {
+              label: "Give Custom Role",
+              color: "white",
+              action: async () => {
+                await giveCustomRole(m.username);
+              }
+            },
+            {
               label: "Change Server Role",
               color: "white",
               action: async () => {
                 const nextRole = prompt(`Set role for ${m.username}:`, m.role || "User");
                 if (!nextRole) return;
                 await setMemberServerRole(m, nextRole);
+              }
+            },
+            {
+              label: "Mute User",
+              color: "white",
+              action: async () => {
+                await muteUser(m.username);
+              }
+            },
+            {
+              label: "Block User",
+              color: "#ed4245",
+              action: async () => {
+                await blockUser(m.username);
+              }
+            },
+            {
+              label: "Unblock User",
+              color: "white",
+              action: async () => {
+                await unblockUser(m.username);
+              }
+            },
+            {
+              label: "Force Logout",
+              color: "#ed4245",
+              action: async () => {
+                await forceLogout(m.username);
               }
             },
             {
@@ -4376,9 +4902,14 @@ function renderMemberList() {
   online.sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), undefined, { sensitivity: "base" }));
   offline.sort((a, b) => String(a.username || "").localeCompare(String(b.username || ""), undefined, { sensitivity: "base" }));
 
+  if (online.length === 0 && offline.length === 0) {
+    content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>No members match your search.</div>`;
+    return;
+  }
+
   const total = document.createElement("div");
   total.className = "member-group-label";
-  total.textContent = `Total — ${serverMembers.length}`;
+  total.textContent = `Total — ${online.length + offline.length}`;
   fragment.appendChild(total);
 
   renderGroup("Online", online);
@@ -4401,13 +4932,15 @@ async function updateChannelPresence(channelId) {
 function subscribeToPresence() {
   console.log("🔔 subscribeToPresence called, currentServerId:", currentServerId);
 
-  if (memberRealtimeSubscription) {
-    try { memberRealtimeSubscription.unsubscribe(); } catch {}
-    memberRealtimeSubscription = null;
-  }
+  stopMemberRealtime();
 
   if (!currentServerId) {
     console.warn("❌ No currentServerId for subscribeToPresence");
+    return;
+  }
+
+  if (!canViewMembers()) {
+    console.log("🔒 Member realtime skipped: insufficient permissions");
     return;
   }
 
@@ -4556,6 +5089,7 @@ async function checkInviteOnLoad() {
 }
 
 async function createServer(name, slug) {
+  const iconInput = document.getElementById("newServerIcon");
   const trimName = name.trim();
   const trimSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
   if (!trimName || !trimSlug) return "❌ Please fill in all fields.";
@@ -4568,9 +5102,31 @@ async function createServer(name, slug) {
 
   if (existing) return "❌ That URL is already taken. Try another.";
 
+  let iconUrl = null;
+  const iconFile = iconInput?.files?.[0] || null;
+  if (iconFile) {
+    if (!String(iconFile.type || "").startsWith("image/")) {
+      return "❌ Server icon must be an image.";
+    }
+    if (iconFile.size > 5 * 1024 * 1024) {
+      return "❌ Server icon must be under 5MB.";
+    }
+
+    const iconName = `server-icons/${Date.now()}_${iconFile.name.replace(/\s+/g, "_")}`;
+    const { error: uploadError } = await supabaseClient.storage
+      .from("chat-files")
+      .upload(iconName, iconFile);
+    if (uploadError) return "❌ Failed to upload server icon: " + uploadError.message;
+
+    const { data: iconData } = supabaseClient.storage
+      .from("chat-files")
+      .getPublicUrl(iconName);
+    iconUrl = iconData?.publicUrl || null;
+  }
+
   const { data: newServer, error } = await supabaseClient
     .from("servers")
-    .insert({ name: trimName, slug: trimSlug, owner_username: username })
+    .insert({ name: trimName, slug: trimSlug, owner_username: username, icon_url: iconUrl })
     .select()
     .maybeSingle();
 
@@ -4597,6 +5153,20 @@ function initServerModals() {
     openModal("createServerModal");
   });
 
+  const newServerIconInput = document.getElementById("newServerIcon");
+  const newServerIconPreview = document.getElementById("newServerIconPreview");
+  if (newServerIconInput && newServerIconPreview) {
+    newServerIconInput.addEventListener("change", () => {
+      const file = newServerIconInput.files?.[0];
+      if (!file) {
+        newServerIconPreview.textContent = "No image selected";
+        return;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      newServerIconPreview.innerHTML = `<img src="${previewUrl}" alt="Server icon preview">`;
+    });
+  }
+
   const goJoin = document.getElementById("goJoinServer");
   if (goJoin) goJoin.addEventListener("click", () => {
     closeModal("serverModal");
@@ -4619,6 +5189,8 @@ function initServerModals() {
     }
     if (document.getElementById("newServerName")) document.getElementById("newServerName").value = "";
     if (document.getElementById("newServerSlug")) document.getElementById("newServerSlug").value = "";
+    if (document.getElementById("newServerIcon")) document.getElementById("newServerIcon").value = "";
+    if (document.getElementById("newServerIconPreview")) document.getElementById("newServerIconPreview").textContent = "No image selected";
     closeModal("createServerModal");
   });
 
@@ -4672,6 +5244,7 @@ function initServerModals() {
   const mlToggle = document.getElementById("memberListToggle");
   if (mlToggle) {
     mlToggle.addEventListener("click", () => {
+      if (!canViewMembers()) return;
       const ml = document.getElementById("memberList");
       if (!ml) return;
       if (window.innerWidth <= 768) {
@@ -4689,6 +5262,8 @@ function initServerModals() {
       ml.classList.remove("open");
     }
   });
+
+  setMemberListVisibility();
 }
 
 // ======================== SERVER ROLE HELPERS ========================
@@ -4752,6 +5327,7 @@ function updateRoleUI() {
   const createCategoryBtnEl = document.getElementById("createCategoryBtn");
   if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
   if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
+  setMemberListVisibility();
 }
 
 // ======================== GIF / IMAGE URL RESOLVER ========================

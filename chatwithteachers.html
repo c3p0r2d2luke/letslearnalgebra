@@ -37,6 +37,7 @@
       <input id="signUpUsername" type="text" placeholder="Username" autocomplete="username" />
       <input id="signUpEmail" type="email" placeholder="Email" autocomplete="email" />
       <input id="signUpPassword" type="password" placeholder="Password" autocomplete="new-password" />
+      <input id="signUpAvatar" type="file" accept="image/*" />
       <button id="signUpBtn">Sign Up</button>
       <p class="auth-error" id="signUpError" style="display:none;"></p>
       <p class="auth-switch">Already have an account? <a href="#" id="toSignIn">Sign In</a></p>
@@ -81,6 +82,7 @@
       <div class="chat-header">
         <button id="menuToggle" aria-label="Toggle channels">☰</button>
         <span id="currentChannelName"># general</span>
+        <input id="messageSearchInput" type="search" placeholder="Search messages" aria-label="Search messages" />
         <button id="memberListToggle" title="Toggle member list">👥</button>
       </div>
 
@@ -95,15 +97,21 @@
 
       <div id="controls">
         <input type="file" id="fileInput" style="display:none;" />
+        <input type="file" id="avatarInput" style="display:none;" accept="image/*" />
+        <button id="changeAvatarBtn" title="Change avatar" aria-label="Change avatar"></button>
         <button id="uploadBtn">📎</button>
         <textarea id="messageInput" placeholder="Message..." disabled></textarea>
         <button id="sendButton">Send</button>
+        <div id="mentionSuggestions" style="display:none;"></div>
       </div>
     </div>
 
     <!-- MEMBER LIST -->
     <div class="member-list" id="memberList">
-      <div class="member-list-header">Members</div>
+      <div class="member-list-header">
+        <span>Members</span>
+        <input id="memberSearchInput" type="search" placeholder="Search members" aria-label="Search members" />
+      </div>
       <div id="memberListContent"></div>
     </div>
 
@@ -133,6 +141,9 @@
     <h3>Create Your Server</h3>
     <label class="modal-label">Server Name</label>
     <input id="newServerName" class="modal-input" placeholder="e.g. My Classroom" />
+    <label class="modal-label">Server Icon</label>
+    <input id="newServerIcon" class="modal-input" type="file" accept="image/*" />
+    <div id="newServerIconPreview" class="server-icon-upload-preview">No image selected</div>
     <label class="modal-label">Custom URL <span style="font-weight:400;color:var(--text-muted)">(letters, numbers, hyphens)</span></label>
     <input id="newServerSlug" class="modal-input" placeholder="e.g. my-classroom" />
     <p class="modal-error" id="createServerError" style="display:none;"></p>
