@@ -283,6 +283,7 @@ async function handleAuthSuccess(user) {
 
   // 5. Load the App (This will now see the username in localStorage)
   await loadUser(); 
+  subscribeToGlobalMentions();
 }
 
 async function doSignUp() {
@@ -445,6 +446,7 @@ let servers = [];
 let serverMembers = [];
 let memberPresence = [];
 let memberRealtimeSubscription = null;
+let globalMentionSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -452,6 +454,8 @@ const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const avatarUrlByUsername = new Map();
 let currentUserAvatarUrl = "";
+const channelServerMap = new Map();
+const unreadMentionCounts = new Map();
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -642,6 +646,37 @@ async function getCurrentServerMemberUsernames() {
   return (data || []).map(row => row.username).filter(Boolean);
 }
 
+async function getMentionCandidates() {
+  if (!currentServerId) return [];
+
+  if (serverMembers.length > 0) {
+    return serverMembers
+      .filter(member => member?.username)
+      .map(member => ({
+        username: member.username,
+        role: member.role || "Member"
+      }));
+  }
+
+  const { data, error } = await supabaseClient
+    .from("server_members")
+    .select("username, role")
+    .eq("server_id", currentServerId)
+    .order("sort_order", { ascending: true })
+    .order("username", { ascending: true });
+  if (error) {
+    console.error("❌ Failed to load mention candidates:", error.message);
+    return [];
+  }
+
+  return (data || [])
+    .filter(member => member?.username)
+    .map(member => ({
+      username: member.username,
+      role: member.role || "Member"
+    }));
+}
+
 async function sendPushToUsers(targetUsernames, payload) {
   const uniqueUsers = [...new Set((targetUsernames || []).filter(Boolean))]
     .filter(name => String(name).toLowerCase() !== String(username || "").toLowerCase());
@@ -675,6 +710,137 @@ async function sendPushToUsers(targetUsernames, payload) {
 
 function canViewMembers() {
   return currentSystemRole === "SysAdmin" || currentRole === "Admin" || userPermissions.manage_roles;
+}
+
+function canMentionEveryone() {
+  return currentSystemRole === "SysAdmin" || currentRole === "Admin" || userPermissions.manage_roles;
+}
+
+function getMentionReadStorageKey() {
+  return `serverMentionReadAt:${username || "guest"}`;
+}
+
+function readMentionReadMap() {
+  try {
+    return JSON.parse(localStorage.getItem(getMentionReadStorageKey()) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeMentionReadMap(map) {
+  localStorage.setItem(getMentionReadStorageKey(), JSON.stringify(map));
+}
+
+function markServerMentionsRead(serverId) {
+  if (!serverId) return;
+  const readMap = readMentionReadMap();
+  readMap[serverId] = new Date().toISOString();
+  writeMentionReadMap(readMap);
+  unreadMentionCounts.set(serverId, 0);
+  renderServerList();
+}
+
+function getServerMentionCount(serverId) {
+  return unreadMentionCounts.get(serverId) || 0;
+}
+
+async function loadChannelServerMap(serverIds = []) {
+  const ids = (serverIds || []).filter(Boolean);
+  if (ids.length === 0) return;
+
+  const { data, error } = await supabaseClient
+    .from("channels")
+    .select("id, server_id")
+    .in("server_id", ids);
+  if (error) {
+    console.warn("⚠️ Failed to load channel/server map:", error.message);
+    return;
+  }
+
+  (data || []).forEach(row => {
+    channelServerMap.set(Number(row.id), row.server_id);
+  });
+}
+
+async function refreshUnreadMentionCounts() {
+  if (!username || servers.length === 0) return;
+
+  const serverIds = servers.map(server => server.id).filter(Boolean);
+  await loadChannelServerMap(serverIds);
+
+  const readMap = readMentionReadMap();
+  unreadMentionCounts.clear();
+
+  await Promise.all(serverIds.map(async (serverId) => {
+    const channelIds = [...channelServerMap.entries()]
+      .filter(([, mappedServerId]) => mappedServerId === serverId)
+      .map(([channelId]) => channelId);
+    if (channelIds.length === 0) {
+      unreadMentionCounts.set(serverId, 0);
+      return;
+    }
+
+    let query = supabaseClient
+      .from("messages")
+      .select("username, content, channel_id, inserted_at")
+      .in("channel_id", channelIds)
+      .neq("username", username)
+      .order("inserted_at", { ascending: false })
+      .limit(200);
+
+    if (readMap[serverId]) {
+      query = query.gt("inserted_at", readMap[serverId]);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn("⚠️ Failed to load unread mentions for server:", serverId, error.message);
+      unreadMentionCounts.set(serverId, 0);
+      return;
+    }
+
+    const count = (data || []).filter(msg => messageMentionsUser(msg.content, username)).length;
+    unreadMentionCounts.set(serverId, count);
+  }));
+
+  renderServerList();
+}
+
+function subscribeToGlobalMentions() {
+  if (globalMentionSubscription) {
+    try { globalMentionSubscription.unsubscribe(); } catch {}
+    globalMentionSubscription = null;
+  }
+  if (!username) return;
+
+  globalMentionSubscription = supabaseClient
+    .channel(`global-mentions-${username}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      async (payload) => {
+        const message = payload.new;
+        if (!message || message.username === username) return;
+        if (!messageMentionsUser(message.content, username)) return;
+
+        let serverId = channelServerMap.get(Number(message.channel_id));
+        if (!serverId) {
+          await loadChannelServerMap(servers.map(server => server.id));
+          serverId = channelServerMap.get(Number(message.channel_id));
+        }
+        if (!serverId) return;
+
+        if (serverId === currentServerId && Number(message.channel_id) === Number(currentChannelId)) {
+          markServerMentionsRead(serverId);
+          return;
+        }
+
+        unreadMentionCounts.set(serverId, (unreadMentionCounts.get(serverId) || 0) + 1);
+        renderServerList();
+      }
+    )
+    .subscribe();
 }
 
 function stopMemberRealtime() {
@@ -760,16 +926,22 @@ async function updateMentionSuggestions() {
     return;
   }
 
-  const allUsers = await getCurrentServerMemberUsernames();
+  const mentionCandidates = await getMentionCandidates();
   const normalizedQuery = normalizeSearchValue(context.query);
-  const baseItems = [
-    { value: "everyone", label: "@everyone", meta: "Notify all server members" },
-    { value: "here", label: "@here", meta: "Notify online members" }
-  ];
-  const userItems = allUsers
-    .filter(name => !normalizedQuery || String(name).toLowerCase().includes(normalizedQuery))
+  const baseItems = canMentionEveryone()
+    ? [
+        { value: "everyone", label: "@everyone", meta: "Notify all server members" },
+        { value: "here", label: "@here", meta: "Notify online members" }
+      ]
+    : [];
+  const userItems = mentionCandidates
+    .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
     .slice(0, 8)
-    .map(name => ({ value: name, label: `@${name}`, meta: "Server member" }));
+    .map(candidate => ({
+      value: candidate.username,
+      label: `@${candidate.username}`,
+      meta: candidate.role || "Member"
+    }));
 
   const items = [...baseItems, ...userItems].filter((item, index, arr) => {
     if (normalizedQuery && !item.value.toLowerCase().includes(normalizedQuery)) return false;
@@ -1949,6 +2121,11 @@ if (isUserBlockedOrMutedSync()) {
     return;
   }
 
+  if (!canMentionEveryone() && /@(everyone|here)\b/i.test(content)) {
+    alert("❌ Only server admins and sysadmins can use @everyone or @here.");
+    return;
+  }
+
   let ip = "unknown";
   try {
     const res = await fetch("https://api.ipify.org?format=json");
@@ -2006,7 +2183,7 @@ const messageData = {
 // Add this near your sendMessage function
 async function processMentions(content) {
   const mentionRegex = /@([a-zA-Z0-9_]+)/g;
-  const everyoneMentioned = /@(everyone|here)\b/i.test(content);
+  const everyoneMentioned = canMentionEveryone() && /@(everyone|here)\b/i.test(content);
   const mentionedTokens = [...content.matchAll(mentionRegex)]
     .map(match => String(match[1] || "").toLowerCase())
     .filter(token => token && token !== "everyone" && token !== "here");
@@ -4458,10 +4635,13 @@ async function loadServers() {
   } else {
     showNoServerScreen();
   }
+
+  await refreshUnreadMentionCounts();
 }
 
 async function switchServer(serverId, updateUrl = true) {
   console.log("🔀 switchServer called with:", serverId);
+  markServerMentionsRead(serverId);
   currentServerId = serverId;
   const server = servers.find(s => s.id === serverId);
 
@@ -4541,6 +4721,14 @@ function renderServerList() {
       icon.innerHTML = `<img src="${server.icon_url}" alt="${server.name}">`;
     } else {
       icon.textContent = server.name.charAt(0).toUpperCase();
+    }
+
+    const mentionCount = getServerMentionCount(server.id);
+    if (mentionCount > 0) {
+      const badge = document.createElement("span");
+      badge.className = "server-mention-badge";
+      badge.textContent = mentionCount > 99 ? "99+" : String(mentionCount);
+      icon.appendChild(badge);
     }
 
     icon.onclick = (e) => {

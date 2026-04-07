@@ -194,6 +194,25 @@ body {
   box-shadow: 0 0 10px rgba(88, 101, 242, 0.4);
 }
 
+.server-mention-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #f23f43;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--bg-secondary);
+  line-height: 1;
+}
+
 .divider {
   width: 32px;
   height: 2px;
