@@ -64,6 +64,7 @@ let messageSearchTerm = "";
 let memberSearchTerm = "";
 let mentionSuggestionItems = [];
 let mentionSelectedIndex = 0;
+let activeSuggestionMode = null;
 
 input.addEventListener("input", () => {
   sendTyping(true);
@@ -1174,12 +1175,25 @@ function hideMentionSuggestions() {
   mentionSuggestionsEl.innerHTML = "";
   mentionSuggestionItems = [];
   mentionSelectedIndex = 0;
+  activeSuggestionMode = null;
 }
 
 function getMentionContext() {
   const cursor = input.selectionStart ?? input.value.length;
   const beforeCursor = input.value.slice(0, cursor);
   const match = beforeCursor.match(/(^|\s)@([a-zA-Z0-9_]*)$/);
+  if (!match) return null;
+  return {
+    query: match[2] || "",
+    start: cursor - match[2].length - 1,
+    end: cursor
+  };
+}
+
+function getEmojiContext() {
+  const cursor = input.selectionStart ?? input.value.length;
+  const beforeCursor = input.value.slice(0, cursor);
+  const match = beforeCursor.match(/(^|\s):([a-zA-Z0-9_-]*)$/);
   if (!match) return null;
   return {
     query: match[2] || "",
@@ -1205,12 +1219,12 @@ function renderMentionSuggestions(items) {
     buttonEl.type = "button";
     buttonEl.className = `mention-suggestion-item${index === mentionSelectedIndex ? " active" : ""}`;
     buttonEl.innerHTML = `
-      <div>${escapeHTML(item.label)}</div>
+      <div class="mention-suggestion-main">${renderEmojiSuggestionPreview(item)}${escapeHTML(item.label)}</div>
       <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
     `;
     buttonEl.addEventListener("mousedown", (event) => {
       event.preventDefault();
-      applyMentionSuggestion(item.value);
+      applyMentionSuggestion(item);
     });
     fragment.appendChild(buttonEl);
   });
@@ -1221,43 +1235,59 @@ function renderMentionSuggestions(items) {
 
 async function updateMentionSuggestions() {
   const context = getMentionContext();
-  if (!context) {
+  if (context) {
+    activeSuggestionMode = "mention";
+    const mentionCandidates = await getMentionCandidates();
+    const normalizedQuery = normalizeSearchValue(context.query);
+    const baseItems = canMentionEveryone()
+      ? [
+          { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
+          { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
+        ]
+      : [];
+    const userItems = mentionCandidates
+      .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
+      .slice(0, 8)
+      .map(candidate => ({
+        kind: "mention",
+        value: candidate.username,
+        label: `@${candidate.username}`,
+        meta: candidate.role || "Member"
+      }));
+
+    const items = [...baseItems, ...userItems].filter((item, index, arr) => {
+      if (normalizedQuery && !item.value.toLowerCase().includes(normalizedQuery)) return false;
+      return arr.findIndex(other => other.value.toLowerCase() === item.value.toLowerCase()) === index;
+    }).slice(0, 8);
+
+    renderMentionSuggestions(items);
+    return;
+  }
+
+  const emojiContext = getEmojiContext();
+  if (!emojiContext) {
     hideMentionSuggestions();
     return;
   }
 
-  const mentionCandidates = await getMentionCandidates();
-  const normalizedQuery = normalizeSearchValue(context.query);
-  const baseItems = canMentionEveryone()
-    ? [
-        { value: "everyone", label: "@everyone", meta: "Notify all server members" },
-        { value: "here", label: "@here", meta: "Notify online members" }
-      ]
-    : [];
-  const userItems = mentionCandidates
-    .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
-    .slice(0, 8)
-    .map(candidate => ({
-      value: candidate.username,
-      label: `@${candidate.username}`,
-      meta: candidate.role || "Member"
-    }));
-
-  const items = [...baseItems, ...userItems].filter((item, index, arr) => {
-    if (normalizedQuery && !item.value.toLowerCase().includes(normalizedQuery)) return false;
-    return arr.findIndex(other => other.value.toLowerCase() === item.value.toLowerCase()) === index;
-  }).slice(0, 8);
-
+  activeSuggestionMode = "emoji";
+  const normalizedQuery = normalizeSearchValue(emojiContext.query);
+  const items = getEmojiSuggestionItems(normalizedQuery);
   renderMentionSuggestions(items);
 }
 
-function applyMentionSuggestion(value) {
-  const context = getMentionContext();
+function applyMentionSuggestion(itemOrValue) {
+  const item = typeof itemOrValue === "object"
+    ? itemOrValue
+    : { kind: activeSuggestionMode || "mention", value: itemOrValue };
+  const isEmoji = item.kind === "emoji";
+  const context = isEmoji ? getEmojiContext() : getMentionContext();
   if (!context) return;
   const before = input.value.slice(0, context.start);
   const after = input.value.slice(context.end);
-  input.value = `${before}@${value} ${after}`;
-  const nextCursor = before.length + value.length + 2;
+  const replacement = isEmoji ? item.insertText : `@${item.value} `;
+  input.value = `${before}${replacement}${after}`;
+  const nextCursor = before.length + replacement.length;
   input.focus();
   input.setSelectionRange(nextCursor, nextCursor);
   hideMentionSuggestions();
@@ -2714,6 +2744,9 @@ function createMessageElement(msg) {
         return `<span class="${cls}">@${name}</span>`;
       });
     }
+    if (!formatted.startsWith("<pre class=\"code-block\">")) {
+      formatted = replaceCustomEmojiShortcodes(formatted);
+    }
     contentDiv.innerHTML = formatted;
 
     // Link Previews & GIFS (Post-render to avoid blocking)
@@ -2837,7 +2870,7 @@ input.addEventListener("keydown", e => {
     }
     if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
-      applyMentionSuggestion(mentionSuggestionItems[mentionSelectedIndex].value);
+      applyMentionSuggestion(mentionSuggestionItems[mentionSelectedIndex]);
       return;
     }
     if (e.key === "Escape") {
@@ -2992,6 +3025,131 @@ const EMOJI_CATEGORIES = [
 let customEmojis = []; // { id, name, url }
 let pickerBuilt = false;
 let currentPickerMessageId = null;
+
+function getCustomEmojiCategory() {
+  return EMOJI_CATEGORIES.find(category => category.name === "Custom");
+}
+
+function getAllReactionEmojiChoices() {
+  const recent = getRecentEmojis();
+  const choices = [];
+  const seen = new Set();
+  const pushChoice = (entry) => {
+    const key = `${entry.kind}:${entry.value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    choices.push(entry);
+  };
+
+  recent.forEach((emoji) => {
+    const custom = customEmojis.find(item => item.url === emoji);
+    if (custom) {
+      pushChoice({
+        kind: "emoji",
+        value: custom.name,
+        insertText: `:${custom.name}: `,
+        label: `:${custom.name}:`,
+        meta: "Custom emoji",
+        preview: emoji
+      });
+    } else {
+      pushChoice({
+        kind: "emoji",
+        value: emoji,
+        insertText: `${emoji} `,
+        label: emoji,
+        meta: "Emoji",
+        preview: emoji
+      });
+    }
+  });
+
+  customEmojis.forEach((emoji) => {
+    pushChoice({
+      kind: "emoji",
+      value: emoji.name,
+      insertText: `:${emoji.name}: `,
+      label: `:${emoji.name}:`,
+      meta: "Custom emoji",
+      preview: emoji.url
+    });
+  });
+
+  EMOJI_CATEGORIES.forEach((category) => {
+    if (category.name === "Recent" || category.name === "Custom") return;
+    category.emojis.forEach((emoji) => {
+      pushChoice({
+        kind: "emoji",
+        value: emoji,
+        insertText: `${emoji} `,
+        label: emoji,
+        meta: category.name,
+        preview: emoji
+      });
+    });
+  });
+
+  return choices;
+}
+
+function getEmojiSuggestionItems(query) {
+  const normalizedQuery = normalizeSearchValue(query);
+  const allChoices = getAllReactionEmojiChoices();
+  const filtered = allChoices.filter((choice) => {
+    if (!normalizedQuery) return true;
+    return normalizeSearchValue(`${choice.label} ${choice.meta} ${choice.value}`).includes(normalizedQuery);
+  });
+
+  return filtered.slice(0, 8);
+}
+
+async function loadCustomEmojis() {
+  const customCategory = getCustomEmojiCategory();
+  if (!customCategory) return;
+
+  if (!currentServerId) {
+    customEmojis = [];
+    customCategory.emojis = [];
+    rebuildCustomGrid();
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("custom_emojis")
+    .select("id, server_id, name, url, created_by, created_at")
+    .eq("server_id", currentServerId)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("❌ Failed to load custom emojis:", error.message);
+    return;
+  }
+
+  customEmojis = (data || []).map((emoji) => ({
+    ...emoji,
+    name: String(emoji.name || "").trim().toLowerCase()
+  }));
+  customCategory.emojis = customEmojis.map((emoji) => emoji.url);
+  rebuildCustomGrid();
+}
+
+function renderEmojiSuggestionPreview(item) {
+  if (!item?.preview) return escapeHTML(item.label);
+  const isUrl = item.preview.startsWith("http") || item.preview.startsWith("data:");
+  if (isUrl) {
+    return `<img src="${escapeHTML(item.preview)}" alt="${escapeHTML(item.label)}" class="mention-suggestion-emoji">`;
+  }
+  return `<span class="mention-suggestion-emoji-text">${escapeHTML(item.preview)}</span>`;
+}
+
+function replaceCustomEmojiShortcodes(content) {
+  if (!content || !customEmojis.length) return content;
+  return content.replace(/:([a-zA-Z0-9_-]+):/g, (match, name) => {
+    const emoji = customEmojis.find(item => item.name === String(name).toLowerCase());
+    if (!emoji) return match;
+    return `<img src="${escapeHTML(emoji.url)}" alt=":${escapeHTML(emoji.name)}:" title=":${escapeHTML(emoji.name)}:" class="inline-custom-emoji">`;
+  });
+}
 
 
 function rebuildCustomGrid() {
@@ -3245,11 +3403,12 @@ async function addCustomEmoji() {
 
   const { error } = await supabaseClient
     .from("custom_emojis")
-    .insert({ name: name.trim().toLowerCase(), url, created_by: username });
+    .insert({ name: name.trim().toLowerCase(), url, created_by: username, server_id: currentServerId });
 
   if (error) {
     alert("❌ Failed to add custom emoji: " + error.message);
   } else {
+    await loadCustomEmojis();
     alert("✅ Custom emoji added successfully!");
   }
 }
@@ -3347,6 +3506,7 @@ async function uploadCustomEmojiFile() {
 async function deleteCustomEmoji(id) {
   const { error } = await supabaseClient.from("custom_emojis").delete().eq("id", id);
   if (error) { alert("❌ " + error.message); return; }
+  await loadCustomEmojis();
 }
 
 // ------------------------ ADMIN MENU FUNCTIONS ------------------------
@@ -4873,11 +5033,13 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
 // Server-scoped realtime for channels & categories — set up per switchServer()
 var _channelRealtimeSub = null;
 var _categoryRealtimeSub = null;
+var _customEmojiRealtimeSub = null;
 
 function subscribeToServerRealtime(serverId) {
   // Clean up previous server's subscriptions
   if (_channelRealtimeSub) { try { _channelRealtimeSub.unsubscribe(); } catch {} _channelRealtimeSub = null; }
   if (_categoryRealtimeSub) { try { _categoryRealtimeSub.unsubscribe(); } catch {} _categoryRealtimeSub = null; }
+  if (_customEmojiRealtimeSub) { try { _customEmojiRealtimeSub.unsubscribe(); } catch {} _customEmojiRealtimeSub = null; }
 
   if (!serverId) return;
 
@@ -4899,6 +5061,15 @@ function subscribeToServerRealtime(serverId) {
       "postgres_changes",
       { event: "*", schema: "public", table: "categories", filter: `server_id=eq.${serverId}` },
       () => reloadChannelsRealtime()
+    )
+    .subscribe();
+
+  _customEmojiRealtimeSub = supabaseClient
+    .channel(`custom-emojis-realtime-${serverId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "custom_emojis", filter: `server_id=eq.${serverId}` },
+      () => loadCustomEmojis()
     )
     .subscribe();
 }
@@ -5072,6 +5243,8 @@ async function switchServer(serverId, updateUrl = true) {
 
   const msgInput = document.getElementById("messageInput");
   if (msgInput) msgInput.disabled = false;
+
+  await loadCustomEmojis();
 
   console.log("📂 Loading channels...");
   await loadChannels();

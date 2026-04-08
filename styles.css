@@ -450,6 +450,7 @@ li[data-pinned="true"] {
 .mention-suggestion-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
   cursor: pointer;
@@ -468,6 +469,36 @@ li[data-pinned="true"] {
 .mention-suggestion-meta {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.mention-suggestion-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mention-suggestion-emoji {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.mention-suggestion-emoji-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.inline-custom-emoji {
+  width: 1.2em;
+  height: 1.2em;
+  object-fit: contain;
+  vertical-align: -0.22em;
 }
 
 #uploadBtn:hover {
