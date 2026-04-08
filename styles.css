@@ -1042,6 +1042,8 @@ li[data-pinned="true"] {
   color: var(--text-muted);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-radius: 6px;
   padding: 6px 8px;
   cursor: pointer;
@@ -1059,10 +1061,29 @@ li[data-pinned="true"] {
 }
 
 .dm-name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dm-delete-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+
+.dm-delete-btn:hover {
+  background: rgba(237, 66, 69, 0.18);
+  color: #ff8f92;
+  opacity: 1;
 }
 
 .dm-empty-state {
