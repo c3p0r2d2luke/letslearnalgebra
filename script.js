@@ -1416,6 +1416,9 @@ wireSearchToggle(memberSearchToggle, memberSearchInput);
 let channel = null;
 // ======================== REALTIME MANAGER ========================
 let activeMessageChannel = null; // Tracks the current realtime subscription
+const SERVER_ORDER_STORAGE_PREFIX = "serverOrder:";
+let suppressChannelClickUntil = 0;
+let suppressServerClickUntil = 0;
 
 function initRealtime() {
   console.log("📡 Realtime manager initialized.");
@@ -1489,6 +1492,40 @@ supabaseClient
 
 const channelList = document.getElementById("channelList");
 
+function getServerOrderStorageKey() {
+  return `${SERVER_ORDER_STORAGE_PREFIX}${username || "guest"}`;
+}
+
+function saveServerOrder() {
+  try {
+    localStorage.setItem(getServerOrderStorageKey(), JSON.stringify(servers.map(server => server.id)));
+  } catch (error) {
+    console.warn("⚠️ Failed to save server order:", error);
+  }
+}
+
+function applyStoredServerOrder() {
+  try {
+    const raw = localStorage.getItem(getServerOrderStorageKey());
+    if (!raw || !Array.isArray(servers) || servers.length === 0) return;
+    const order = JSON.parse(raw);
+    if (!Array.isArray(order) || order.length === 0) return;
+    const rank = new Map(order.map((id, index) => [id, index]));
+    servers.sort((a, b) => {
+      const aRank = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bRank = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+    });
+  } catch (error) {
+    console.warn("⚠️ Failed to apply stored server order:", error);
+  }
+}
+
+function shouldSuppressClick(untilTs) {
+  return Date.now() < untilTs;
+}
+
 async function loadCategories() {
   let q = supabaseClient.from("categories").select("*").order("sort_order");
   if (currentServerId) q = q.eq("server_id", currentServerId);
@@ -1515,6 +1552,7 @@ async function loadChannels() {
 }
 
 let _sortableInstances = [];
+let _serverSortableInstance = null;
 
 function renderChannelList() {
   _sortableInstances.forEach(s => { try { s.destroy(); } catch {} });
@@ -1587,6 +1625,7 @@ function renderChannelList() {
       div.dataset.id = ch.id;
       div.textContent = "# " + ch.name;
       div.onclick = () => {
+        if (shouldSuppressClick(suppressChannelClickUntil)) return;
         switchChannel(ch.id);
         if (window.innerWidth <= 768) closeSidebar();
       };
@@ -1631,7 +1670,12 @@ function initSortables() {
       group: "channels",
       animation: 150,
       draggable: ".channel",
+      delay: 3000,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 8,
+      fallbackTolerance: 8,
       onEnd: async (evt) => {
+        suppressChannelClickUntil = Date.now() + 500;
         const channelId = parseInt(evt.item.dataset.id, 10);
         const newCatName = evt.to.dataset.categoryName;
         const updates = [];
@@ -1659,7 +1703,10 @@ function buildChannelItem(ch) {
   div.className = "channel";
   div.dataset.id = ch.id;
   if (ch.id === currentChannelId) div.classList.add("active");
-  div.addEventListener("click", () => switchChannel(ch.id));
+  div.addEventListener("click", () => {
+    if (shouldSuppressClick(suppressChannelClickUntil)) return;
+    switchChannel(ch.id);
+  });
   return div;
 }
 
@@ -2748,6 +2795,9 @@ function createMessageElement(msg) {
       formatted = replaceCustomEmojiShortcodes(formatted);
     }
     contentDiv.innerHTML = formatted;
+    if (isEmojiOnlyMessage(cleanContent)) {
+      contentDiv.classList.add("emoji-only-message");
+    }
 
     // Link Previews & GIFS (Post-render to avoid blocking)
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
@@ -3149,6 +3199,14 @@ function replaceCustomEmojiShortcodes(content) {
     if (!emoji) return match;
     return `<img src="${escapeHTML(emoji.url)}" alt=":${escapeHTML(emoji.name)}:" title=":${escapeHTML(emoji.name)}:" class="inline-custom-emoji">`;
   });
+}
+
+function isEmojiOnlyMessage(content) {
+  const normalized = String(content || "").trim();
+  if (!normalized) return false;
+  const withoutCustom = normalized.replace(/:([a-zA-Z0-9_-]+):/g, " ");
+  const withoutUnicodeEmoji = withoutCustom.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, " ");
+  return withoutUnicodeEmoji.trim().length === 0;
 }
 
 
@@ -4110,11 +4168,13 @@ async function addReaction(messageId, emoji) {
 
 // ------------------------ Reactions ------------------------
 async function renderReactions(messageId, li) {
-  let reactionsContainer = li.querySelector(".reactionBar");
+  const messageBody = li.querySelector(".message-body");
+  let reactionsContainer = messageBody?.querySelector(".reactionBar") || li.querySelector(".reactionBar");
   if (!reactionsContainer) {
     reactionsContainer = document.createElement("div");
     reactionsContainer.className = "reactionBar";
-    li.appendChild(reactionsContainer);
+    if (messageBody) messageBody.appendChild(reactionsContainer);
+    else li.appendChild(reactionsContainer);
   }
 
   reactionsContainer.innerHTML = "";
@@ -5197,6 +5257,7 @@ async function loadServers() {
     console.error("❌ loadServers error:", err);
   }
 
+  applyStoredServerOrder();
   renderServerList();
 
   // Handle URL navigation or default server
@@ -5287,6 +5348,10 @@ async function switchServer(serverId, updateUrl = true) {
 function renderServerList() {
   const serverList = document.getElementById("serverList");
   if (!serverList) return;
+  if (_serverSortableInstance) {
+    try { _serverSortableInstance.destroy(); } catch {}
+    _serverSortableInstance = null;
+  }
   serverList.innerHTML = "";
 
   servers.forEach(server => {
@@ -5311,12 +5376,36 @@ function renderServerList() {
 
     icon.onclick = (e) => {
       e.stopPropagation();
+      if (shouldSuppressClick(suppressServerClickUntil)) return;
       switchServer(server.id);
       if (window.innerWidth <= 768) closeServerSidebar();
     };
     
     serverList.appendChild(icon);
   });
+
+  if (typeof Sortable !== "undefined" && isMobileContextMenuMode()) {
+    _serverSortableInstance = Sortable.create(serverList, {
+      animation: 150,
+      draggable: ".server-icon[data-server-id]",
+      delay: 450,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 8,
+      fallbackTolerance: 8,
+      onEnd: async () => {
+        suppressServerClickUntil = Date.now() + 500;
+        const orderedIds = Array.from(serverList.querySelectorAll(".server-icon[data-server-id]"))
+          .map((node) => node.dataset.serverId)
+          .filter(Boolean);
+        const orderedServers = orderedIds
+          .map((id) => servers.find((server) => server.id === id))
+          .filter(Boolean);
+        const remainingServers = servers.filter((server) => !orderedIds.includes(server.id));
+        servers = [...orderedServers, ...remainingServers];
+        saveServerOrder();
+      }
+    });
+  }
 }
 
 function showNoServerScreen() {

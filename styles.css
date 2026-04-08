@@ -495,10 +495,20 @@ li[data-pinned="true"] {
 }
 
 .inline-custom-emoji {
-  width: 1.2em;
-  height: 1.2em;
+  width: 1.5em;
+  height: 1.5em;
   object-fit: contain;
-  vertical-align: -0.22em;
+  vertical-align: -0.3em;
+}
+
+.emoji-only-message {
+  font-size: 1.9rem;
+  line-height: 1.25;
+}
+
+.emoji-only-message .inline-custom-emoji {
+  width: 2.1rem;
+  height: 2.1rem;
 }
 
 #uploadBtn:hover {
