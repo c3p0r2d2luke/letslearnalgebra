@@ -52,11 +52,23 @@ function setPreviewCache(url, data) {
   localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(cache));
 }
 
+const SERVER_ROLE_LADDER = ["Manager", "Admin", "SysManager", "SysAdmin"];
+
+function normalizeServerRole(roleName, fallback = "Manager") {
+  const raw = String(roleName || "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "user") return "Manager";
+  const match = SERVER_ROLE_LADDER.find((role) => role.toLowerCase() === raw);
+  return match || fallback;
+}
+
 const input = document.getElementById("messageInput");
 const messageSearchInput = document.getElementById("messageSearchInput");
 const memberSearchInput = document.getElementById("memberSearchInput");
 const messageSearchToggle = document.getElementById("messageSearchToggle");
 const memberSearchToggle = document.getElementById("memberSearchToggle");
+const dmListEl = document.getElementById("dmList");
+const newDmBtn = document.getElementById("newDmBtn");
 const mentionSuggestionsEl = document.getElementById("mentionSuggestions");
 const avatarInput = document.getElementById("avatarInput");
 const changeAvatarBtn = document.getElementById("changeAvatarBtn");
@@ -629,18 +641,24 @@ let collapsedCategories = new Set();
 try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
 let currentChannelId = null;
 let currentServerId = null;
+let currentConversationType = "channel";
+let currentDmConversationId = null;
 let servers = [];
 let serverMembers = [];
 let memberPresence = [];
+let directConversations = [];
 let memberRealtimeSubscription = null;
 let globalMentionSubscription = null;
 let serverMembershipSubscription = null;
+let dmMembershipSubscription = null;
+let dmRealtimeSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const avatarUrlByUsername = new Map();
+const serverProfileByKey = new Map();
 let currentUserAvatarUrl = "";
 const channelServerMap = new Map();
 const unreadMentionCounts = new Map();
@@ -659,8 +677,39 @@ function getInitials(name) {
   return String(name || "?").trim().charAt(0).toUpperCase() || "?";
 }
 
+function getServerProfileKey(serverId, usernameValue) {
+  return `${serverId || "global"}:${String(usernameValue || "").toLowerCase()}`;
+}
+
+function setServerProfileData(serverId, usernameValue, profile = {}) {
+  if (!serverId || !usernameValue) return;
+  const key = getServerProfileKey(serverId, usernameValue);
+  serverProfileByKey.set(key, {
+    display_name: profile.display_name || "",
+    avatar_url: profile.avatar_url || "",
+    role: profile.role || "",
+    role_color: profile.role_color || ""
+  });
+}
+
+function getServerProfileData(serverId, usernameValue) {
+  if (!serverId || !usernameValue) return null;
+  return serverProfileByKey.get(getServerProfileKey(serverId, usernameValue)) || null;
+}
+
+function getEffectiveDisplayName(usernameValue, serverId = currentConversationType === "channel" ? currentServerId : null) {
+  if (usernameValue === "Frenchwizz") return "Takeo";
+  const profile = getServerProfileData(serverId, usernameValue);
+  return profile?.display_name || usernameValue;
+}
+
 function getAvatarUrl(usernameValue) {
   return avatarUrlByUsername.get(String(usernameValue || "").toLowerCase()) || "";
+}
+
+function getEffectiveAvatarUrl(usernameValue, serverId = currentConversationType === "channel" ? currentServerId : null) {
+  const profile = getServerProfileData(serverId, usernameValue);
+  return profile?.avatar_url || getAvatarUrl(usernameValue);
 }
 
 function bustAvatarUrl(url) {
@@ -705,16 +754,17 @@ async function loadAvatarMapForUsernames(usernames) {
 function buildAvatarElement(usernameValue, className) {
   const avatar = document.createElement("div");
   avatar.className = className;
-  const avatarUrl = getAvatarUrl(usernameValue);
+  const displayLabel = getEffectiveDisplayName(usernameValue);
+  const avatarUrl = getEffectiveAvatarUrl(usernameValue);
   const initials = document.createElement("span");
   initials.className = "avatar-fallback";
-  initials.textContent = getInitials(usernameValue);
+  initials.textContent = getInitials(displayLabel);
   avatar.appendChild(initials);
 
   if (avatarUrl) {
     const img = document.createElement("img");
     img.className = "avatar-image";
-    img.alt = `${usernameValue} avatar`;
+    img.alt = `${displayLabel} avatar`;
     img.loading = "lazy";
     img.src = avatarUrl;
     img.onerror = () => {
@@ -731,17 +781,18 @@ function buildAvatarElement(usernameValue, className) {
 
 function updateCurrentAvatarButton() {
   if (!changeAvatarBtn) return;
-  const avatarUrl = currentUserAvatarUrl || getAvatarUrl(username);
+  const displayLabel = getEffectiveDisplayName(username);
+  const avatarUrl = getEffectiveAvatarUrl(username) || currentUserAvatarUrl || getAvatarUrl(username);
   changeAvatarBtn.innerHTML = "";
   const fallback = document.createElement("span");
   fallback.className = "avatar-fallback";
-  fallback.textContent = getInitials(username);
+  fallback.textContent = getInitials(displayLabel);
   changeAvatarBtn.appendChild(fallback);
 
   if (avatarUrl) {
     const img = document.createElement("img");
     img.className = "avatar-image";
-    img.alt = `${username} avatar`;
+    img.alt = `${displayLabel} avatar`;
     img.src = avatarUrl;
     img.onload = () => changeAvatarBtn.classList.add("has-image");
     img.onerror = () => {
@@ -834,7 +885,7 @@ async function showLocalTestNotification() {
   }
 }
 
-async function uploadAvatarFile(file, targetUsername, authIdOverride = null) {
+async function uploadAvatarAsset(file, authIdOverride = null) {
   if (!file) return { error: "❌ No file selected." };
   if (!String(file.type || "").startsWith("image/")) return { error: "❌ Avatar must be an image." };
   if (file.size > 5 * 1024 * 1024) return { error: "❌ Avatar must be under 5MB." };
@@ -853,21 +904,94 @@ async function uploadAvatarFile(file, targetUsername, authIdOverride = null) {
   const { data: publicData } = supabaseClient.storage.from("avatars").getPublicUrl(path);
   const avatarUrl = bustAvatarUrl(publicData?.publicUrl || "");
   if (!avatarUrl) return { error: "❌ Failed to resolve avatar URL." };
+  return { avatarUrl };
+}
+
+async function uploadAvatarFile(file, targetUsername, authIdOverride = null) {
+  const asset = await uploadAvatarAsset(file, authIdOverride);
+  if (asset.error || !asset.avatarUrl) return asset;
 
   const { error: updateError } = await supabaseClient
     .from("users")
-    .update({ avatar_url: avatarUrl })
+    .update({ avatar_url: asset.avatarUrl })
     .eq("username", targetUsername);
   if (updateError) return { error: "❌ Failed to save avatar: " + updateError.message };
 
-  setAvatarUrl(targetUsername, avatarUrl);
-  return { avatarUrl };
+  setAvatarUrl(targetUsername, asset.avatarUrl);
+  return { avatarUrl: asset.avatarUrl };
+}
+
+async function uploadServerProfileAvatar(file, serverId, targetUsername) {
+  const result = await uploadAvatarAsset(file);
+  if (result.error || !result.avatarUrl) return result;
+
+  const { error: updateError } = await supabaseClient
+    .from("server_members")
+    .update({ profile_avatar_url: result.avatarUrl })
+    .eq("server_id", serverId)
+    .eq("username", targetUsername);
+  if (updateError) return { error: "❌ Failed to save server profile avatar: " + updateError.message };
+
+  const existing = getServerProfileData(serverId, targetUsername) || {};
+  setServerProfileData(serverId, targetUsername, {
+    ...existing,
+    avatar_url: result.avatarUrl
+  });
+  updateCurrentAvatarButton();
+  return result;
+}
+
+async function editMyServerProfile() {
+  if (!currentServerId || !username) {
+    alert("❌ No server selected.");
+    return;
+  }
+
+  const existing = getServerProfileData(currentServerId, username) || {};
+  const nextDisplayName = prompt(
+    "Server display name:",
+    existing.display_name || username
+  );
+  if (nextDisplayName === null) return;
+
+  const cleanedDisplayName = nextDisplayName.trim();
+  const { error } = await supabaseClient
+    .from("server_members")
+    .update({ profile_display_name: cleanedDisplayName || null })
+    .eq("server_id", currentServerId)
+    .eq("username", username);
+
+  if (error) {
+    alert("❌ Failed to update server profile: " + error.message);
+    return;
+  }
+
+  setServerProfileData(currentServerId, username, {
+    ...existing,
+    display_name: cleanedDisplayName || ""
+  });
+
+  if (currentConversationType === "channel") {
+    await loadMessages();
+    renderMemberList();
+  }
+  renderDmList();
 }
 
 async function changeMyAvatar() {
   const file = avatarInput?.files?.[0];
   if (!file) return;
-  const { error } = await uploadAvatarFile(file, username);
+  let result;
+  if (currentConversationType === "channel" && currentServerId) {
+    const useServerProfileAvatar = confirm("Use this avatar only for the current server?\n\nOK = server profile avatar\nCancel = global avatar");
+    result = useServerProfileAvatar
+      ? await uploadServerProfileAvatar(file, currentServerId, username)
+      : await uploadAvatarFile(file, username);
+  } else {
+    result = await uploadAvatarFile(file, username);
+  }
+
+  const { error } = result;
   if (error) {
     alert(error);
     return;
@@ -916,6 +1040,13 @@ async function getCurrentServerMemberUsernames() {
 }
 
 async function getMentionCandidates() {
+  if (currentConversationType === "dm") {
+    const activeDm = directConversations.find((conversation) => conversation.id === currentDmConversationId);
+    return activeDm?.otherUsername
+      ? [{ username: activeDm.otherUsername, role: "Direct Message" }]
+      : [];
+  }
+
   if (!currentServerId) return [];
 
   if (serverMembers.length > 0) {
@@ -974,11 +1105,14 @@ async function sendPushToUsers(targetUsernames, payload) {
 }
 
 function canViewMembers() {
-  return currentSystemRole === "SysAdmin" || currentRole === "Admin";
+  return ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)
+    || ["SysManager", "SysAdmin"].includes(currentSystemRole);
 }
 
 function canMentionEveryone() {
-  return currentSystemRole === "SysAdmin" || currentRole === "Admin" || userPermissions.manage_roles;
+  return ["Admin", "SysManager", "SysAdmin"].includes(currentRole)
+    || ["SysManager", "SysAdmin"].includes(currentSystemRole)
+    || userPermissions.manage_roles;
 }
 
 function getMentionReadStorageKey() {
@@ -1346,7 +1480,7 @@ async function invokeSendPush(payload) {
 
 // ------------------------ User data ------------------------
 let username = localStorage.getItem("chatUsername") || "";
-let currentRole = localStorage.getItem("chatRole") || "User";
+let currentRole = normalizeServerRole(localStorage.getItem("chatRole") || "Manager");
 let currentSystemRole = localStorage.getItem("chatSysAdmin") === "true"
   ? "SysAdmin"
   : localStorage.getItem("chatSysManager") === "true"
@@ -1357,7 +1491,15 @@ let userPermissions = {};
 function loadUserPermissions(roleName) {
   const name = (roleName || "user").toLowerCase();
   switch (name) {
+    case "sysadmin":
     case "admin":
+      userPermissions = {
+        read_messages: true, send_messages: true, delete_messages: true,
+        rename_channels: true, create_channels: true, manage_roles: true,
+        mute_users: true, manage_messages: true, manage_reports: true
+      };
+      break;
+    case "sysmanager":
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: true, create_channels: true, manage_roles: true,
@@ -1367,6 +1509,7 @@ function loadUserPermissions(roleName) {
     case "teacher":
     case "moderator":
     case "mod":
+    case "manager":
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: false, create_channels: false, manage_roles: false,
@@ -1383,6 +1526,10 @@ function loadUserPermissions(roleName) {
 }
 const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
+const reactionIdsByMessage = new Map(); // message id -> reaction ids currently cached
+const reactionDetailsMap = new Map(); // reaction id -> reaction row snapshot
+const reactionSummaryByMessage = new Map(); // message id -> emoji summary map
+const pendingReactionInsertMap = new Map(); // messageId:emoji:username -> temp reaction id
 let typingTimeout = null;
 
 // ------------------------ Name Lock ------------------------
@@ -1416,13 +1563,58 @@ wireSearchToggle(memberSearchToggle, memberSearchInput);
 let channel = null;
 // ======================== REALTIME MANAGER ========================
 let activeMessageChannel = null; // Tracks the current realtime subscription
+let activeDmMessageChannel = null;
 const SERVER_ORDER_STORAGE_PREFIX = "serverOrder:";
+let persistedServerOrderIds = [];
 let suppressChannelClickUntil = 0;
 let suppressServerClickUntil = 0;
 
 function initRealtime() {
   console.log("📡 Realtime manager initialized.");
   // We don't subscribe here anymore. We subscribe dynamically in switchChannel.
+}
+
+function subscribeToDirectMessages() {
+  if (dmMembershipSubscription) {
+    try { dmMembershipSubscription.unsubscribe(); } catch {}
+    dmMembershipSubscription = null;
+  }
+  if (dmRealtimeSubscription) {
+    try { dmRealtimeSubscription.unsubscribe(); } catch {}
+    dmRealtimeSubscription = null;
+  }
+  if (!username) return;
+
+  dmMembershipSubscription = supabaseClient
+    .channel(`dm-memberships-${username}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "direct_conversation_members",
+        filter: `username=eq.${username}`
+      },
+      async () => {
+        await loadDirectConversations();
+      }
+    )
+    .subscribe();
+
+  dmRealtimeSubscription = supabaseClient
+    .channel(`dm-list-updates-${username}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "dm_messages"
+      },
+      async () => {
+        await loadDirectConversations();
+      }
+    )
+    .subscribe();
 }
 
 // Helper to unsubscribe from old channel and subscribe to new one
@@ -1471,21 +1663,31 @@ supabaseClient
     "postgres_changes",
     { event: "*", schema: "public", table: "reactions" },
     payload => {
-      // Keep the local map up-to-date for future DELETE lookups
-      if (payload.new?.id && payload.new?.message_id) {
-        reactionMessageMap.set(payload.new.id, payload.new.message_id);
+      let msgId = payload.new?.message_id ?? payload.old?.message_id;
+
+      if (payload.eventType === "INSERT" && payload.new) {
+        const pendingKey = getPendingReactionKey(payload.new.message_id, payload.new.emoji, payload.new.username);
+        const pendingId = pendingReactionInsertMap.get(pendingKey);
+        if (pendingId) {
+          removeReactionRecordById(pendingId);
+          pendingReactionInsertMap.delete(pendingKey);
+        }
+        upsertReactionRecord(payload.new);
+        msgId = payload.new.message_id;
+      } else if (payload.eventType === "UPDATE") {
+        if (payload.old?.id) removeReactionRecordById(payload.old.id);
+        if (payload.new) {
+          upsertReactionRecord(payload.new);
+          msgId = payload.new.message_id;
+        }
+      } else if (payload.old?.id) {
+        const existing = reactionDetailsMap.get(payload.old.id);
+        msgId = msgId ?? existing?.message_id ?? reactionMessageMap.get(payload.old.id);
+        removeReactionRecordById(payload.old.id);
       }
 
-      // INSERT/UPDATE: payload.new has full row including message_id
-      // DELETE: payload.old only has the primary key (id) by default —
-      //         look up the message_id from our local map instead.
-      let msgId = payload.new?.message_id ?? payload.old?.message_id;
-      if (!msgId && payload.old?.id) {
-        msgId = reactionMessageMap.get(payload.old.id);
-        reactionMessageMap.delete(payload.old.id);
-      }
       const li = messagesMap.get(Number(msgId));
-      if (li) renderReactions(msgId, li);
+      if (li && msgId) renderReactions(msgId, li);
     }
   )
   .subscribe();
@@ -1496,19 +1698,57 @@ function getServerOrderStorageKey() {
   return `${SERVER_ORDER_STORAGE_PREFIX}${username || "guest"}`;
 }
 
-function saveServerOrder() {
+async function loadPersistedServerOrder() {
+  persistedServerOrderIds = [];
   try {
-    localStorage.setItem(getServerOrderStorageKey(), JSON.stringify(servers.map(server => server.id)));
+    const { data, error } = await supabaseClient
+      .from("user_server_order")
+      .select("server_id, sort_order")
+      .eq("username", username)
+      .order("sort_order", { ascending: true });
+
+    if (error) throw error;
+    persistedServerOrderIds = (data || []).map((row) => row.server_id).filter(Boolean);
   } catch (error) {
-    console.warn("⚠️ Failed to save server order:", error);
+    console.warn("⚠️ Failed to load persisted server order:", error);
+  }
+}
+
+async function saveServerOrder() {
+  const orderedServerIds = servers.map((server) => server.id);
+  persistedServerOrderIds = [...orderedServerIds];
+
+  try {
+    localStorage.setItem(getServerOrderStorageKey(), JSON.stringify(orderedServerIds));
+  } catch (error) {
+    console.warn("⚠️ Failed to save local server order:", error);
+  }
+
+  if (!username || orderedServerIds.length === 0) return;
+
+  try {
+    const payload = orderedServerIds.map((serverId, index) => ({
+      username,
+      server_id: serverId,
+      sort_order: index
+    }));
+
+    const { error } = await supabaseClient
+      .from("user_server_order")
+      .upsert(payload, { onConflict: "username,server_id" });
+
+    if (error) throw error;
+  } catch (error) {
+    console.warn("⚠️ Failed to save persisted server order:", error);
   }
 }
 
 function applyStoredServerOrder() {
   try {
-    const raw = localStorage.getItem(getServerOrderStorageKey());
-    if (!raw || !Array.isArray(servers) || servers.length === 0) return;
-    const order = JSON.parse(raw);
+    if (!Array.isArray(servers) || servers.length === 0) return;
+    const localRaw = localStorage.getItem(getServerOrderStorageKey());
+    const localOrder = localRaw ? JSON.parse(localRaw) : [];
+    const order = persistedServerOrderIds.length > 0 ? persistedServerOrderIds : localOrder;
     if (!Array.isArray(order) || order.length === 0) return;
     const rank = new Map(order.map((id, index) => [id, index]));
     servers.sort((a, b) => {
@@ -1524,6 +1764,445 @@ function applyStoredServerOrder() {
 
 function shouldSuppressClick(untilTs) {
   return Date.now() < untilTs;
+}
+
+function getCurrentConversationLabel() {
+  if (currentConversationType === "dm") {
+    const activeDm = directConversations.find((conversation) => conversation.id === currentDmConversationId);
+    return activeDm ? `@${activeDm.otherUsername}` : "Direct Messages";
+  }
+
+  const activeChannel = channels.find((channelItem) => channelItem.id === currentChannelId);
+  return activeChannel ? `# ${activeChannel.name}` : "# general";
+}
+
+function updateConversationHeaderAndInput() {
+  document.body.classList.toggle("dm-mode", currentConversationType === "dm");
+
+  const headerEl = document.getElementById("currentChannelName");
+  if (headerEl) headerEl.textContent = getCurrentConversationLabel();
+
+  const createBtn = document.getElementById("createChannelBtn");
+  if (createBtn) {
+    createBtn.style.display = currentConversationType === "dm"
+      ? "none"
+      : userPermissions.manage_roles ? "inline-block" : "none";
+  }
+
+  if (!input) return;
+  if (currentConversationType === "dm") {
+    const activeDm = directConversations.find((conversation) => conversation.id === currentDmConversationId);
+    input.placeholder = activeDm ? `Message @${activeDm.otherUsername}` : "Message...";
+  } else {
+    const activeChannel = channels.find((channelItem) => channelItem.id === currentChannelId);
+    input.placeholder = activeChannel ? `Message #${activeChannel.name}` : "Message...";
+  }
+}
+
+function sortDirectConversations() {
+  directConversations.sort((a, b) => {
+    const aTime = new Date(a.lastMessageAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.lastMessageAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
+function renderDmList() {
+  if (!dmListEl) return;
+
+  if (!directConversations.length) {
+    dmListEl.innerHTML = `<div class="dm-empty-state">No DMs yet</div>`;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  directConversations.forEach((conversation) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `dm-item${currentConversationType === "dm" && conversation.id === currentDmConversationId ? " active" : ""}`;
+    item.dataset.conversationId = conversation.id;
+    item.innerHTML = `<span class="dm-name">@${escapeHTML(conversation.otherUsername)}</span>`;
+    item.addEventListener("click", () => {
+      openDirectConversation(conversation.id);
+      if (window.innerWidth <= 768) closeSidebar();
+    });
+    fragment.appendChild(item);
+  });
+
+  dmListEl.innerHTML = "";
+  dmListEl.appendChild(fragment);
+}
+
+async function loadDirectConversations() {
+  if (!username) return;
+
+  try {
+    const { data: memberships, error: membershipsError } = await supabaseClient
+      .from("direct_conversation_members")
+      .select("conversation_id, joined_at")
+      .eq("username", username);
+
+    if (membershipsError) throw membershipsError;
+
+    const conversationIds = (memberships || []).map((membership) => membership.conversation_id).filter(Boolean);
+    if (conversationIds.length === 0) {
+      directConversations = [];
+      renderDmList();
+      updateConversationHeaderAndInput();
+      return;
+    }
+
+    const [{ data: members, error: membersError }, { data: messages, error: messagesError }] = await Promise.all([
+      supabaseClient
+        .from("direct_conversation_members")
+        .select("conversation_id, username")
+        .in("conversation_id", conversationIds),
+      supabaseClient
+        .from("dm_messages")
+        .select("conversation_id, username, content, inserted_at")
+        .in("conversation_id", conversationIds)
+        .order("inserted_at", { ascending: false })
+        .limit(200)
+    ]);
+
+    if (membersError) throw membersError;
+    if (messagesError) throw messagesError;
+
+    const membersByConversation = new Map();
+    (members || []).forEach((member) => {
+      const key = member.conversation_id;
+      if (!membersByConversation.has(key)) membersByConversation.set(key, []);
+      membersByConversation.get(key).push(member.username);
+    });
+
+    const lastMessageByConversation = new Map();
+    (messages || []).forEach((message) => {
+      if (!lastMessageByConversation.has(message.conversation_id)) {
+        lastMessageByConversation.set(message.conversation_id, message);
+      }
+    });
+
+    directConversations = (memberships || []).map((membership) => {
+      const participants = membersByConversation.get(membership.conversation_id) || [];
+      const otherUsername = participants.find((participant) => participant && participant !== username) || "Unknown";
+      const lastMessage = lastMessageByConversation.get(membership.conversation_id);
+      return {
+        id: membership.conversation_id,
+        otherUsername,
+        createdAt: membership.joined_at,
+        lastMessageAt: lastMessage?.inserted_at || membership.joined_at,
+        lastMessagePreview: lastMessage?.content || ""
+      };
+    }).filter((conversation) => conversation.otherUsername && conversation.otherUsername !== "Unknown");
+
+    await loadAvatarMapForUsernames(directConversations.map((conversation) => conversation.otherUsername));
+    sortDirectConversations();
+    renderDmList();
+    updateConversationHeaderAndInput();
+  } catch (error) {
+    console.error("❌ Failed to load direct conversations:", error);
+    if (dmListEl) dmListEl.innerHTML = `<div class="dm-empty-state">DMs unavailable</div>`;
+  }
+}
+
+async function ensureDirectConversation(otherUsername) {
+  const normalizedTarget = String(otherUsername || "").trim();
+  if (!normalizedTarget) return null;
+
+  const { data: existingMemberships, error: existingMembershipsError } = await supabaseClient
+    .from("direct_conversation_members")
+    .select("conversation_id, username")
+    .in("username", [username, normalizedTarget]);
+
+  if (existingMembershipsError) throw existingMembershipsError;
+
+  const conversationMatches = new Map();
+  (existingMemberships || []).forEach((membership) => {
+    const key = membership.conversation_id;
+    if (!conversationMatches.has(key)) conversationMatches.set(key, new Set());
+    conversationMatches.get(key).add(membership.username);
+  });
+
+  for (const [conversationId, participants] of conversationMatches.entries()) {
+    if (participants.has(username) && participants.has(normalizedTarget) && participants.size === 2) {
+      return conversationId;
+    }
+  }
+
+  const { data: conversation, error: conversationError } = await supabaseClient
+    .from("direct_conversations")
+    .insert([{}])
+    .select("id")
+    .single();
+  if (conversationError) throw conversationError;
+
+  const { error: memberInsertError } = await supabaseClient
+    .from("direct_conversation_members")
+    .insert([
+      { conversation_id: conversation.id, username },
+      { conversation_id: conversation.id, username: normalizedTarget }
+    ]);
+  if (memberInsertError) throw memberInsertError;
+
+  return conversation.id;
+}
+
+async function openDirectConversation(conversationId) {
+  const activeDm = directConversations.find((conversation) => conversation.id === conversationId);
+  currentConversationType = "dm";
+  currentDmConversationId = conversationId;
+  currentChannelId = null;
+  hideMentionSuggestions();
+  clearReactionCaches();
+  await subscribeToCurrentChannel();
+  renderChannelList();
+  renderDmList();
+  updateConversationHeaderAndInput();
+  if (replyingTo) clearReply();
+
+  const memberList = document.getElementById("memberList");
+  if (memberList) memberList.classList.remove("open");
+
+  messagesList.innerHTML = "";
+  messagesMap.clear();
+  messageDataMap.clear();
+
+  if (!activeDm) {
+    await loadDirectConversations();
+  }
+
+  await loadDirectMessages(conversationId);
+  await subscribeToCurrentDmConversation(conversationId);
+}
+
+async function promptForDirectMessage() {
+  const target = prompt("Start a DM with which username?");
+  if (!target) return;
+
+  const targetUsername = target.trim();
+  if (!targetUsername) return;
+  if (targetUsername.toLowerCase() === String(username || "").toLowerCase()) {
+    alert("❌ You cannot DM yourself.");
+    return;
+  }
+
+  const { data: userRow, error } = await supabaseClient
+    .from("users")
+    .select("username")
+    .eq("username", targetUsername)
+    .maybeSingle();
+
+  if (error) {
+    alert(`❌ Could not start DM: ${error.message}`);
+    return;
+  }
+  if (!userRow?.username) {
+    alert("❌ That user does not exist.");
+    return;
+  }
+
+  try {
+    const conversationId = await ensureDirectConversation(userRow.username);
+    await loadDirectConversations();
+    await openDirectConversation(conversationId);
+  } catch (dmError) {
+    console.error("❌ Failed to start DM:", dmError);
+    alert(`❌ Could not start DM: ${dmError.message}`);
+  }
+}
+
+async function loadDirectMessages(conversationId = currentDmConversationId) {
+  if (!conversationId) return;
+
+  messagesList.innerHTML = '<div class="loading-shimmer"></div>';
+  messagesMap.clear();
+  messageDataMap.clear();
+  clearReactionCaches();
+
+  const { data, error } = await supabaseClient
+    .from("dm_messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("inserted_at", { ascending: true })
+    .limit(100);
+
+  if (error) {
+    messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
+    return;
+  }
+
+  await loadAvatarMapForUsernames((data || []).map((msg) => msg.username));
+  messagesList.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  (data || []).forEach((msg) => {
+    const li = createMessageElement(msg);
+    messagesMap.set(msg.id, li);
+    messageDataMap.set(msg.id, msg);
+    fragment.appendChild(li);
+  });
+  messagesList.appendChild(fragment);
+  applyMessageSearchFilter();
+  await waitForImagesBeforeScroll();
+}
+
+async function subscribeToCurrentDmConversation(conversationId = currentDmConversationId) {
+  if (!conversationId) {
+    if (activeDmMessageChannel) {
+      await activeDmMessageChannel.unsubscribe();
+      activeDmMessageChannel = null;
+    }
+    return;
+  }
+
+  if (activeDmMessageChannel) {
+    await activeDmMessageChannel.unsubscribe();
+    activeDmMessageChannel = null;
+  }
+
+  activeDmMessageChannel = supabaseClient
+    .channel(`dm-messages-${conversationId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "dm_messages",
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      async (payload) => {
+        await handleRealtimeDmMessage(payload.new || payload.old, payload.eventType);
+      }
+    )
+    .subscribe();
+}
+
+function getPendingReactionKey(messageId, emoji, reactingUser = username) {
+  return `${messageId}:${emoji}:${reactingUser}`;
+}
+
+function clearReactionCacheForMessage(messageId) {
+  const normalizedMessageId = Number(messageId);
+  const ids = reactionIdsByMessage.get(normalizedMessageId);
+  if (ids) {
+    ids.forEach((id) => {
+      reactionDetailsMap.delete(id);
+      reactionMessageMap.delete(id);
+    });
+  }
+  reactionIdsByMessage.delete(normalizedMessageId);
+  reactionSummaryByMessage.delete(normalizedMessageId);
+}
+
+function clearReactionCaches() {
+  reactionIdsByMessage.clear();
+  reactionDetailsMap.clear();
+  reactionSummaryByMessage.clear();
+  reactionMessageMap.clear();
+  pendingReactionInsertMap.clear();
+}
+
+function upsertReactionRecord(record) {
+  if (!record?.id || !record?.message_id || !record?.emoji) return;
+
+  removeReactionRecordById(record.id);
+
+  const normalizedMessageId = Number(record.message_id);
+  const normalizedRecord = { ...record, message_id: normalizedMessageId };
+  reactionDetailsMap.set(record.id, normalizedRecord);
+  reactionMessageMap.set(record.id, normalizedMessageId);
+
+  let ids = reactionIdsByMessage.get(normalizedMessageId);
+  if (!ids) {
+    ids = new Set();
+    reactionIdsByMessage.set(normalizedMessageId, ids);
+  }
+  ids.add(record.id);
+
+  let summary = reactionSummaryByMessage.get(normalizedMessageId);
+  if (!summary) {
+    summary = new Map();
+    reactionSummaryByMessage.set(normalizedMessageId, summary);
+  }
+
+  let entry = summary.get(record.emoji);
+  if (!entry) {
+    entry = { count: 0, users: [] };
+    summary.set(record.emoji, entry);
+  }
+
+  entry.count += 1;
+  if (record.username && !entry.users.includes(record.username)) {
+    entry.users.push(record.username);
+  }
+}
+
+function removeReactionRecordById(reactionId) {
+  const existing = reactionDetailsMap.get(reactionId);
+  if (!existing) {
+    reactionMessageMap.delete(reactionId);
+    return null;
+  }
+
+  const normalizedMessageId = Number(existing.message_id);
+  const ids = reactionIdsByMessage.get(normalizedMessageId);
+  if (ids) {
+    ids.delete(reactionId);
+    if (ids.size === 0) reactionIdsByMessage.delete(normalizedMessageId);
+  }
+
+  const summary = reactionSummaryByMessage.get(normalizedMessageId);
+  if (summary) {
+    const entry = summary.get(existing.emoji);
+    if (entry) {
+      entry.count = Math.max(0, entry.count - 1);
+      if (existing.username) {
+        const stillPresent = Array.from(ids || []).some((id) => {
+          const record = reactionDetailsMap.get(id);
+          return record?.emoji === existing.emoji && record?.username === existing.username;
+        });
+        if (!stillPresent) {
+          entry.users = entry.users.filter((name) => name !== existing.username);
+        }
+      }
+      if (entry.count === 0) summary.delete(existing.emoji);
+    }
+    if (summary.size === 0) reactionSummaryByMessage.delete(normalizedMessageId);
+  }
+
+  reactionDetailsMap.delete(reactionId);
+  reactionMessageMap.delete(reactionId);
+  return existing;
+}
+
+function setReactionSnapshot(messageId, reactions = []) {
+  const normalizedMessageId = Number(messageId);
+  clearReactionCacheForMessage(normalizedMessageId);
+  reactions.forEach((reaction) => upsertReactionRecord({ ...reaction, message_id: normalizedMessageId }));
+  if (!reactionSummaryByMessage.has(normalizedMessageId)) {
+    reactionSummaryByMessage.set(normalizedMessageId, new Map());
+  }
+}
+
+function findMyReactionIds(messageId, emoji) {
+  const ids = reactionIdsByMessage.get(Number(messageId));
+  if (!ids) return [];
+  return Array.from(ids).filter((id) => {
+    const reaction = reactionDetailsMap.get(id);
+    return reaction?.emoji === emoji && reaction?.username === username;
+  });
+}
+
+function ensureReactionContainer(li) {
+  const messageBody = li.querySelector(".message-body");
+  if (!messageBody) return null;
+
+  let reactionsContainer = messageBody.querySelector(":scope > .reactionBar");
+  if (!reactionsContainer) {
+    reactionsContainer = document.createElement("div");
+    reactionsContainer.className = "reactionBar";
+    messageBody.appendChild(reactionsContainer);
+  }
+  return reactionsContainer;
 }
 
 async function loadCategories() {
@@ -1796,7 +2475,7 @@ function showCategoryContextMenu(catName, x, y) {
 
 async function setMemberServerRole(targetMember, nextRole) {
   if (!targetMember?.id || !currentServerId) return;
-  const cleanedRole = String(nextRole || "").trim();
+  const cleanedRole = normalizeServerRole(nextRole);
   if (!cleanedRole) return;
 
   const { data: roleRow } = await supabaseClient
@@ -1881,14 +2560,14 @@ async function addMemberToAnotherServer(targetMember) {
   const { error } = await supabaseClient.from("server_members").insert({
     server_id: targetServer.id,
     username: targetMember.username,
-    role: "User",
+    role: "Manager",
     primary_role_id: null
   });
   if (error) {
     alert("❌ Failed to add member: " + error.message);
     return;
   }
-  alert(`✅ Added ${targetMember.username} to ${targetServer.name} as a User.`);
+  alert(`✅ Added ${targetMember.username} to ${targetServer.name} as a Manager.`);
 }
 
 // ======================== CHANNEL + CATEGORY ADMIN ACTIONS ========================
@@ -2249,6 +2928,8 @@ async function deleteChannel(channelId, channelName) {
 
 function switchChannel(channelId) {
   // 🔥 CRITICAL: Set this IMMEDIATELY
+  currentConversationType = "channel";
+  currentDmConversationId = null;
   currentChannelId = channelId;
   console.log("🔄 switchChannel called. currentChannelId set to:", currentChannelId);
 
@@ -2265,11 +2946,15 @@ function switchChannel(channelId) {
   if (ch) {
     document.getElementById("currentChannelName").textContent = "# " + ch.name;
   }
+  updateConversationHeaderAndInput();
+  renderDmList();
+  subscribeToCurrentDmConversation(null);
 
   // 🔥 CLEAR AND LOAD MESSAGES
   messagesList.innerHTML = "";
   messagesMap.clear();
   messageDataMap.clear();
+  clearReactionCaches();
   hideMentionSuggestions();
 
   // 🔥 Call loadMessages
@@ -2293,6 +2978,7 @@ async function loadMessages() {
   messagesList.innerHTML = '<div class="loading-shimmer"></div>';
   messagesMap.clear();
   messageDataMap.clear();
+  clearReactionCaches();
 
   const { data, error } = await supabaseClient
     .from("messages")
@@ -2307,6 +2993,28 @@ async function loadMessages() {
   }
 
   await loadAvatarMapForUsernames((data || []).map(msg => msg.username));
+
+  const messageIds = (data || []).map((msg) => msg.id);
+  if (messageIds.length > 0) {
+    const { data: reactions, error: reactionsError } = await supabaseClient
+      .from("reactions")
+      .select("*")
+      .in("message_id", messageIds);
+
+    if (reactionsError) {
+      console.error("❌ Error preloading reactions:", reactionsError);
+    } else {
+      const reactionsByMessageId = new Map();
+      reactions.forEach((reaction) => {
+        const key = Number(reaction.message_id);
+        if (!reactionsByMessageId.has(key)) reactionsByMessageId.set(key, []);
+        reactionsByMessageId.get(key).push(reaction);
+      });
+      messageIds.forEach((messageId) => {
+        setReactionSnapshot(messageId, reactionsByMessageId.get(messageId) || []);
+      });
+    }
+  }
 
   messagesList.innerHTML = "";
   const fragment = document.createDocumentFragment();
@@ -2324,6 +3032,13 @@ async function loadMessages() {
 
 function scrollToBottom() {
   messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+function renderMentionToken(name) {
+  const normalizedName = String(name || "");
+  const isMine = normalizedName.toLowerCase() === String(username || "").toLowerCase();
+  const mentionClass = isMine ? "mention mine" : "mention";
+  return `<span class="${mentionClass}"><span class="mention-mark">@</span><span class="mention-name">${escapeHTML(normalizedName)}</span></span>`;
 }
 
 async function waitForImagesBeforeScroll(container = messagesList, timeoutMs = 2000) {
@@ -2435,16 +3150,18 @@ async function loadUser() {
   }
 
   // 4. Default per-server permissions until refreshServerRole() runs after switchServer
-  currentRole = "User";
-  loadUserPermissions("user");
+  currentRole = "Manager";
+  loadUserPermissions("manager");
 
   // 6. Initialize Realtime & Typing
   initRealtime();
   subscribeToTyping();
   subscribeToServerMemberships();
+  subscribeToDirectMessages();
 
   // 7. Load Servers (This triggers switchServer -> refreshServerRole -> loadChannels)
   initServerModals();
+  await loadDirectConversations();
   await loadServers();
   await checkInviteOnLoad();
 
@@ -2487,17 +3204,17 @@ async function saveName() {
 
     if (error) {
       console.error("Failed to save user:", error);
-      currentRole = "User";
+      currentRole = "Manager";
     } else {
-      currentRole = data?.[0]?.system_role || "User";
+      currentRole = normalizeServerRole(data?.[0]?.system_role || "Manager");
     }
 
     localStorage.setItem("chatRole", currentRole);
 
   } catch (err) {
     console.error("Exception saving user:", err);
-    currentRole = "User";
-    localStorage.setItem("chatRole", "User");
+    currentRole = "Manager";
+    localStorage.setItem("chatRole", "Manager");
   }
 
   namePrompt.style.display = "none";
@@ -2535,11 +3252,10 @@ function isUserBlockedOrMutedSync() {
 
 // ------------------------ Send Message ------------------------
 async function sendMessage() {
-
-  if (!userPermissions.send_messages) {
-  alert("❌ You don't have permission to send messages.");
-  return;
-}
+  if (currentConversationType === "channel" && !userPermissions.send_messages) {
+    alert("❌ You don't have permission to send messages.");
+    return;
+  }
 
   let content = input.value.trim();
   if (!content || !username) return;
@@ -2549,12 +3265,12 @@ if (isUserBlockedOrMutedSync()) {
   return;
 }
 
-  if (!userPermissions.manage_roles && containsPlainTextUrl(content)) {
+  if (currentConversationType === "channel" && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
     return;
   }
 
-  if (!canMentionEveryone() && /@(everyone|here)\b/i.test(content)) {
+  if (currentConversationType === "channel" && !canMentionEveryone() && /@(everyone|here)\b/i.test(content)) {
     alert("❌ Only server admins and sysadmins can use @everyone or @here.");
     return;
   }
@@ -2567,19 +3283,26 @@ if (isUserBlockedOrMutedSync()) {
   } catch {}
 
   try {
-const messageData = {
-  username,
-  content,
-  role: currentRole,
-  is_pinned: false,
-  ip,
-  channel_id: currentChannelId // 🔥 IMPORTANT
-};
+    const messageData = {
+      username,
+      content,
+      role: currentRole,
+      is_pinned: false,
+      ip
+    };
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
 
-    const { error } = await supabaseClient.from("messages").insert([messageData]);
+    let error = null;
+    if (currentConversationType === "dm") {
+      messageData.conversation_id = currentDmConversationId;
+      ({ error } = await supabaseClient.from("dm_messages").insert([messageData]));
+    } else {
+      messageData.channel_id = currentChannelId;
+      ({ error } = await supabaseClient.from("messages").insert([messageData]));
+    }
+
     if (!error) {
       input.value = "";
       hideMentionSuggestions();
@@ -2594,7 +3317,7 @@ const messageData = {
   clearReply();
 }
 
-      const isImportant = userPermissions.manage_roles && content.includes("!important!");
+      const isImportant = currentConversationType === "channel" && userPermissions.manage_roles && content.includes("!important!");
       if (isImportant) {
         const memberUsernames = await getCurrentServerMemberUsernames();
         await sendPushToUsers(memberUsernames, {
@@ -2605,7 +3328,11 @@ const messageData = {
         });
       }
 
-      await processMentions(content);
+      if (currentConversationType === "channel") {
+        await processMentions(content);
+      } else {
+        await loadDirectConversations();
+      }
 
     }
   } catch (e) {
@@ -2729,6 +3456,8 @@ function createMessageElement(msg) {
   const roleLower = (msg.role || "").toLowerCase();
   if (roleLower === "admin") li.classList.add("admin");
   else if (roleLower === "manager") li.classList.add("manager");
+  else if (roleLower === "sysmanager") li.classList.add("sysmanager");
+  else if (roleLower === "sysadmin") li.classList.add("sysadmin");
   if (msg.is_pinned) li.dataset.pinned = "true";
   if (msg.reply_to) li.classList.add("is-reply");
 
@@ -2759,7 +3488,7 @@ function createMessageElement(msg) {
   // Header Row
   const header = document.createElement("div");
   header.className = "username";
-  header.innerHTML = `${msg.username === "Frenchwizz" ? "Takeo" : escapeHTML(msg.username)}<span class="msg-timestamp">${timestamp}</span>`;
+  header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
   body.appendChild(header);
 
   // Content Row
@@ -2786,10 +3515,7 @@ function createMessageElement(msg) {
     let formatted = formatMessageContent(cleanContent, msg.role);
     // Mentions
     if (msg.role !== "Admin") {
-      formatted = formatted.replace(/@(\w+)/g, (match, name) => {
-        const cls = name === username ? "mention mine" : "mention";
-        return `<span class="${cls}">@${name}</span>`;
-      });
+      formatted = formatted.replace(/@(\w+)/g, (match, name) => renderMentionToken(name));
     }
     if (!formatted.startsWith("<pre class=\"code-block\">")) {
       formatted = replaceCustomEmojiShortcodes(formatted);
@@ -2830,12 +3556,6 @@ function createMessageElement(msg) {
   
   body.appendChild(contentDiv);
   
-  // Reactions
-  const reactionsBar = document.createElement("div");
-  reactionsBar.className = "reactionBar";
-  body.appendChild(reactionsBar);
-  renderReactions(msg.id, li);
-
   // Scripts (Admin only)
   if (msg.role === "Admin") {
     executeScripts(contentDiv);
@@ -2843,6 +3563,9 @@ function createMessageElement(msg) {
 
   row.appendChild(body);
   li.appendChild(row);
+  if (currentConversationType === "channel") {
+    renderReactions(msg.id, li);
+  }
   attachMessageLongPress(li);
   attachHoverControls(li, msg);
   return li;
@@ -2901,9 +3624,42 @@ async function handleRealtimeMessage(newMsg, eventType) {
   }
 }
 
+async function handleRealtimeDmMessage(newMsg, eventType) {
+  if (!newMsg) return;
+
+  if (eventType === "INSERT") {
+    await loadAvatarMapForUsernames([newMsg.username]);
+    messageDataMap.set(newMsg.id, newMsg);
+    renderMessage(newMsg);
+    setTimeout(() => {
+      waitForImagesBeforeScroll();
+    }, 100);
+  } else if (eventType === "UPDATE") {
+    await loadAvatarMapForUsernames([newMsg.username]);
+    messageDataMap.set(newMsg.id, newMsg);
+    renderMessage(newMsg);
+  } else if (eventType === "DELETE") {
+    messageDataMap.delete(newMsg.id);
+    const li = messagesMap.get(newMsg.id);
+    if (li) {
+      li.remove();
+      messagesMap.delete(newMsg.id);
+    }
+    applyMessageSearchFilter();
+  }
+
+  await loadDirectConversations();
+}
+
 // ------------------------ Send / Name Handlers ------------------------
 saveNameBtn.addEventListener("click", saveName);
 button.addEventListener("click", sendMessage);
+if (newDmBtn) {
+  newDmBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    promptForDirectMessage();
+  });
+}
 input.addEventListener("keydown", e => {
   if (mentionSuggestionItems.length > 0) {
     if (e.key === "ArrowDown") {
@@ -4046,13 +4802,13 @@ async function promote(author) {
 
     if (error) throw error;
 
-    const currentUserRole = data?.role || "User";
-    const newRole = prompt(`Current role for "${author}" in this server: ${currentUserRole}\n\nEnter new role (User / Manager / Admin):`);
+    const currentUserRole = normalizeServerRole(data?.role || "Manager");
+    const newRole = prompt(`Current role for "${author}" in this server: ${currentUserRole}\n\nEnter new role (Manager / Admin / SysManager / SysAdmin):`);
     if (!newRole) return;
 
-    const trimmedRole = newRole.trim();
-    if (!["User", "Manager", "Admin"].includes(trimmedRole)) {
-      alert('❌ Invalid role. Must be "User", "Manager", or "Admin".');
+    const trimmedRole = normalizeServerRole(newRole, "");
+    if (!trimmedRole || !SERVER_ROLE_LADDER.includes(trimmedRole)) {
+      alert('❌ Invalid role. Must be "Manager", "Admin", "SysManager", or "SysAdmin".');
       return;
     }
 
@@ -4125,17 +4881,29 @@ async function addReaction(messageId, emoji) {
   return;
 }
   try {
-    // 1️⃣ Get ALL matching reactions (not maybeSingle)
-    const { data: existing, error } = await supabaseClient
-      .from("reactions")
-      .select("id")
-      .eq("message_id", messageId)
-      .eq("username", username)
-      .eq("emoji", emoji);
+    const normalizedMessageId = Number(messageId);
+    let existing = findMyReactionIds(normalizedMessageId, emoji).map((id) => ({ id }));
 
-    if (error) throw error;
+    if (existing.length === 0 && !reactionSummaryByMessage.has(normalizedMessageId)) {
+      const { data, error } = await supabaseClient
+        .from("reactions")
+        .select("id")
+        .eq("message_id", normalizedMessageId)
+        .eq("username", username)
+        .eq("emoji", emoji);
+
+      if (error) throw error;
+      existing = data || [];
+    }
 
     if (existing && existing.length > 0) {
+      const removedRecords = existing
+        .map((record) => reactionDetailsMap.get(record.id))
+        .filter(Boolean);
+      existing.forEach((record) => removeReactionRecordById(record.id));
+      const existingLi = messagesMap.get(normalizedMessageId);
+      if (existingLi) renderReactions(normalizedMessageId, existingLi);
+
       // ❌ REMOVE ALL matching reactions (fixes duplicates too)
       const ids = existing.map(r => r.id);
 
@@ -4145,20 +4913,41 @@ async function addReaction(messageId, emoji) {
         .in("id", ids);
 
       if (deleteError) {
+        removedRecords.forEach((record) => upsertReactionRecord(record));
+        if (existingLi) renderReactions(normalizedMessageId, existingLi);
         console.error("❌ Delete reaction failed:", deleteError);
         alert(`Could not remove reaction: ${deleteError.message}`);
         return;
       }
 
     } else {
+      const tempId = `pending:${normalizedMessageId}:${emoji}:${username}:${Date.now()}`;
+      const pendingKey = getPendingReactionKey(normalizedMessageId, emoji);
+      pendingReactionInsertMap.set(pendingKey, tempId);
+      upsertReactionRecord({
+        id: tempId,
+        message_id: normalizedMessageId,
+        username,
+        emoji
+      });
+      const existingLi = messagesMap.get(normalizedMessageId);
+      if (existingLi) renderReactions(normalizedMessageId, existingLi);
+
       // ✅ ADD reaction
-      await supabaseClient
+      const { error: insertError } = await supabaseClient
         .from("reactions")
         .insert({
-          message_id: messageId,
+          message_id: normalizedMessageId,
           username: username,
           emoji: emoji
         });
+
+      if (insertError) {
+        pendingReactionInsertMap.delete(pendingKey);
+        removeReactionRecordById(tempId);
+        if (existingLi) renderReactions(normalizedMessageId, existingLi);
+        throw insertError;
+      }
     }
 
   } catch (err) {
@@ -4168,44 +4957,32 @@ async function addReaction(messageId, emoji) {
 
 // ------------------------ Reactions ------------------------
 async function renderReactions(messageId, li) {
-  const messageBody = li.querySelector(".message-body");
-  let reactionsContainer = messageBody?.querySelector(".reactionBar") || li.querySelector(".reactionBar");
-  if (!reactionsContainer) {
-    reactionsContainer = document.createElement("div");
-    reactionsContainer.className = "reactionBar";
-    if (messageBody) messageBody.appendChild(reactionsContainer);
-    else li.appendChild(reactionsContainer);
-  }
+  const normalizedMessageId = Number(messageId);
+  const reactionsContainer = ensureReactionContainer(li);
+  if (!reactionsContainer) return;
 
   reactionsContainer.innerHTML = "";
 
   try {
-    const { data: reactions, error } = await supabaseClient
-      .from("reactions")
-      .select("*")
-      .eq("message_id", messageId);
+    if (!reactionSummaryByMessage.has(normalizedMessageId)) {
+      const { data: reactions, error } = await supabaseClient
+        .from("reactions")
+        .select("*")
+        .eq("message_id", normalizedMessageId);
 
-    if (error) {
-      console.error("❌ Error fetching reactions:", error);
-      return;
+      if (error) {
+        console.error("❌ Error fetching reactions:", error);
+        return;
+      }
+
+      setReactionSnapshot(normalizedMessageId, reactions || []);
     }
 
-    if (!reactions || reactions.length === 0) return;
+    const summary = reactionSummaryByMessage.get(normalizedMessageId);
+    if (!summary || summary.size === 0) return;
 
-    const grouped = {};
-    reactions.forEach(r => {
-      // Keep a local map so DELETE realtime events (which carry only the reaction id) can
-      // still find the right message to re-render.
-      reactionMessageMap.set(r.id, r.message_id);
-
-      if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, myId: null, users: [] };
-      grouped[r.emoji].count++;
-      grouped[r.emoji].users.push(r.username);
-      if (r.username === username) grouped[r.emoji].myId = r.id;
-    });
-
-    Object.entries(grouped).forEach(([emoji, info]) => {
-      const iMine = info.myId !== null;
+    Array.from(summary.entries()).forEach(([emoji, info]) => {
+      const iMine = findMyReactionIds(normalizedMessageId, emoji).length > 0;
       const bubble = document.createElement("span");
       bubble.className = "reactionBubble";
       const isUrl = emoji.startsWith("http") || emoji.startsWith("data:");
@@ -4366,22 +5143,23 @@ function attachHoverControls(li, msg) {
   const controls = document.createElement("div");
   controls.className = "hoverControls";
 
-  const reactBtn = document.createElement("button");
-  reactBtn.textContent = "😀";
-  reactBtn.className = "emoji-trigger";
-  reactBtn.title = "React";
-  reactBtn.onclick = (e) => {
-    e.stopPropagation();
-    const rect = reactBtn.getBoundingClientRect();
-    openEmojiPicker(msg.id, rect.left, rect.bottom + 4);
-  };
-
   const replyBtn = document.createElement("button");
   replyBtn.textContent = "↩";
   replyBtn.title = "Reply";
   replyBtn.onclick = () => startReply(msg.id);
 
-  controls.appendChild(reactBtn);
+  if (currentConversationType === "channel") {
+    const reactBtn = document.createElement("button");
+    reactBtn.textContent = "😀";
+    reactBtn.className = "emoji-trigger";
+    reactBtn.title = "React";
+    reactBtn.onclick = (e) => {
+      e.stopPropagation();
+      const rect = reactBtn.getBoundingClientRect();
+      openEmojiPicker(msg.id, rect.left, rect.bottom + 4);
+    };
+    controls.appendChild(reactBtn);
+  }
   controls.appendChild(replyBtn);
 
   li.style.position = "relative";
@@ -4406,7 +5184,7 @@ function enhanceMessage(li, msg) {
 // ======================== THREAD SYSTEM ========================
 
 function displayName(u) {
-  return u === "Frenchwizz" ? "Takeo" : u;
+  return getEffectiveDisplayName(u);
 }
 
 
@@ -5216,6 +5994,8 @@ async function loadServers() {
   if (!username) return;
 
   try {
+    await loadPersistedServerOrder();
+
     // 1. Check user sys_admin status from the users table
     const { data: profile } = await supabaseClient
       .from("users")
@@ -5279,7 +6059,10 @@ async function loadServers() {
 async function switchServer(serverId, updateUrl = true) {
   console.log("🔀 switchServer called with:", serverId);
   markServerMentionsRead(serverId);
+  currentConversationType = "channel";
+  currentDmConversationId = null;
   currentServerId = serverId;
+  await subscribeToCurrentDmConversation(null);
   const server = servers.find(s => s.id === serverId);
 
   if (server) {
@@ -5296,6 +6079,7 @@ async function switchServer(serverId, updateUrl = true) {
   document.querySelectorAll(".server-icon[data-server-id]").forEach(el => {
     el.classList.toggle("active", el.dataset.serverId === serverId);
   });
+  renderDmList();
 
   const noServerScreen = document.getElementById("noServerScreen");
   if (noServerScreen) noServerScreen.remove();
@@ -5359,6 +6143,11 @@ function renderServerList() {
     icon.className = `server-icon ${server.id === currentServerId ? 'active' : ''}`;
     icon.dataset.serverId = server.id;
     icon.title = server.name;
+    icon.setAttribute("draggable", "false");
+    icon.style.userSelect = "none";
+    icon.style.webkitUserSelect = "none";
+    icon.style.webkitTouchCallout = "none";
+    icon.addEventListener("selectstart", (event) => event.preventDefault());
 
     if (server.icon_url) {
       icon.innerHTML = `<img src="${server.icon_url}" alt="${server.name}">`;
@@ -5384,14 +6173,17 @@ function renderServerList() {
     serverList.appendChild(icon);
   });
 
-  if (typeof Sortable !== "undefined" && isMobileContextMenuMode()) {
+  if (typeof Sortable !== "undefined") {
+    const mobileDrag = isMobileContextMenuMode();
     _serverSortableInstance = Sortable.create(serverList, {
       animation: 150,
       draggable: ".server-icon[data-server-id]",
-      delay: 450,
-      delayOnTouchOnly: true,
+      delay: mobileDrag ? 450 : 0,
+      delayOnTouchOnly: mobileDrag,
       touchStartThreshold: 8,
       fallbackTolerance: 8,
+      forceFallback: mobileDrag,
+      fallbackOnBody: mobileDrag,
       onEnd: async () => {
         suppressServerClickUntil = Date.now() + 500;
         const orderedIds = Array.from(serverList.querySelectorAll(".server-icon[data-server-id]"))
@@ -5402,7 +6194,7 @@ function renderServerList() {
           .filter(Boolean);
         const remainingServers = servers.filter((server) => !orderedIds.includes(server.id));
         servers = [...orderedServers, ...remainingServers];
-        saveServerOrder();
+        await saveServerOrder();
       }
     });
   }
@@ -5477,7 +6269,7 @@ async function loadServerMembers() {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const { data: page, error: pageError } = await supabaseClient
         .from("server_members")
-        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id")
+        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
         .eq("server_id", currentServerId)
         .order("sort_order", { ascending: true })
         .order("username", { ascending: true })
@@ -5495,7 +6287,7 @@ async function loadServerMembers() {
     if (!membersError && members.length === 0) {
       const { data: fallbackMembers, error: fallbackError } = await supabaseClient
         .from("server_members")
-        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id")
+        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
         .eq("server_id", currentServerId);
       if (fallbackError) {
         membersError = fallbackError;
@@ -5540,7 +6332,7 @@ async function loadServerMembers() {
     if (roleLinksError) console.warn("⚠️ role link fetch failed, falling back to server_members.role:", roleLinksError.message);
     if (rolesError) console.warn("⚠️ role fetch failed, falling back to server_members.role:", rolesError.message);
 
-    const roleNameById = new Map((roles || []).map(r => [r.id, r.name || r.role || "User"]));
+    const roleNameById = new Map((roles || []).map(r => [r.id, normalizeServerRole(r.name || r.role || "Manager")]));
     const roleColorById = new Map((roles || []).map(r => [r.id, r.color || "#5865f2"]));
     const linkedRoleByMember = new Map();
     (roleLinks || []).forEach(link => {
@@ -5550,7 +6342,13 @@ async function loadServerMembers() {
     serverMembers = (members || []).map(m => {
       const linkedRoleId = linkedRoleByMember.get(m.id);
       const effectiveRoleId = linkedRoleId || m.primary_role_id || null;
-      const effectiveRoleName = effectiveRoleId ? (roleNameById.get(effectiveRoleId) || m.role || "User") : (m.role || "User");
+      const effectiveRoleName = effectiveRoleId ? (roleNameById.get(effectiveRoleId) || m.role || "Manager") : (m.role || "Manager");
+      setServerProfileData(currentServerId, m.username, {
+        display_name: m.profile_display_name || "",
+        avatar_url: m.profile_avatar_url || "",
+        role: effectiveRoleName,
+        role_color: effectiveRoleId ? roleColorById.get(effectiveRoleId) : ""
+      });
       return {
         ...m,
         role: effectiveRoleName,
@@ -5617,7 +6415,7 @@ function renderMemberList() {
   serverMembers.forEach(m => {
     const p = presenceMap.get(String(m.username || "").toLowerCase());
     const ch = p ? channels.find(c => c.id === p.channel_id) : null;
-    const searchable = normalizeSearchValue(`${m.username || ""} ${m.role || ""} ${ch?.name || ""}`);
+    const searchable = normalizeSearchValue(`${m.username || ""} ${displayName(m.username) || ""} ${m.role || ""} ${ch?.name || ""}`);
     if (memberSearch && !searchable.includes(memberSearch)) return;
     const isOnline = p && (now - new Date(p.updated_at).getTime() < ONLINE_THRESHOLD);
     if (isOnline) online.push({ ...m, presence: p, activeChannel: ch });
@@ -5636,14 +6434,14 @@ function renderMemberList() {
       const item = document.createElement("div");
       item.className = "member-item";
       const ch = m.activeChannel || null;
-      const roleStr = String(m.role || "User").toLowerCase();
-      const isSpecialRole = (roleStr === "admin" || roleStr === "manager");
+      const roleStr = String(m.role || "Manager").toLowerCase();
+      const isSpecialRole = ["manager", "admin", "sysmanager", "sysadmin"].includes(roleStr);
       const avatarHtml = buildAvatarElement(m.username, "member-avatar").outerHTML;
       
       item.innerHTML = `
         ${avatarHtml}
         <div class="member-info">
-          <div class="member-name">${escapeHTML(m.username)}</div>
+          <div class="member-name">${escapeHTML(displayName(m.username))}</div>
           ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
         </div>
         ${isSpecialRole ? `<span class="member-role-badge ${roleStr}" ${m.role_color ? `style="background:${escapeHTML(m.role_color)};"` : ""}>${escapeHTML(m.role)}</span>` : ""}
@@ -5653,100 +6451,138 @@ function renderMemberList() {
       const avatarNode = item.querySelector(".member-avatar");
       if (avatarNode) avatarNode.appendChild(statusDot);
 
-      if (currentSystemRole === "SysAdmin" || userPermissions.manage_roles) {
+      if (m.username && m.username !== username) {
+        item.addEventListener("click", async () => {
+          try {
+            const conversationId = await ensureDirectConversation(m.username);
+            await loadDirectConversations();
+            await openDirectConversation(conversationId);
+          } catch (dmError) {
+            console.error("❌ Failed to open DM from member list:", dmError);
+            alert(`❌ Could not open DM: ${dmError.message}`);
+          }
+        });
+      }
+
+      if (m.username === username || currentSystemRole === "SysAdmin" || userPermissions.manage_roles) {
         item.oncontextmenu = (e) => {
           e.preventDefault();
           e.stopPropagation();
           const memberMenu = document.getElementById("memberMenu");
           if (!memberMenu) return;
-          showContextMenu(memberMenu, e.clientX, e.clientY, [
-            {
-              label: "User Info",
+          const menuItems = [];
+          if (m.username === username) {
+            menuItems.push({
+              label: "Edit Server Profile",
               color: "white",
               action: async () => {
-                await userInfo(m.username);
+                await editMyServerProfile();
               }
-            },
-            {
-              label: "Change Name",
+            });
+          } else {
+            menuItems.push({
+              label: "Message",
               color: "white",
               action: async () => {
-                await changeName(m.username);
+                const conversationId = await ensureDirectConversation(m.username);
+                await loadDirectConversations();
+                await openDirectConversation(conversationId);
               }
-            },
-            {
-              label: "Promote / Demote",
-              color: "white",
-              action: async () => {
-                await promote(m.username);
+            });
+          }
+
+          if (currentSystemRole === "SysAdmin" || userPermissions.manage_roles) {
+            menuItems.push(
+              {
+                label: "User Info",
+                color: "white",
+                action: async () => {
+                  await userInfo(m.username);
+                }
+              },
+              {
+                label: "Change Name",
+                color: "white",
+                action: async () => {
+                  await changeName(m.username);
+                }
+              },
+              {
+                label: "Promote / Demote",
+                color: "white",
+                action: async () => {
+                  await promote(m.username);
+                }
+              },
+              {
+                label: "Give Custom Role",
+                color: "white",
+                action: async () => {
+                  await giveCustomRole(m.username);
+                }
+              },
+              {
+                label: "Change Server Role",
+                color: "white",
+                action: async () => {
+                  const nextRole = prompt(`Set role for ${m.username}:`, normalizeServerRole(m.role || "Manager"));
+                  if (!nextRole) return;
+                  await setMemberServerRole(m, nextRole);
+                }
+              },
+              {
+                label: "Mute User",
+                color: "white",
+                action: async () => {
+                  await muteUser(m.username);
+                }
+              },
+              {
+                label: "Block User",
+                color: "#ed4245",
+                action: async () => {
+                  await blockUser(m.username);
+                }
+              },
+              {
+                label: "Unblock User",
+                color: "white",
+                action: async () => {
+                  await unblockUser(m.username);
+                }
+              },
+              {
+                label: "Force Logout",
+                color: "#ed4245",
+                action: async () => {
+                  await forceLogout(m.username);
+                }
+              },
+              {
+                label: "Add To Another Server",
+                color: "white",
+                action: async () => {
+                  await addMemberToAnotherServer(m);
+                }
+              },
+              {
+                label: "Kick From This Server",
+                color: "#ed4245",
+                action: async () => {
+                  await kickMemberFromCurrentServer(m);
+                }
+              },
+              {
+                label: "Delete User + Messages",
+                color: "#ed4245",
+                action: async () => {
+                  await deleteUser(m.username);
+                }
               }
-            },
-            {
-              label: "Give Custom Role",
-              color: "white",
-              action: async () => {
-                await giveCustomRole(m.username);
-              }
-            },
-            {
-              label: "Change Server Role",
-              color: "white",
-              action: async () => {
-                const nextRole = prompt(`Set role for ${m.username}:`, m.role || "User");
-                if (!nextRole) return;
-                await setMemberServerRole(m, nextRole);
-              }
-            },
-            {
-              label: "Mute User",
-              color: "white",
-              action: async () => {
-                await muteUser(m.username);
-              }
-            },
-            {
-              label: "Block User",
-              color: "#ed4245",
-              action: async () => {
-                await blockUser(m.username);
-              }
-            },
-            {
-              label: "Unblock User",
-              color: "white",
-              action: async () => {
-                await unblockUser(m.username);
-              }
-            },
-            {
-              label: "Force Logout",
-              color: "#ed4245",
-              action: async () => {
-                await forceLogout(m.username);
-              }
-            },
-            {
-              label: "Add To Another Server",
-              color: "white",
-              action: async () => {
-                await addMemberToAnotherServer(m);
-              }
-            },
-            {
-              label: "Kick From This Server",
-              color: "#ed4245",
-              action: async () => {
-                await kickMemberFromCurrentServer(m);
-              }
-            },
-            {
-              label: "Delete User + Messages",
-              color: "#ed4245",
-              action: async () => {
-                await deleteUser(m.username);
-              }
-            }
-          ]);
+            );
+          }
+
+          showContextMenu(memberMenu, e.clientX, e.clientY, menuItems);
         };
       }
       fragment.appendChild(item);
@@ -5889,7 +6725,7 @@ async function joinServer(codeOrUrl) {
     const { error: joinErr } = await supabaseClient.from("server_members").insert({
       server_id: invite.server_id,
       username,
-      role: "User",
+      role: "Manager",
       primary_role_id: null
     });
     if (joinErr) return "❌ Failed to join: " + joinErr.message;
@@ -5987,6 +6823,27 @@ async function createServer(name, slug) {
     .maybeSingle();
 
   if (error) return "❌ Failed to create server: " + error.message;
+
+  const { data: existingMember } = await supabaseClient
+    .from("server_members")
+    .select("id")
+    .eq("server_id", newServer.id)
+    .eq("username", username)
+    .maybeSingle();
+
+  if (existingMember?.id) {
+    await supabaseClient
+      .from("server_members")
+      .update({ role: "Admin", primary_role_id: null })
+      .eq("id", existingMember.id);
+  } else {
+    await supabaseClient.from("server_members").insert({
+      server_id: newServer.id,
+      username,
+      role: "Admin",
+      primary_role_id: null
+    });
+  }
 
   // Ensure structure exists for new servers:
   // - real "General" category
@@ -6128,30 +6985,26 @@ async function refreshServerRole() {
   if (!currentServerId || !username) return;
 
   if (currentSystemRole === "SysAdmin") {
-    currentRole = "Admin";
-    loadUserPermissions("admin");
+    currentRole = "SysAdmin";
+    loadUserPermissions("sysadmin");
   } else if (currentSystemRole === "SysManager") {
-    currentRole = "Manager";
-    userPermissions = {
-      read_messages: true, send_messages: true, delete_messages: true,
-      rename_channels: false, create_channels: false, manage_roles: false,
-      mute_users: true, manage_messages: true, manage_reports: true
-    };
+    currentRole = "SysManager";
+    loadUserPermissions("sysmanager");
   } else {
     const { data: memberData } = await supabaseClient
       .from("server_members")
-      .select("id, role, primary_role_id")
+      .select("id, role, primary_role_id, profile_display_name, profile_avatar_url")
       .eq("server_id", currentServerId)
       .eq("username", username)
       .maybeSingle();
-    let resolvedRole = memberData?.role || "User";
+    let resolvedRole = normalizeServerRole(memberData?.role || "Manager");
     if (memberData?.primary_role_id) {
       const { data: primaryRole } = await supabaseClient
         .from("server_roles")
         .select("name, role")
         .eq("id", memberData.primary_role_id)
         .maybeSingle();
-      resolvedRole = primaryRole?.name || primaryRole?.role || resolvedRole;
+      resolvedRole = normalizeServerRole(primaryRole?.name || primaryRole?.role || resolvedRole);
     } else if (memberData?.id) {
       const { data: memberRoleLink } = await supabaseClient
         .from("server_member_roles")
@@ -6160,15 +7013,20 @@ async function refreshServerRole() {
         .eq("member_id", memberData.id)
         .limit(1)
         .maybeSingle();
-      if (memberRoleLink?.role_id) {
-        const { data: linkedRole } = await supabaseClient
-          .from("server_roles")
-          .select("name, role")
-          .eq("id", memberRoleLink.role_id)
-          .maybeSingle();
-        resolvedRole = linkedRole?.name || linkedRole?.role || resolvedRole;
+        if (memberRoleLink?.role_id) {
+          const { data: linkedRole } = await supabaseClient
+            .from("server_roles")
+            .select("name, role")
+            .eq("id", memberRoleLink.role_id)
+            .maybeSingle();
+        resolvedRole = normalizeServerRole(linkedRole?.name || linkedRole?.role || resolvedRole);
+        }
       }
-    }
+    setServerProfileData(currentServerId, username, {
+      display_name: memberData?.profile_display_name || "",
+      avatar_url: memberData?.profile_avatar_url || "",
+      role: resolvedRole
+    });
     currentRole = resolvedRole;
     loadUserPermissions(resolvedRole);
   }
