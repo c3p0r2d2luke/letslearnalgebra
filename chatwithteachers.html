@@ -82,7 +82,8 @@
       <div class="chat-header">
         <button id="menuToggle" aria-label="Toggle channels">☰</button>
         <span id="currentChannelName"># general</span>
-        <input id="messageSearchInput" type="search" placeholder="Search messages" aria-label="Search messages" />
+        <button id="messageSearchToggle" title="Search messages" aria-label="Search messages">🔍</button>
+        <input id="messageSearchInput" class="search-input hidden" type="search" placeholder="Search messages" aria-label="Search messages" />
         <button id="memberListToggle" title="Toggle member list">👥</button>
       </div>
 
@@ -110,7 +111,8 @@
     <div class="member-list" id="memberList">
       <div class="member-list-header">
         <span>Members</span>
-        <input id="memberSearchInput" type="search" placeholder="Search members" aria-label="Search members" />
+        <button id="memberSearchToggle" title="Search members" aria-label="Search members">🔍</button>
+        <input id="memberSearchInput" class="search-input hidden" type="search" placeholder="Search members" aria-label="Search members" />
       </div>
       <div id="memberListContent"></div>
     </div>

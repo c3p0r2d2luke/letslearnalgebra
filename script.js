@@ -55,6 +55,8 @@ function setPreviewCache(url, data) {
 const input = document.getElementById("messageInput");
 const messageSearchInput = document.getElementById("messageSearchInput");
 const memberSearchInput = document.getElementById("memberSearchInput");
+const messageSearchToggle = document.getElementById("messageSearchToggle");
+const memberSearchToggle = document.getElementById("memberSearchToggle");
 const mentionSuggestionsEl = document.getElementById("mentionSuggestions");
 const avatarInput = document.getElementById("avatarInput");
 const changeAvatarBtn = document.getElementById("changeAvatarBtn");
@@ -82,25 +84,97 @@ document.addEventListener("click", () => {
   if (categoryMenu) categoryMenu.style.display = "none";
 });
 
-document.addEventListener("contextmenu", (e) => {
-  // 🔥 FIX: Look for the closest LI with data-id, even if clicked on a child
-  const message = e.target.closest("li[data-id]"); 
+const MOBILE_LONG_PRESS_MS = 450;
+let recentMobileMessageMenuAt = 0;
 
-  if (!message) return; // Only trigger on messages
+function isMobileContextMenuMode() {
+  return window.innerWidth <= 768 || Boolean(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+}
 
-  e.preventDefault();
+function closeAllContextMenus() {
+  ["adminMenu", "channelMenu", "memberMenu", "categoryMenu"].forEach((id) => {
+    const menu = document.getElementById(id);
+    if (!menu) return;
+    menu.style.display = "none";
+    menu.classList.remove("mobile-sheet", "mobile-message-sheet");
+  });
+}
 
-  const menu = document.getElementById("adminMenu");
-  if (!menu) {
-    console.error("❌ #adminMenu not found in DOM!");
-    return;
+["adminMenu", "channelMenu", "memberMenu", "categoryMenu"].forEach((id) => {
+  const menu = document.getElementById(id);
+  if (!menu) return;
+  menu.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  menu.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+});
+
+function getMessageMenuSections(messageId, author, anchorX, anchorY) {
+  const sections = [
+    {
+      title: "Quick Actions",
+      items: [
+        { label: "Reply", action: () => startReply(messageId) },
+        { label: "React", action: () => openEmojiPicker(messageId, anchorX + 10, anchorY + 10) },
+        { label: "Report", action: () => reportMessage(messageId) }
+      ]
+    }
+  ];
+
+  if (currentRole === "Manager" && author === username) {
+    sections.push({
+      title: "Manager",
+      items: [
+        { label: "Delete My Message", action: () => deleteMessage(messageId) }
+      ]
+    });
   }
 
-  menu.innerHTML = "";
+  if (userPermissions.manage_roles) {
+    sections.push(
+      {
+        title: "Delete",
+        items: [
+          { label: "Delete", action: () => deleteMessage(messageId) },
+          { label: "Delete By Keyword", action: () => deleteKeyword() }
+        ]
+      },
+      {
+        title: "Info",
+        items: [
+          { label: "User Info", action: () => userInfo(author) },
+          { label: "Export Chat", action: () => exportChat() }
+        ]
+      },
+      {
+        title: "Edit",
+        items: [
+          { label: "Edit Message", action: () => editMessage(messageId) },
+          { label: "Pin / Unpin", action: () => pinMessage(messageId) },
+          { label: "Change Name", action: () => changeName(author) },
+          { label: "Promote / Demote", action: () => promote(author) },
+          { label: "Give Custom Role", action: () => giveCustomRole(author) },
+          { label: "Mute User", action: () => muteUser(author) },
+          { label: "Block User", action: () => blockUser(author) },
+          { label: "Unblock User", action: () => unblockUser(author) },
+          { label: "Force Logout", action: () => forceLogout(author) }
+        ]
+      },
+      {
+        title: "Server",
+        items: [
+          { label: "Generate Invite Link", action: () => generateInvite() }
+        ]
+      }
+    );
+  }
 
-  const messageId = message.dataset.id;
-  const author = message.dataset.user;
+  return sections;
+}
 
+function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   let currentSection = menu;
 
   const addButton = (label, action) => {
@@ -161,69 +235,181 @@ document.addEventListener("contextmenu", (e) => {
     currentSection = sub;
   };
 
-  // ================= BASE ACTIONS =================
-  addButton("Reply", () => startReply(messageId));
-//  addButton("Reply in Thread", () => startThread(messageId));
-
-  addButton("React", () => {
-    openEmojiPicker(messageId, e.clientX + 10, e.clientY + 10);
+  sections.forEach((section, index) => {
+    if (index === 0) {
+      currentSection = menu;
+      section.items.forEach(item => addButton(item.label, item.action));
+      return;
+    }
+    addSection(section.title);
+    section.items.forEach(item => addButton(item.label, item.action));
   });
 
-  addButton("Report", () => reportMessage(messageId));
+  const menuWidth = 200;
+  const menuHeight = 300;
+  let leftPos = anchorX + 10;
+  let topPos = anchorY + 10;
 
-  // ================= ROLE-BASED =================
-  if (currentRole === "Manager" && author === username) {
-    addSection("Manager");
-    addButton("Delete My Message", () => deleteMessage(messageId));
-  }
-
-  if (userPermissions.manage_roles) {
-    addSection("Delete");
-    addButton("Delete", () => deleteMessage(messageId));
-    addButton("Delete By Keyword", () => deleteKeyword());
-
-    addSection("Info");
-    addButton("User Info", () => userInfo(author));
-    addButton("Export Chat", () => exportChat());
-
-    addSection("Edit");
-    addButton("Edit Message", () => editMessage(messageId));
-    addButton("Pin / Unpin", () => pinMessage(messageId));
-    addButton("Change Name", () => changeName(author));
-    addButton("Promote / Demote", () => promote(author));
-    addButton("Give Custom Role", () => giveCustomRole(author));
-    addButton("Mute User", () => muteUser(author));
-    addButton("Block User", () => blockUser(author));
-    addButton("Unblock User", () => unblockUser(author));
-    addButton("Force Logout", () => forceLogout(author));
-
-    addSection("Server");
-    addButton("Generate Invite Link", () => generateInvite());
-  }
-
-  // ================= SCREEN BOUNDARY DETECTION =================
-  const menuWidth = 200; 
-  const menuHeight = 300; 
-
-  let leftPos = e.clientX + 10;
-  let topPos = e.clientY + 10;
-
-  if (leftPos + menuWidth > window.innerWidth) leftPos = e.clientX - menuWidth - 10;
-  if (topPos + menuHeight > window.innerHeight) topPos = e.clientY - menuHeight - 10;
+  if (leftPos + menuWidth > window.innerWidth) leftPos = anchorX - menuWidth - 10;
+  if (topPos + menuHeight > window.innerHeight) topPos = anchorY - menuHeight - 10;
   if (leftPos < 0) leftPos = 10;
   if (topPos < 0) topPos = 10;
 
-  // ================= SHOW MENU =================
   menu.style.position = "fixed";
   menu.style.left = leftPos + "px";
   menu.style.top = topPos + "px";
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
   menu.style.background = "#2f3136";
   menu.style.border = "1px solid #444";
   menu.style.padding = "4px";
   menu.style.display = "block";
+}
 
-  // 🔥 DEBUG: Log if we got here
+function showMobileMessageMenu(menu, sections) {
+  menu.classList.add("mobile-sheet", "mobile-message-sheet");
+
+  const title = document.createElement("div");
+  title.className = "context-menu-sheet-title";
+  title.textContent = "Message Actions";
+  menu.appendChild(title);
+
+  sections.forEach((section) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "context-menu-dropdown-group";
+
+    const label = document.createElement("label");
+    label.className = "context-menu-dropdown-label";
+    label.textContent = section.title;
+
+    const select = document.createElement("select");
+    select.className = "context-menu-dropdown";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = `Choose ${section.title.toLowerCase()}...`;
+    select.appendChild(placeholder);
+
+    section.items.forEach((item, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = item.label;
+      select.appendChild(option);
+    });
+
+    select.addEventListener("change", () => {
+      const selectedIndex = Number(select.value);
+      if (!Number.isInteger(selectedIndex) || !section.items[selectedIndex]) return;
+      menu.style.display = "none";
+      section.items[selectedIndex].action();
+      select.value = "";
+    });
+
+    wrapper.appendChild(label);
+    wrapper.appendChild(select);
+    menu.appendChild(wrapper);
+  });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "context-menu-close";
+  closeBtn.textContent = "Close";
+  closeBtn.onclick = (event) => {
+    event.stopPropagation();
+    menu.style.display = "none";
+  };
+  menu.appendChild(closeBtn);
+
+  menu.style.position = "fixed";
+  menu.style.left = "8px";
+  menu.style.right = "8px";
+  menu.style.bottom = "max(8px, env(safe-area-inset-bottom))";
+  menu.style.top = "auto";
+  menu.style.display = "block";
+}
+
+function openMessageContextMenu(anchorX, anchorY, message) {
+  const menu = document.getElementById("adminMenu");
+  if (!menu) {
+    console.error("❌ #adminMenu not found in DOM!");
+    return;
+  }
+
+  closeAllContextMenus();
+
+  const messageId = message.dataset.id;
+  const author = message.dataset.user;
+  const sections = getMessageMenuSections(messageId, author, anchorX, anchorY);
+
+  menu.innerHTML = "";
+  menu.classList.remove("mobile-sheet", "mobile-message-sheet");
+
+  if (isMobileContextMenuMode()) {
+    showMobileMessageMenu(menu, sections);
+  } else {
+    showDesktopMessageMenu(menu, sections, anchorX, anchorY);
+  }
+
   console.log("✅ Context menu opened for message:", messageId);
+}
+
+function attachMessageLongPress(messageEl) {
+  let pressTimer = null;
+  let startX = 0;
+  let startY = 0;
+  let handled = false;
+
+  const clearPress = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+
+  messageEl.addEventListener("touchstart", (event) => {
+    if (!isMobileContextMenuMode() || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+    handled = false;
+    clearPress();
+    pressTimer = setTimeout(() => {
+      handled = true;
+      recentMobileMessageMenuAt = Date.now();
+      openMessageContextMenu(startX, startY, messageEl);
+    }, MOBILE_LONG_PRESS_MS);
+  }, { passive: true });
+
+  messageEl.addEventListener("touchmove", (event) => {
+    if (!pressTimer) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    const movedTooFar = Math.abs(touch.clientX - startX) > 12 || Math.abs(touch.clientY - startY) > 12;
+    if (movedTooFar) clearPress();
+  }, { passive: true });
+
+  messageEl.addEventListener("touchend", (event) => {
+    if (handled) event.preventDefault();
+    clearPress();
+    handled = false;
+  }, { passive: false });
+
+  messageEl.addEventListener("touchcancel", () => {
+    clearPress();
+    handled = false;
+  }, { passive: true });
+}
+
+document.addEventListener("contextmenu", (e) => {
+  const message = e.target.closest("li[data-id]");
+  if (!message) return;
+
+  if (isMobileContextMenuMode() && Date.now() - recentMobileMessageMenuAt < 800) {
+    e.preventDefault();
+    return;
+  }
+
+  e.preventDefault();
+  openMessageContextMenu(e.clientX, e.clientY, message);
 });
 
 // ======================== SUPABASE AUTH ========================
@@ -447,6 +633,7 @@ let serverMembers = [];
 let memberPresence = [];
 let memberRealtimeSubscription = null;
 let globalMentionSubscription = null;
+let serverMembershipSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;
 let muteInterval = null;
@@ -786,7 +973,7 @@ async function sendPushToUsers(targetUsernames, payload) {
 }
 
 function canViewMembers() {
-  return currentSystemRole === "SysAdmin" || currentRole === "Admin" || userPermissions.manage_roles;
+  return currentSystemRole === "SysAdmin" || currentRole === "Admin";
 }
 
 function canMentionEveryone() {
@@ -945,6 +1132,40 @@ function setMemberListVisibility() {
   } else {
     memberList.style.display = "";
   }
+}
+
+function setSearchInputVisibility(inputEl, visible) {
+  if (!inputEl) return;
+  inputEl.classList.toggle("hidden", !visible);
+  if (visible) {
+    requestAnimationFrame(() => inputEl.focus());
+  } else {
+    inputEl.value = "";
+    if (inputEl === messageSearchInput) {
+      messageSearchTerm = "";
+      applyMessageSearchFilter();
+    } else if (inputEl === memberSearchInput) {
+      memberSearchTerm = "";
+      renderMemberList();
+    }
+  }
+}
+
+function wireSearchToggle(toggleEl, inputEl) {
+  if (!toggleEl || !inputEl) return;
+
+  toggleEl.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const nextVisible = inputEl.classList.contains("hidden");
+    setSearchInputVisibility(inputEl, nextVisible);
+  });
+
+  inputEl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSearchInputVisibility(inputEl, false);
+    }
+  });
 }
 
 function hideMentionSuggestions() {
@@ -1156,6 +1377,9 @@ if (memberSearchInput) {
     renderMemberList();
   });
 }
+
+wireSearchToggle(messageSearchToggle, messageSearchInput);
+wireSearchToggle(memberSearchToggle, memberSearchInput);
 
 
 // ------------------------ Realtime ------------------------
@@ -1506,8 +1730,10 @@ async function setMemberServerRole(targetMember, nextRole) {
     .limit(1)
     .maybeSingle();
 
-  const updateData = { role: cleanedRole };
-  if (roleRow?.id) updateData.primary_role_id = roleRow.id;
+  const updateData = {
+    role: cleanedRole,
+    primary_role_id: roleRow?.id || null
+  };
 
   const { error } = await supabaseClient
     .from("server_members")
@@ -1519,6 +1745,13 @@ async function setMemberServerRole(targetMember, nextRole) {
     alert("❌ Failed to update role: " + error.message);
     return;
   }
+
+  await supabaseClient
+    .from("server_member_roles")
+    .delete()
+    .eq("server_id", currentServerId)
+    .eq("member_id", targetMember.id);
+
   await loadServerMembers();
 }
 
@@ -1571,13 +1804,14 @@ async function addMemberToAnotherServer(targetMember) {
   const { error } = await supabaseClient.from("server_members").insert({
     server_id: targetServer.id,
     username: targetMember.username,
-    role: targetMember.role || "User"
+    role: "User",
+    primary_role_id: null
   });
   if (error) {
     alert("❌ Failed to add member: " + error.message);
     return;
   }
-  alert(`✅ Added ${targetMember.username} to ${targetServer.name}.`);
+  alert(`✅ Added ${targetMember.username} to ${targetServer.name} as a User.`);
 }
 
 // ======================== CHANNEL + CATEGORY ADMIN ACTIONS ========================
@@ -1970,9 +2204,8 @@ function switchChannel(channelId) {
   // Update channel presence for member list
   updateChannelPresence(channelId);
 
-  // 🔥 Force scroll to bottom
   setTimeout(() => {
-    messagesList.scrollTop = messagesList.scrollHeight;
+    waitForImagesBeforeScroll();
   }, 100);
 }
 // ------------------------ Load Messages ------------------------
@@ -2009,11 +2242,36 @@ async function loadMessages() {
   messagesList.appendChild(fragment);
   applyMessageSearchFilter();
 
-  scrollToBottom();
+  await waitForImagesBeforeScroll();
 }
 
 function scrollToBottom() {
   messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+async function waitForImagesBeforeScroll(container = messagesList, timeoutMs = 2000) {
+  if (!container) return;
+
+  const images = [...container.querySelectorAll("img")].filter((img) => !img.complete);
+  if (images.length === 0) {
+    scrollToBottom();
+    return;
+  }
+
+  await Promise.race([
+    Promise.all(images.map((img) => new Promise((resolve) => {
+      const done = () => {
+        img.removeEventListener("load", done);
+        img.removeEventListener("error", done);
+        resolve();
+      };
+      img.addEventListener("load", done, { once: true });
+      img.addEventListener("error", done, { once: true });
+    }))),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
+
+  scrollToBottom();
 }
 
 
@@ -2106,6 +2364,7 @@ async function loadUser() {
   // 6. Initialize Realtime & Typing
   initRealtime();
   subscribeToTyping();
+  subscribeToServerMemberships();
 
   // 7. Load Servers (This triggers switchServer -> refreshServerRole -> loadChannels)
   initServerModals();
@@ -2501,6 +2760,7 @@ function createMessageElement(msg) {
 
   row.appendChild(body);
   li.appendChild(row);
+  attachMessageLongPress(li);
   attachHoverControls(li, msg);
   return li;
 }
@@ -2514,9 +2774,8 @@ async function handleRealtimeMessage(newMsg, eventType) {
     await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
-    // 🔥 ADD THIS - Scroll to bottom for new messages
     setTimeout(() => {
-      messagesList.scrollTop = messagesList.scrollHeight;
+      waitForImagesBeforeScroll();
     }, 100);
 
     if (messageMentionsUser(newMsg.content, username)) {
@@ -2654,8 +2913,7 @@ async function enablePush() {
 }
 
 document.addEventListener("click", () => {
-  const menu = document.getElementById("adminMenu");
-  if (menu) menu.style.display = "none";
+  closeAllContextMenus();
 });
 
 // ======================== MOBILE SIDEBAR TOGGLE ========================
@@ -3455,6 +3713,14 @@ async function kickMemberFromCurrentServer(targetMember) {
   if (error) {
     alert("❌ Failed to kick member: " + error.message);
     return;
+  }
+
+  if (targetMember.id) {
+    await supabaseClient
+      .from("server_member_roles")
+      .delete()
+      .eq("server_id", currentServerId)
+      .eq("member_id", targetMember.id);
   }
 
   await loadServerMembers();
@@ -4498,9 +4764,8 @@ async function loadDefaultChannel() {
   // 🔥 Call switchChannel which handles everything
   switchChannel(targetChannelId);
 
-  // 🔥 Force scroll to bottom after a slight delay
   setTimeout(() => {
-    messagesList.scrollTop = messagesList.scrollHeight;
+    waitForImagesBeforeScroll();
   }, 200);
 }
 
@@ -4684,6 +4949,27 @@ function subscribeToTyping() {
     .subscribe();
 }
 
+function subscribeToServerMemberships() {
+  if (serverMembershipSubscription) {
+    try { serverMembershipSubscription.unsubscribe(); } catch {}
+    serverMembershipSubscription = null;
+  }
+
+  if (!username) return;
+
+  serverMembershipSubscription = supabaseClient
+    .channel(`server-memberships-${username}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "server_members", filter: `username=eq.${username}` },
+      async () => {
+        console.log("🔄 Server membership changed, reloading server list");
+        await loadServers();
+      }
+    )
+    .subscribe();
+}
+
 // ======================== SERVER SYSTEM ========================
 
 function openModal(id) {
@@ -4745,7 +5031,8 @@ async function loadServers() {
   // Handle URL navigation or default server
   const urlParams = new URLSearchParams(window.location.search);
   const serverSlug = urlParams.get("server");
-  let target = serverSlug ? servers.find(s => s.slug === serverSlug) : null;
+  let target = currentServerId ? servers.find(s => s.id === currentServerId) : null;
+  if (!target && serverSlug) target = servers.find(s => s.slug === serverSlug);
   if (!target && servers.length > 0) target = servers[0];
 
   if (target) {
@@ -5340,7 +5627,8 @@ async function joinServer(codeOrUrl) {
     const { error: joinErr } = await supabaseClient.from("server_members").insert({
       server_id: invite.server_id,
       username,
-      role: "User"  // Set default role for joined members
+      role: "User",
+      primary_role_id: null
     });
     if (joinErr) return "❌ Failed to join: " + joinErr.message;
     await supabaseClient.from("server_invites")

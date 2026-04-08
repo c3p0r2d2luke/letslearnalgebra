@@ -965,6 +965,24 @@ li[data-pinned="true"] {
   flex: 0 1 auto;
 }
 
+#messageSearchToggle,
+#memberSearchToggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+#messageSearchToggle:hover,
+#memberSearchToggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
 #messageSearchInput,
 #memberSearchInput {
   width: 100%;
@@ -975,6 +993,10 @@ li[data-pinned="true"] {
   padding: 8px 10px;
   font-size: 12px;
   outline: none;
+}
+
+.search-input.hidden {
+  display: none;
 }
 
 #messageSearchInput {
@@ -1107,6 +1129,65 @@ li[data-pinned="true"] {
   min-width: 200px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.8);
   pointer-events: auto; /* Ensure it captures clicks */
+}
+
+#adminMenu.mobile-message-sheet {
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  max-height: min(70vh, calc(100vh - 16px)) !important;
+  padding: 16px !important;
+  border-radius: 18px !important;
+  overflow-y: auto;
+}
+
+.context-menu-sheet-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.context-menu-dropdown-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.context-menu-dropdown-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.context-menu-dropdown {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1c1d21;
+  color: #fff;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.context-menu-close {
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.context-menu-close:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* Ensure chat messages don't block the menu */
