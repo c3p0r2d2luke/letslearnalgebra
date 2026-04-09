@@ -124,16 +124,26 @@ function closeAllContextMenus() {
 });
 
 function getMessageMenuSections(messageId, author, anchorX, anchorY) {
+  const isDm = currentConversationType === "dm";
   const sections = [
     {
       title: "Quick Actions",
       items: [
         { label: "Reply", action: () => startReply(messageId) },
-        { label: "React", action: () => openEmojiPicker(messageId, anchorX + 10, anchorY + 10) },
-        { label: "Report", action: () => reportMessage(messageId) }
+        ...(!isDm ? [{ label: "React", action: () => openEmojiPicker(messageId, anchorX + 10, anchorY + 10) }] : []),
+        ...(!isDm ? [{ label: "Report", action: () => reportMessage(messageId) }] : [])
       ]
     }
   ];
+
+  if (isDm && author === username) {
+    sections.push({
+      title: "Message",
+      items: [
+        { label: "Delete My Message", action: () => deleteMessage(messageId) }
+      ]
+    });
+  }
 
   if (currentRole === "Manager" && author === username) {
     sections.push({
@@ -150,21 +160,21 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
         title: "Delete",
         items: [
           { label: "Delete", action: () => deleteMessage(messageId) },
-          { label: "Delete By Keyword", action: () => deleteKeyword() }
+          ...(!isDm ? [{ label: "Delete By Keyword", action: () => deleteKeyword() }] : [])
         ]
       },
       {
         title: "Info",
         items: [
           { label: "User Info", action: () => userInfo(author) },
-          { label: "Export Chat", action: () => exportChat() }
+          ...(!isDm ? [{ label: "Export Chat", action: () => exportChat() }] : [])
         ]
       },
       {
         title: "Edit",
         items: [
           { label: "Edit Message", action: () => editMessage(messageId) },
-          { label: "Pin / Unpin", action: () => pinMessage(messageId) },
+          ...(!isDm ? [{ label: "Pin / Unpin", action: () => pinMessage(messageId) }] : []),
           { label: "Change Name", action: () => changeName(author) },
           { label: "Promote / Demote", action: () => promote(author) },
           { label: "Give Custom Role", action: () => giveCustomRole(author) },
@@ -174,12 +184,12 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
           { label: "Force Logout", action: () => forceLogout(author) }
         ]
       },
-      {
+      ...(!isDm ? [{
         title: "Server",
         items: [
           { label: "Generate Invite Link", action: () => generateInvite() }
         ]
-      }
+      }] : [])
     );
   }
 
@@ -4477,8 +4487,10 @@ async function deleteMessage(messageId) {
 
   const li = messagesMap.get(Number(messageId));
   const author = li ? li.dataset.user : null;
+  const messageTable = currentConversationType === "dm" ? "dm_messages" : "messages";
+  const canDeleteOwnDmMessage = currentConversationType === "dm" && author === username;
 
-  if (!userPermissions.manage_roles && !(currentRole === "Manager" && author === username)) {
+  if (!userPermissions.manage_roles && !(currentRole === "Manager" && author === username) && !canDeleteOwnDmMessage) {
     alert("❌ Access Denied: You can only delete your own messages.");
     return;
   }
@@ -4486,7 +4498,7 @@ async function deleteMessage(messageId) {
   try {
     // 🧠 1. Get message FIRST (so we know if it has a file)
     const { data: msg, error: fetchError } = await supabaseClient
-      .from("messages")
+      .from(messageTable)
       .select("content")
       .eq("id", messageId)
       .maybeSingle();
@@ -4523,7 +4535,7 @@ async function deleteMessage(messageId) {
 
     // 🧨 5. Delete message from DB
     const { data, error } = await supabaseClient
-      .from("messages")
+      .from(messageTable)
       .delete()
       .eq("id", messageId)
       .select();
@@ -5291,8 +5303,8 @@ const uploadBtn = document.getElementById("uploadBtn");
 
 // Open file picker when upload button is clicked
 uploadBtn.addEventListener("click", () => {
-  const role = (currentRole || "").toLowerCase();
-  if (role !== "admin" && role !== "manager") {
+  const canUploadInChannel = userPermissions.manage_roles || ["SysManager", "SysAdmin"].includes(currentSystemRole);
+  if (currentConversationType === "channel" && !canUploadInChannel) {
     alert("❌ Only Managers and Admins can post images.");
     return;
   }
@@ -5347,17 +5359,25 @@ fileInput.addEventListener("change", async (e) => {
       content: messageContent,
       role: currentRole,
       is_pinned: false,
-      ip: "unknown", // You could fetch IP here if needed
-      channel_id: currentChannelId
+      ip: "unknown" // You could fetch IP here if needed
     };
 
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
 
-    const { error: insertError } = await supabaseClient
-      .from("messages")
-      .insert([messageData]);
+    let insertError = null;
+    if (currentConversationType === "dm") {
+      messageData.conversation_id = currentDmConversationId;
+      ({ error: insertError } = await supabaseClient
+        .from("dm_messages")
+        .insert([messageData]));
+    } else {
+      messageData.channel_id = currentChannelId;
+      ({ error: insertError } = await supabaseClient
+        .from("messages")
+        .insert([messageData]));
+    }
 
     if (insertError) throw insertError;
 
