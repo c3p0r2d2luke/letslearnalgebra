@@ -206,11 +206,11 @@ body {
 
 .server-mention-badge {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  right: 2px;
+  top: 2px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
   border-radius: 999px;
   background: #f23f43;
   color: white;
@@ -219,8 +219,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 3px solid var(--bg-secondary);
+  border: 2px solid var(--bg-secondary);
   line-height: 1;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
 .divider {

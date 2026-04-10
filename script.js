@@ -187,7 +187,8 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
       ...(!isDm ? [{
         title: "Server",
         items: [
-          { label: "Generate Invite Link", action: () => generateInvite() }
+          { label: "Generate Invite Link", action: () => generateInvite() },
+          ...(isServerOwner() ? [{ label: "Transfer Ownership", action: () => transferOwnership() }] : [])
         ]
       }] : [])
     );
@@ -1128,6 +1129,10 @@ function getMentionReadStorageKey() {
   return `serverMentionReadAt:${username || "guest"}`;
 }
 
+function getServerCheckpointKey() {
+  return `serverCheckpoint:${username || "guest"}`;
+}
+
 function readMentionReadMap() {
   try {
     return JSON.parse(localStorage.getItem(getMentionReadStorageKey()) || "{}");
@@ -1140,6 +1145,18 @@ function writeMentionReadMap(map) {
   localStorage.setItem(getMentionReadStorageKey(), JSON.stringify(map));
 }
 
+function readServerCheckpointMap() {
+  try {
+    return JSON.parse(localStorage.getItem(getServerCheckpointKey()) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeServerCheckpointMap(map) {
+  localStorage.setItem(getServerCheckpointKey(), JSON.stringify(map));
+}
+
 function markServerMentionsRead(serverId) {
   if (!serverId) return;
   const readMap = readMentionReadMap();
@@ -1149,8 +1166,30 @@ function markServerMentionsRead(serverId) {
   renderServerList();
 }
 
+function setServerCheckpoint(serverId) {
+  if (!serverId) return;
+  const checkpointMap = readServerCheckpointMap();
+  checkpointMap[serverId] = {
+    lastViewed: new Date().toISOString(),
+    messageId: null // Will be set when messages are loaded
+  };
+  writeServerCheckpointMap(checkpointMap);
+}
+
+function getServerCheckpoint(serverId) {
+  if (!serverId) return null;
+  const checkpointMap = readServerCheckpointMap();
+  return checkpointMap[serverId] || null;
+}
+
 function getServerMentionCount(serverId) {
   return unreadMentionCounts.get(serverId) || 0;
+}
+
+function isServerOwner() {
+  if (!currentServerId || !username) return false;
+  const server = servers.find(s => s.id === currentServerId);
+  return server?.owner_username === username;
 }
 
 async function loadChannelServerMap(serverIds = []) {
@@ -1178,6 +1217,7 @@ async function refreshUnreadMentionCounts() {
   await loadChannelServerMap(serverIds);
 
   const readMap = readMentionReadMap();
+  const checkpointMap = readServerCheckpointMap();
   unreadMentionCounts.clear();
 
   await Promise.all(serverIds.map(async (serverId) => {
@@ -1189,6 +1229,10 @@ async function refreshUnreadMentionCounts() {
       return;
     }
 
+    // Use checkpoint time if available, otherwise fall back to readMap
+    const checkpoint = checkpointMap[serverId];
+    const lastViewTime = checkpoint?.lastViewed || readMap[serverId];
+
     let query = supabaseClient
       .from("messages")
       .select("username, content, channel_id, inserted_at")
@@ -1197,8 +1241,8 @@ async function refreshUnreadMentionCounts() {
       .order("inserted_at", { ascending: false })
       .limit(200);
 
-    if (readMap[serverId]) {
-      query = query.gt("inserted_at", readMap[serverId]);
+    if (lastViewTime) {
+      query = query.gt("inserted_at", lastViewTime);
     }
 
     const { data, error } = await query;
@@ -1426,9 +1470,16 @@ function applyMentionSuggestion(itemOrValue) {
   const isEmoji = item.kind === "emoji";
   const context = isEmoji ? getEmojiContext() : getMentionContext();
   if (!context) return;
+  
+  // Get the current cursor position and text before/after
+  const cursor = input.selectionStart ?? input.value.length;
   const before = input.value.slice(0, context.start);
-  const after = input.value.slice(context.end);
-  const replacement = isEmoji ? item.insertText : `@${item.value} `;
+  const after = input.value.slice(cursor);
+  
+  // For mentions, we need to include the @ symbol in what we replace
+  // For emojis, we need to include the : symbol in what we replace
+  const replacement = isEmoji ? item.insertText : `${item.value} `;
+  
   input.value = `${before}${replacement}${after}`;
   const nextCursor = before.length + replacement.length;
   input.focus();
@@ -4868,12 +4919,13 @@ async function promote(author) {
     if (error) throw error;
 
     const currentUserRole = normalizeServerRole(data?.role || "User");
-    const newRole = prompt(`Current role for "${author}" in this server: ${currentUserRole}\n\nEnter new role (User / Manager / Admin / SysManager / SysAdmin):`);
+    const newRole = prompt(`Current role for "${author}" in this server: ${currentUserRole}\n\nEnter new role (User / Manager / Admin):`);
     if (!newRole) return;
 
+    const allowedRoles = ["User", "Manager", "Admin"];
     const trimmedRole = normalizeServerRole(newRole, "");
-    if (!trimmedRole || !SERVER_ROLE_LADDER.includes(trimmedRole)) {
-      alert('❌ Invalid role. Must be "User", "Manager", "Admin", "SysManager", or "SysAdmin".');
+    if (!trimmedRole || !allowedRoles.includes(trimmedRole)) {
+      alert('❌ Invalid role. Must be "User", "Manager", or "Admin".\n\nSysManager and SysAdmin roles can only be assigned from the database.');
       return;
     }
 
@@ -4890,6 +4942,96 @@ async function promote(author) {
   } catch (err) {
     console.error("promote failed", err);
     alert("❌ Failed: " + err.message);
+  }
+}
+
+// Transfer server ownership to another user
+async function transferOwnership() {
+  if (!isServerOwner()) {
+    alert("You must be the server owner to transfer ownership.");
+    return;
+  }
+
+  const server = servers.find(s => s.id === currentServerId);
+  if (!server) {
+    alert("Server not found.");
+    return;
+  }
+
+  const newOwner = prompt(`Transfer ownership of "${server.name}" to which username?`);
+  if (!newOwner) return;
+
+  const trimmedOwner = String(newOwner || "").trim();
+  if (!trimmedOwner) {
+    alert("Invalid username.");
+    return;
+  }
+
+  if (trimmedOwner.toLowerCase() === username.toLowerCase()) {
+    alert("You already own this server.");
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to transfer ownership of "${server.name}" to "${trimmedOwner}"?\n\nThis action cannot be undone!`)) {
+    return;
+  }
+
+  try {
+    // Check if the new owner exists
+    const { data: userExists, error: userError } = await supabaseClient
+      .from("users")
+      .select("username")
+      .eq("username", trimmedOwner)
+      .maybeSingle();
+
+    if (userError) throw userError;
+    if (!userExists) {
+      alert(`User "${trimmedOwner}" does not exist.`);
+      return;
+    }
+
+    // Ensure the new owner is a server member
+    const { data: memberData, error: memberError } = await supabaseClient
+      .from("server_members")
+      .select("id")
+      .eq("server_id", currentServerId)
+      .eq("username", trimmedOwner)
+      .maybeSingle();
+
+    if (memberError) throw memberError;
+    
+    if (!memberData) {
+      // Add the new owner as a server member
+      const { error: addMemberError } = await supabaseClient
+        .from("server_members")
+        .insert({
+          server_id: currentServerId,
+          username: trimmedOwner,
+          role: "Admin",
+          joined_at: new Date().toISOString()
+        });
+
+      if (addMemberError) throw addMemberError;
+    }
+
+    // Transfer ownership
+    const { error: transferError } = await supabaseClient
+      .from("servers")
+      .update({ owner_username: trimmedOwner })
+      .eq("id", currentServerId);
+
+    if (transferError) throw transferError;
+
+    // Update local server data
+    server.owner_username = trimmedOwner;
+    
+    alert(`Ownership of "${server.name}" has been transferred to "${trimmedOwner}".`);
+    
+    // Refresh server data
+    await loadServers();
+  } catch (err) {
+    console.error("transferOwnership failed", err);
+    alert("Failed to transfer ownership: " + err.message);
   }
 }
 
@@ -6106,10 +6248,16 @@ async function loadServers() {
         servers = data.map(d => d.servers).filter(Boolean);
       }
     }
+
+    // Ensure sysmanagers and sysadmins are added to all servers
+    if (profile?.sys_admin || profile?.sys_manager) {
+      await ensureSystemUserInAllServers(profile?.sys_admin, profile?.sys_manager);
+    }
   } catch (err) {
+    
     console.error("❌ loadServers error:", err);
   }
-
+  
   applyStoredServerOrder();
   renderServerList();
 
@@ -6131,6 +6279,10 @@ async function loadServers() {
 
 async function switchServer(serverId, updateUrl = true) {
   console.log("🔀 switchServer called with:", serverId);
+  // Set checkpoint for current server before switching
+  if (currentServerId && currentServerId !== serverId) {
+    setServerCheckpoint(currentServerId);
+  }
   markServerMentionsRead(serverId);
   currentConversationType = "channel";
   currentDmConversationId = null;
@@ -7058,11 +7210,15 @@ async function refreshServerRole() {
   if (!currentServerId || !username) return;
 
   if (currentSystemRole === "SysAdmin") {
-    currentRole = "SysAdmin";
-    loadUserPermissions("sysadmin");
+    // Ensure sysadmin is a member and admin in every server
+    await ensureSysAdminInServer(currentServerId);
+    currentRole = "Admin";
+    loadUserPermissions("admin");
   } else if (currentSystemRole === "SysManager") {
-    currentRole = "SysManager";
-    loadUserPermissions("sysmanager");
+    // Ensure sysmanager is a member in every server
+    await ensureSysManagerInServer(currentServerId);
+    currentRole = "Manager";
+    loadUserPermissions("manager");
   } else {
     const { data: memberData } = await supabaseClient
       .from("server_members")
@@ -7115,6 +7271,121 @@ function updateRoleUI() {
   if (createChannelBtn) createChannelBtn.style.display = userPermissions.manage_roles ? "inline-block" : "none";
   if (createCategoryBtnEl) createCategoryBtnEl.style.display = userPermissions.manage_roles ? "inline-block" : "none";
   setMemberListVisibility();
+}
+
+// Ensure sysadmin is added as admin to a server
+async function ensureSysAdminInServer(serverId) {
+  if (!serverId || !username) return;
+  
+  try {
+    // Check if already a member
+    const { data: existingMember } = await supabaseClient
+      .from("server_members")
+      .select("id, role")
+      .eq("server_id", serverId)
+      .eq("username", username)
+      .maybeSingle();
+
+    if (existingMember) {
+      // Update role to Admin if not already
+      if (existingMember.role !== "Admin") {
+        const { error: updateError } = await supabaseClient
+          .from("server_members")
+          .update({ role: "Admin" })
+          .eq("id", existingMember.id);
+        
+        if (updateError) throw updateError;
+        console.log(`Updated sysadmin role to Admin in server ${serverId}`);
+      }
+    } else {
+      // Add as new member with Admin role
+      const { error: insertError } = await supabaseClient
+        .from("server_members")
+        .insert({
+          server_id: serverId,
+          username: username,
+          role: "Admin",
+          joined_at: new Date().toISOString()
+        });
+      
+      if (insertError) throw insertError;
+      console.log(`Added sysadmin as Admin to server ${serverId}`);
+    }
+  } catch (error) {
+    console.error("Failed to ensure sysadmin in server:", error);
+  }
+}
+
+// Ensure sysmanager is added as member to a server
+async function ensureSysManagerInServer(serverId) {
+  if (!serverId || !username) return;
+  
+  try {
+    // Check if already a member
+    const { data: existingMember } = await supabaseClient
+      .from("server_members")
+      .select("id")
+      .eq("server_id", serverId)
+      .eq("username", username)
+      .maybeSingle();
+
+    if (!existingMember) {
+      // Add as new member with User role (sysmanagers get access via system role)
+      const { error: insertError } = await supabaseClient
+        .from("server_members")
+        .insert({
+          server_id: serverId,
+          username: username,
+          role: "User",
+          joined_at: new Date().toISOString()
+        });
+      
+      if (insertError) throw insertError;
+      console.log(`Added sysmanager as member to server ${serverId}`);
+    }
+  } catch (error) {
+    console.error("Failed to ensure sysmanager in server:", error);
+  }
+}
+
+// Ensure system user is added to all servers
+async function ensureSystemUserInAllServers(isSysAdmin, isSysManager) {
+  if (!username || (!isSysAdmin && !isSysManager)) return;
+  
+  try {
+    // Get all servers
+    const { data: allServers, error: serversError } = await supabaseClient
+      .from("servers")
+      .select("id, name");
+    
+    if (serversError) throw serversError;
+    if (!allServers || allServers.length === 0) return;
+
+    console.log(`Ensuring system user access to ${allServers.length} servers...`);
+    
+    // Process servers in batches to avoid overwhelming the database
+    const batchSize = 10;
+    for (let i = 0; i < allServers.length; i += batchSize) {
+      const batch = allServers.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (server) => {
+        if (isSysAdmin) {
+          await ensureSysAdminInServer(server.id);
+        } else if (isSysManager) {
+          await ensureSysManagerInServer(server.id);
+        }
+      }));
+      
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < allServers.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    console.log(`System user access ensured for all servers`);
+  } catch (error) {
+    console.error("Failed to ensure system user in all servers:", error);
+  }
 }
 
 // ======================== GIF / IMAGE URL RESOLVER ========================
