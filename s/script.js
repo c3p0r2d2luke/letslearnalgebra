@@ -54,6 +54,11 @@ function setPreviewCache(url, data) {
 
 const SERVER_ROLE_LADDER = ["User", "Manager", "Admin", "SysManager", "SysAdmin"];
 
+const BAD_WORDS = [
+  'bad', 'damn', 'hell', 'shit', 'fuck', 'bitch', 'asshole', 
+  'bastard', 'crap', 'piss', 'dick', 'cock', 'pussy', 'twat'
+];
+
 function normalizeServerRole(roleName, fallback = "User") {
   const raw = String(roleName || "").trim().toLowerCase();
   if (!raw) return fallback;
@@ -3365,6 +3370,13 @@ function isUserBlockedOrMutedSync() {
 }
 
 // ------------------------ Send Message ------------------------
+function censorContent(text) {
+  return BAD_WORDS.reduce((content, word) => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    return content.replace(regex, '*'.repeat(word.length));
+  }, text);
+}
+
 async function sendMessage() {
   if (currentConversationType === "channel" && !userPermissions.send_messages) {
     alert("❌ You don't have permission to send messages.");
@@ -3372,6 +3384,7 @@ async function sendMessage() {
   }
 
   let content = input.value.trim();
+  content = censorContent(content);
   if (!content || !username) return;
 
 if (isUserBlockedOrMutedSync()) {
