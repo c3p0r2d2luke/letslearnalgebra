@@ -4889,37 +4889,8 @@ async function exportChat() {
   }
 }
 
-// Change a user's display name
-async function changeName(author) {
-  const newName = prompt(`Change name for "${author}" to:`);
-  if (!newName || newName.trim() === author) return;
-  const trimmed = newName.trim();
 
-  if (!confirm(`Rename "${author}" to "${trimmed}"?`)) return;
 
-  try {
-    const { error: userError } = await supabaseClient
-      .from("users")
-      .update({ username: trimmed })
-      .eq("username", author);
-
-    if (userError) throw userError;
-
-    const { error: msgError } = await supabaseClient
-      .from("messages")
-      .update({ username: trimmed })
-      .eq("username", author);
-
-    if (msgError) throw msgError;
-
-    alert(`✅ Renamed "${author}" to "${trimmed}".`);
-  } catch (err) {
-    console.error("changeName failed", err);
-    alert("❌ Failed: " + err.message);
-  }
-}
-
-// Promote or demote a user
 async function promote(author) {
   try {
     const { data, error } = await supabaseClient
