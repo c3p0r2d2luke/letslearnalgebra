@@ -56,7 +56,8 @@ const SERVER_ROLE_LADDER = ["User", "Manager", "Admin", "SysManager", "SysAdmin"
 
 const BAD_WORDS = [
   'bad', 'damn', 'hell', 'shit', 'fuck', 'bitch', 'asshole', 
-  'bastard', 'crap', 'piss', 'dick', 'cock', 'pussy', 'twat'
+  'bastard', 'crap', 'piss', 'dick', 'cock', 'pussy', 'twat',
+  'fucking', 'pissing'
 ];
 
 function normalizeServerRole(roleName, fallback = "User") {
@@ -3559,7 +3560,7 @@ function renderMessage(msg) {
   } else {
     messagesList.appendChild(li);
   }
-  
+    
   messagesMap.set(msg.id, li);
   messageDataMap.set(msg.id, msg);
   applyMessageSearchFilter();
@@ -3567,6 +3568,7 @@ function renderMessage(msg) {
   // Only auto-scroll if user is already near bottom
   const isNearBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight < 150;
   if (isNearBottom) scrollToBottom();
+
 }
 
 function createMessageElement(msg) {
