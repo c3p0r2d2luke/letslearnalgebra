@@ -1522,18 +1522,19 @@ function applyMentionSuggestion(itemOrValue) {
   const item = typeof itemOrValue === "object"
     ? itemOrValue
     : { kind: activeSuggestionMode || "mention", value: itemOrValue };
+  
   const isEmoji = item.kind === "emoji";
-  const context = isEmoji ? getEmojiContext() : getMentionContext();
+  const isChannel = item.kind === "channel";
+  
+  const context = isEmoji ? getEmojiContext() : (isChannel ? getChannelContext() : getMentionContext());
   if (!context) return;
   
-  // Get the current cursor position and text before/after
   const cursor = input.selectionStart ?? input.value.length;
   const before = input.value.slice(0, context.start);
   const after = input.value.slice(cursor);
   
-  // For mentions, we need to include the @ symbol in what we replace
-  // For emojis, we need to include the : symbol in what we replace
-  const replacement = isEmoji ? item.insertText : `${item.value} `;
+  // For channels, we want to insert #name and a space
+  const replacement = isChannel ? `#${item.value} ` : (isEmoji ? item.insertText : `${item.value} `);
   
   input.value = `${before}${replacement}${after}`;
   const nextCursor = before.length + replacement.length;
@@ -8157,31 +8158,6 @@ function getChannelContext() {
     start: cursor - match[2].length - 1,
     end: cursor
   };
-}
-
-function applyMentionSuggestion(itemOrValue) {
-  const item = typeof itemOrValue === "object"
-    ? itemOrValue
-    : { kind: activeSuggestionMode || "mention", value: itemOrValue };
-  
-  const isEmoji = item.kind === "emoji";
-  const isChannel = item.kind === "channel";
-  
-  const context = isEmoji ? getEmojiContext() : (isChannel ? getChannelContext() : getMentionContext());
-  if (!context) return;
-  
-  const cursor = input.selectionStart ?? input.value.length;
-  const before = input.value.slice(0, context.start);
-  const after = input.value.slice(cursor);
-  
-  // For channels, we want to insert #name and a space
-  const replacement = isChannel ? `#${item.value} ` : (isEmoji ? item.insertText : `${item.value} `);
-  
-  input.value = `${before}${replacement}${after}`;
-  const nextCursor = before.length + replacement.length;
-  input.focus();
-  input.setSelectionRange(nextCursor, nextCursor);
-  hideMentionSuggestions();
 }
 
 // --- Channel Mention Click Handler ---
