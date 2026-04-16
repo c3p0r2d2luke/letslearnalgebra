@@ -1411,10 +1411,24 @@ function renderMentionSuggestions(items) {
     const buttonEl = document.createElement("button");
     buttonEl.type = "button";
     buttonEl.className = `mention-suggestion-item${index === mentionSelectedIndex ? " active" : ""}`;
+    
+    // Differentiate rendering for channels vs users
+    let previewHtml = "";
+    if (item.kind === "channel") {
+      // Simple hash icon for channels
+      previewHtml = `<span style="font-size:18px; margin-right:8px; color:#b9bbbe;">#</span>`;
+    } else if (item.kind === "emoji") {
+      previewHtml = renderEmojiSuggestionPreview(item);
+    }
+    
     buttonEl.innerHTML = `
-      <div class="mention-suggestion-main">${renderEmojiSuggestionPreview(item)}${escapeHTML(item.label)}</div>
+      <div class="mention-suggestion-main">
+        ${previewHtml}
+        ${escapeHTML(item.label)}
+      </div>
       <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
     `;
+    
     buttonEl.addEventListener("mousedown", (event) => {
       event.preventDefault();
       applyMentionSuggestion(item);
@@ -1428,19 +1442,24 @@ function renderMentionSuggestions(items) {
 
 async function updateMentionSuggestions() {
   const context = getMentionContext();
+  
+  // --- MENTION HANDLING ---
   if (context) {
     activeSuggestionMode = "mention";
     const mentionCandidates = await getMentionCandidates();
     const normalizedQuery = normalizeSearchValue(context.query);
+    
+    // Base items (@everyone, @here)
     const baseItems = canMentionEveryone()
       ? [
           { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
           { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
         ]
       : [];
+
+    // Filter users
     const userItems = mentionCandidates
       .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
-      .slice(0, 8)
       .map(candidate => ({
         kind: "mention",
         value: candidate.username,
@@ -1448,15 +1467,45 @@ async function updateMentionSuggestions() {
         meta: candidate.role || "Member"
       }));
 
-    const items = [...baseItems, ...userItems].filter((item, index, arr) => {
-      if (normalizedQuery && !item.value.toLowerCase().includes(normalizedQuery)) return false;
-      return arr.findIndex(other => other.value.toLowerCase() === item.value.toLowerCase()) === index;
-    }).slice(0, 8);
+    // Combine and deduplicate
+    const allItems = [...baseItems, ...userItems];
+    const seen = new Set();
+    const uniqueItems = allItems.filter(item => {
+      const key = item.value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8); // Limit to 8 results
 
-    renderMentionSuggestions(items);
+    renderMentionSuggestions(uniqueItems);
     return;
   }
 
+  // --- CHANNEL HANDLING (NEW) ---
+  const channelContext = getChannelContext();
+  if (channelContext) {
+    activeSuggestionMode = "channel";
+    const normalizedQuery = normalizeSearchValue(channelContext.query);
+    
+    // Get all channels in current server
+    const serverChannels = channels.filter(ch => ch.server_id === currentServerId);
+    
+    const channelItems = serverChannels
+      .filter(ch => !normalizedQuery || String(ch.name).toLowerCase().includes(normalizedQuery))
+      .slice(0, 8)
+      .map(ch => ({
+        kind: "channel",
+        value: ch.name,
+        label: `#${ch.name}`,
+        meta: "Channel",
+        id: ch.id // Store ID for switching
+      }));
+
+    renderMentionSuggestions(channelItems);
+    return;
+  }
+
+  // --- EMOJI HANDLING ---
   const emojiContext = getEmojiContext();
   if (!emojiContext) {
     hideMentionSuggestions();
@@ -8096,3 +8145,64 @@ document.addEventListener("click", (e) => {
     // alert(`Channel #${channelName} not found in this server.`);
   }
 });
+
+function getChannelContext() {
+  const cursor = input.selectionStart ?? input.value.length;
+  const beforeCursor = input.value.slice(0, cursor);
+  // Matches # followed by alphanumeric/underscore/hyphen at the end of the string
+  const match = beforeCursor.match(/(^|\s)#([a-zA-Z0-9_-]*)$/);
+  if (!match) return null;
+  return {
+    query: match[2] || "",
+    start: cursor - match[2].length - 1,
+    end: cursor
+  };
+}
+
+function applyMentionSuggestion(itemOrValue) {
+  const item = typeof itemOrValue === "object"
+    ? itemOrValue
+    : { kind: activeSuggestionMode || "mention", value: itemOrValue };
+  
+  const isEmoji = item.kind === "emoji";
+  const isChannel = item.kind === "channel";
+  
+  const context = isEmoji ? getEmojiContext() : (isChannel ? getChannelContext() : getMentionContext());
+  if (!context) return;
+  
+  const cursor = input.selectionStart ?? input.value.length;
+  const before = input.value.slice(0, context.start);
+  const after = input.value.slice(cursor);
+  
+  // For channels, we want to insert #name and a space
+  const replacement = isChannel ? `#${item.value} ` : (isEmoji ? item.insertText : `${item.value} `);
+  
+  input.value = `${before}${replacement}${after}`;
+  const nextCursor = before.length + replacement.length;
+  input.focus();
+  input.setSelectionRange(nextCursor, nextCursor);
+  hideMentionSuggestions();
+}
+
+// --- Channel Mention Click Handler ---
+document.addEventListener("click", (e) => {
+  const channelMention = e.target.closest(".channel-mention");
+  if (!channelMention) return;
+
+  const channelName = channelMention.dataset.channel;
+  if (!channelName || !currentServerId) return;
+
+  // Find the channel in the current server
+  const targetChannel = channels.find(c => c.name.toLowerCase() === channelName.toLowerCase());
+  
+  if (targetChannel) {
+    e.preventDefault();
+    e.stopPropagation();
+    switchChannel(targetChannel.id);
+    if (window.innerWidth <= 768) closeSidebar();
+  } else {
+    // Optional: Alert if channel not found
+    // alert(`Channel #${channelName} not found in this server.`);
+  }
+});
+
