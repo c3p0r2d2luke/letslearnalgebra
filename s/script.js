@@ -82,6 +82,9 @@ let memberSearchTerm = "";
 let mentionSuggestionItems = [];
 let mentionSelectedIndex = 0;
 let activeSuggestionMode = null;
+let userProfileModal = null;
+let currentProfileUsername = null;
+let currentProfileServerId = null; // Null if global profile
 
 input.addEventListener("input", () => {
   sendTyping(true);
@@ -739,7 +742,7 @@ function setAvatarUrl(usernameValue, url) {
   avatarUrlByUsername.set(String(usernameValue).toLowerCase(), url || "");
   if (String(usernameValue).toLowerCase() === String(username || "").toLowerCase()) {
     currentUserAvatarUrl = url || "";
-    updateCurrentAvatarButton();
+    updateProfileButton();
   }
 }
 
@@ -795,29 +798,33 @@ function buildAvatarElement(usernameValue, className) {
   return avatar;
 }
 
-function updateCurrentAvatarButton() {
-  if (!changeAvatarBtn) return;
+function updateProfileButton() {
+  const btn = document.getElementById("profileBtn");
+  if (!btn) return;
+
   const displayLabel = getEffectiveDisplayName(username);
   const avatarUrl = getEffectiveAvatarUrl(username) || currentUserAvatarUrl || getAvatarUrl(username);
-  changeAvatarBtn.innerHTML = "";
+  
+  // Reset
+  btn.innerHTML = "";
+  btn.classList.remove("has-image");
+  
   const fallback = document.createElement("span");
   fallback.className = "avatar-fallback";
   fallback.textContent = getInitials(displayLabel);
-  changeAvatarBtn.appendChild(fallback);
+  btn.appendChild(fallback);
 
   if (avatarUrl) {
     const img = document.createElement("img");
     img.className = "avatar-image";
     img.alt = `${displayLabel} avatar`;
     img.src = avatarUrl;
-    img.onload = () => changeAvatarBtn.classList.add("has-image");
+    img.onload = () => btn.classList.add("has-image");
     img.onerror = () => {
       img.remove();
-      changeAvatarBtn.classList.remove("has-image");
+      btn.classList.remove("has-image");
     };
-    changeAvatarBtn.appendChild(img);
-  } else {
-    changeAvatarBtn.classList.remove("has-image");
+    btn.appendChild(img);
   }
 }
 
@@ -953,7 +960,7 @@ async function uploadServerProfileAvatar(file, serverId, targetUsername) {
     ...existing,
     avatar_url: result.avatarUrl
   });
-  updateCurrentAvatarButton();
+  updateProfileButton();
   return result;
 }
 
@@ -3277,7 +3284,7 @@ async function loadUser() {
 
   input.disabled = false;
   button.disabled = false;
-  updateCurrentAvatarButton();
+  updateProfileButton();
 
   // 3. Fetch sys role, blocked, and muted status from DB (new schema uses boolean flags)
   try {
@@ -3698,10 +3705,16 @@ function createMessageElement(msg) {
   }
 
   // Header Row
-  const header = document.createElement("div");
-  header.className = "username";
-  header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
-  body.appendChild(header);
+// Inside createMessageElement, after creating the header:
+const header = document.createElement("div");
+header.className = "username";
+header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
+header.style.cursor = "pointer";
+header.addEventListener("click", (e) => {
+  e.stopPropagation();
+  openUserProfile(msg.username, currentServerId);
+});
+body.appendChild(header);
 
   // Content Row
   const contentDiv = document.createElement("div");
@@ -3909,8 +3922,20 @@ input.addEventListener("blur", () => {
   setTimeout(() => hideMentionSuggestions(), 120);
 });
 
-if (changeAvatarBtn && avatarInput) {
-  changeAvatarBtn.addEventListener("click", () => avatarInput.click());
+if (profileBtn) {
+  profileBtn.addEventListener("click", () => {
+    // Open profile modal for current user in current server
+    if (username && currentServerId) {
+      openUserProfile(username, currentServerId);
+    } else if (username) {
+      // Fallback if no server selected (global profile)
+      openUserProfile(username, null);
+    }
+  });
+}
+
+// Keep the file input listener for when the user clicks the avatar IN the modal
+if (avatarInput) {
   avatarInput.addEventListener("change", async () => {
     await changeMyAvatar();
     avatarInput.value = "";
@@ -6895,6 +6920,22 @@ function renderMemberList() {
         };
       }
       fragment.appendChild(item);
+      // Inside renderMemberList, inside the forEach loop:
+item.addEventListener("click", async () => {
+  if (m.username === username) {
+    // Clicking own name opens profile
+    openUserProfile(m.username, currentServerId);
+  } else {
+    // Clicking others opens DM (existing logic)
+    try {
+      const conversationId = await ensureDirectConversation(m.username);
+      await loadDirectConversations();
+      await openDirectConversation(conversationId);
+    } catch (dmError) {
+      console.error("❌ Failed to open DM:", dmError);
+    }
+  }
+});
     });
   };
 
@@ -8191,3 +8232,244 @@ document.addEventListener("click", (e) => {
   }
 });
 
+function getProfileData(usernameVal, serverId = null) {
+  if (serverId) {
+    // Return server-specific profile
+    return getServerProfileData(serverId, usernameVal) || {
+      display_name: usernameVal,
+      avatar_url: getAvatarUrl(usernameVal),
+      description: ""
+    };
+  }
+  // Return global profile
+  return {
+    display_name: usernameVal,
+    avatar_url: getAvatarUrl(usernameVal),
+    description: "" // You might want to fetch this from 'users' table if you add a column
+  };
+}
+
+async function fetchUserProfile(usernameVal, serverId = null) {
+  if (serverId) {
+    // Fetch server member profile
+    const { data, error } = await supabaseClient
+      .from("server_members")
+      .select("profile_display_name, profile_avatar_url, profile_description") // Added description
+      .eq("server_id", serverId)
+      .eq("username", usernameVal)
+      .maybeSingle();
+    
+    if (error) {
+      console.warn("Profile fetch error:", error);
+      return getProfileData(usernameVal, serverId);
+    }
+    return {
+      display_name: data?.profile_display_name || usernameVal,
+      avatar_url: data?.profile_avatar_url || getAvatarUrl(usernameVal),
+      description: data?.profile_description || "" // Added description
+    };
+  } else {
+    // Fallback for global (optional)
+    return {
+      display_name: usernameVal,
+      avatar_url: getAvatarUrl(usernameVal),
+      description: ""
+    };
+  }
+}
+
+async function openUserProfile(usernameVal, serverId = null) {
+  if (!usernameVal) return;
+  
+  currentProfileUsername = usernameVal;
+  currentProfileServerId = serverId;
+  
+  const modal = document.getElementById("userProfileModal");
+  if (!modal) return;
+
+  // Show loading state
+  document.getElementById("profileDisplayName").textContent = "Loading...";
+  document.getElementById("profileDescription").textContent = "";
+  
+  // Fetch data
+  const profile = await fetchUserProfile(usernameVal, serverId);
+  
+  // Update UI
+  document.getElementById("profileDisplayName").textContent = profile.display_name;
+  document.getElementById("profileUsername").textContent = `@${usernameVal}`;
+  
+  // Handle Bio
+  const descEl = document.getElementById("profileDescription");
+  descEl.textContent = profile.description || "No bio yet.";
+  descEl.style.cursor = "pointer";
+  descEl.title = "Click to edit bio";
+  
+  // Add click listener to bio for editing (only if it's the current user)
+  if (usernameVal === username && serverId === currentServerId) {
+    descEl.onclick = () => enableBioEdit(profile.description || "");
+  } else {
+    descEl.onclick = null;
+  }
+  
+  // Update Avatar
+  const avatarImg = document.getElementById("profileAvatarImage");
+  const avatarFallback = document.getElementById("profileAvatarFallback");
+  const avatarContainer = document.getElementById("profileAvatarContainer");
+  
+  avatarImg.style.display = "none";
+  avatarFallback.style.display = "flex";
+  
+  if (profile.avatar_url) {
+    avatarImg.src = profile.avatar_url;
+    avatarImg.style.display = "block";
+    avatarFallback.style.display = "none";
+  } else {
+    avatarFallback.textContent = getInitials(usernameVal);
+  }
+
+  // Show "Edit Profile" button only if it's the current user (for name/avatar)
+  const editBtn = document.getElementById("profileEditBtn");
+  if (usernameVal === username && serverId === currentServerId) {
+    editBtn.style.display = "block";
+    editBtn.textContent = "Edit Name & Avatar";
+  } else {
+    editBtn.style.display = "none";
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeUserProfile() {
+  const modal = document.getElementById("userProfileModal");
+  if (modal) modal.style.display = "none";
+}
+
+// --- Profile Modal Listeners ---
+const profileModal = document.getElementById("userProfileModal");
+if (profileModal) {
+  // Close on X or Close button
+  document.getElementById("profileCloseBtn").addEventListener("click", closeUserProfile);
+  
+  // Close on clicking outside
+  profileModal.addEventListener("click", (e) => {
+    if (e.target === profileModal) closeUserProfile();
+  });
+
+  // Avatar Click (Upload)
+  document.getElementById("profileAvatarContainer").addEventListener("click", async () => {
+    // Only allow upload if it's the current user
+    if (currentProfileUsername !== username) return;
+    
+    // Trigger the existing avatar upload logic
+    const fileInput = document.getElementById("avatarInput");
+    if (fileInput) {
+      fileInput.click();
+    }
+  });
+
+  // Edit Button Click
+  document.getElementById("profileEditBtn").addEventListener("click", async () => {
+    if (currentProfileUsername !== username) return;
+    
+    // Reuse existing edit profile logic
+    await editMyServerProfile();
+    // Refresh modal data after edit
+    openUserProfile(username, currentServerId);
+  });
+}
+
+// --- Click Handlers for Usernames ---
+// Add this to your existing click handlers for usernames in messages/member list
+
+// 1. In createMessageElement (or wherever you render usernames)
+// Ensure the username span has a click handler
+// Example modification in createMessageElement:
+// const header = document.createElement("div");
+// header.className = "username";
+// header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
+// header.style.cursor = "pointer"; // Add cursor
+// header.addEventListener("click", (e) => {
+//   e.stopPropagation();
+//   openUserProfile(msg.username, currentServerId);
+// });
+
+// 2. In renderMemberList (for member list items)
+// Modify the item creation:
+// item.addEventListener("click", async () => {
+//   if (m.username === username) {
+//     // If clicking own name in member list, open profile
+//     openUserProfile(m.username, currentServerId);
+//   } else {
+//     // Existing DM logic
+//     const conversationId = await ensureDirectConversation(m.username);
+//     await loadDirectConversations();
+//     await openDirectConversation(conversationId);
+//   }
+// });
+
+function enableBioEdit(currentBio) {
+  const descEl = document.getElementById("profileDescription");
+  if (!descEl) return;
+
+  // Create textarea
+  const textarea = document.createElement("textarea");
+  textarea.className = "bio-edit-area";
+  textarea.value = currentBio;
+  textarea.placeholder = "Write your bio...";
+  
+  // Create buttons
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "bio-save-btn";
+  saveBtn.textContent = "Save Bio";
+  
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "bio-cancel-btn";
+  cancelBtn.textContent = "Cancel";
+
+  // Replace content
+  descEl.innerHTML = "";
+  descEl.appendChild(textarea);
+  descEl.appendChild(saveBtn);
+  descEl.appendChild(cancelBtn);
+  
+  textarea.focus();
+
+  // Save Handler
+  saveBtn.onclick = async () => {
+    const newBio = textarea.value.trim();
+    if (!currentServerId || !username) return;
+
+    const { error } = await supabaseClient
+      .from("server_members")
+      .update({ profile_description: newBio })
+      .eq("server_id", currentServerId)
+      .eq("username", username);
+
+    if (error) {
+      alert("❌ Failed to save bio: " + error.message);
+      return;
+    }
+
+    // Update local cache
+    const existing = getServerProfileData(currentServerId, username) || {};
+    setServerProfileData(currentServerId, username, {
+      ...existing,
+      description: newBio
+    });
+
+    // Re-render modal
+    openUserProfile(username, currentServerId);
+  };
+
+  // Cancel Handler
+  cancelBtn.onclick = () => {
+    openUserProfile(username, currentServerId);
+  };
+  
+  // Save on Ctrl+Enter
+  textarea.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.key === "Enter") {
+      saveBtn.click();
+    }
+  });
+}
