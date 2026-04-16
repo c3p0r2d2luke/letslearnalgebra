@@ -2866,3 +2866,43 @@ li.sysadmin .username {
 li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
   color: #fff;
 }
+
+/* SERVER CONTEXT MENU */
+#serverMenu {
+  display: none;
+  position: fixed;
+  background: #2f3136;
+  border: 1px solid #444;
+  padding: 4px;
+  z-index: 99999;
+  min-width: 180px;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+  pointer-events: auto;
+}
+
+#serverMenu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  border-radius: 3px;
+  margin-bottom: 2px;
+}
+
+#serverMenu button:hover {
+  background: #40444b;
+}
+
+#serverMenu button.danger {
+  color: #ed4245;
+}
+
+#serverMenu button.danger:hover {
+  background: rgba(237, 66, 69, 0.15);
+}

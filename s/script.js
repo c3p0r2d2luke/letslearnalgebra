@@ -3388,10 +3388,10 @@ async function sendMessage() {
   content = censorContent(content);
   if (!content || !username) return;
 
-if (isUserBlockedOrMutedSync()) {
-  alert("❌ You cannot send messages.");
-  return;
-}
+  if (isUserBlockedOrMutedSync()) {
+    alert("❌ You cannot send messages.");
+    return;
+  }
 
   if (currentConversationType === "channel" && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
@@ -3403,12 +3403,37 @@ if (isUserBlockedOrMutedSync()) {
     return;
   }
 
+  // --- ROBUST IP LOGGING START ---
   let ip = "unknown";
   try {
-    const res = await fetch("https://api.ipify.org?format=json");
+    // Use a timeout to prevent hanging if the API is slow
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+    const res = await fetch("https://api.ipify.org?format=json", { 
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    
     const data = await res.json();
     ip = data.ip || "unknown";
-  } catch {}
+    
+    // Update the user's profile in the database with the latest IP
+    // This ensures the IP is always current in the 'users' table
+    await supabaseClient
+      .from("users")
+      .update({ ip: ip })
+      .eq("username", username);
+
+  } catch (err) {
+    console.warn("⚠️ Failed to fetch IP (non-critical):", err.message);
+    // If fetch fails, we still proceed with "unknown" so the message sends
+    ip = "unknown"; 
+  }
+  // --- ROBUST IP LOGGING END ---
 
   try {
     const messageData = {
@@ -3416,8 +3441,9 @@ if (isUserBlockedOrMutedSync()) {
       content,
       role: currentRole,
       is_pinned: false,
-      ip
+      ip: ip // Include IP in the message object if your schema allows, or rely on the user table update above
     };
+    
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
@@ -3434,16 +3460,15 @@ if (isUserBlockedOrMutedSync()) {
     if (!error) {
       input.value = "";
       hideMentionSuggestions();
-      console.log("✅ Message sent to Supabase");
+      console.log("✅ Message sent to Supabase (IP: " + ip + ")");
 
-    // 🔥 ADD THIS - Scroll to bottom after sending
-    setTimeout(() => {
-      messagesList.scrollTop = messagesList.scrollHeight;
-    }, 100);
+      setTimeout(() => {
+        messagesList.scrollTop = messagesList.scrollHeight;
+      }, 100);
 
       if (replyingTo) {
-  clearReply();
-}
+        clearReply();
+      }
 
       const isImportant = currentConversationType === "channel" && userPermissions.manage_roles && content.includes("!important!");
       if (isImportant) {
@@ -3461,7 +3486,6 @@ if (isUserBlockedOrMutedSync()) {
       } else {
         await loadDirectConversations();
       }
-
     }
   } catch (e) {
     console.error("❌ Failed to send message", e);
@@ -7471,4 +7495,418 @@ if (createChannelBtn) {
   createChannelBtn.addEventListener("click", () => {
     openInlineRow("channel-create", "", null);
   });
+}
+
+// ======================== SERVER CONTEXT MENU ========================
+
+function showServerContextMenu(x, y, serverId) {
+  const menu = document.getElementById("serverMenu");
+  if (!menu) return;
+
+  // 1. Close all other menus first
+  closeAllContextMenus();
+
+  // 2. Get server data
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  // 3. Determine permissions
+  const isOwner = server.owner_username === username;
+  const isSysAdmin = currentSystemRole === "SysAdmin";
+  const canManage = isOwner || isSysAdmin;
+  const canLeave = !isOwner; // Owners can't "leave" their own server usually, they transfer/delete
+
+  menu.innerHTML = "";
+
+  // --- Management Options (Owner/SysAdmin only) ---
+  if (canManage) {
+    const addOption = (label, action, isDanger = false) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      if (isDanger) btn.classList.add("danger");
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        menu.style.display = "none";
+        action();
+      };
+      menu.appendChild(btn);
+    };
+
+    addOption("Edit Server Name", () => editServerSetting(serverId, "name"));
+    addOption("Edit Server Slug", () => editServerSetting(serverId, "slug"));
+    addOption("Change Icon", () => editServerIcon(serverId));
+    
+    // Separator
+    const sep = document.createElement("div");
+    sep.style.height = "1px";
+    sep.style.background = "#444";
+    sep.style.margin = "4px 0";
+    menu.appendChild(sep);
+
+    addOption("Delete Server", () => deleteServer(serverId), true);
+  }
+
+  // --- Leave Option (Non-owners) ---
+  if (canLeave) {
+    const btn = document.createElement("button");
+    btn.textContent = "Leave Server";
+    btn.classList.add("danger");
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      menu.style.display = "none";
+      leaveServer(serverId);
+    };
+    menu.appendChild(btn);
+  }
+
+  // 4. Position Menu
+  menu.style.display = "block";
+  
+  // Boundary checks
+  const menuRect = menu.getBoundingClientRect();
+  let left = x + 10;
+  let top = y + 10;
+
+  if (left + menuRect.width > window.innerWidth) left = x - menuRect.width - 10;
+  if (top + menuRect.height > window.innerHeight) top = y - menuRect.height - 10;
+  
+  menu.style.left = `${Math.max(10, left)}px`;
+  menu.style.top = `${Math.max(10, top)}px`;
+}
+
+// Attach listener to server icons
+document.addEventListener("DOMContentLoaded", () => {
+  const serverList = document.getElementById("serverList");
+  if (serverList) {
+    serverList.addEventListener("contextmenu", (e) => {
+      const icon = e.target.closest(".server-icon[data-server-id]");
+      if (!icon) return;
+      
+      e.preventDefault();
+      const serverId = icon.dataset.serverId;
+      showServerContextMenu(e.clientX, e.clientY, serverId);
+    });
+  }
+});
+
+// --- Action Handlers ---
+
+async function editServerSetting(serverId, field) {
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  let promptText = "";
+  let currentValue = "";
+
+  if (field === "name") {
+    promptText = "Enter new server name:";
+    currentValue = server.name;
+  } else if (field === "slug") {
+    promptText = "Enter new URL slug (letters, numbers, hyphens):";
+    currentValue = server.slug;
+  }
+
+  const newValue = prompt(promptText, currentValue);
+  if (newValue === null || newValue.trim() === "") return;
+
+  const trimmed = newValue.trim();
+
+  // Validation for slug
+  if (field === "slug" && !/^[a-z0-9-]+$/.test(trimmed)) {
+    alert("❌ Slug must contain only lowercase letters, numbers, and hyphens.");
+    return;
+  }
+
+  try {
+    const updateData = field === "name" ? { name: trimmed } : { slug: trimmed };
+    
+    const { error } = await supabaseClient
+      .from("servers")
+      .update(updateData)
+      .eq("id", serverId);
+
+    if (error) throw error;
+
+    // Update local state
+    server[field] = trimmed;
+    if (field === "name" && serverId === currentServerId) {
+      document.getElementById("serverNameDisplay").textContent = trimmed;
+    }
+    renderServerList(); // Re-render to update tooltip/title
+    
+    alert(`✅ Server ${field} updated.`);
+  } catch (err) {
+    console.error("Update failed:", err);
+    alert("❌ Failed to update: " + err.message);
+  }
+}
+
+async function editServerIcon(serverId) {
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  // Create a temporary file input
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("❌ Icon must be under 5MB.");
+      return;
+    }
+
+    const uploadBtn = document.getElementById("uploadBtn");
+    if (uploadBtn) {
+      uploadBtn.textContent = "⏳";
+      uploadBtn.disabled = true;
+    }
+
+    try {
+      const timestamp = Date.now();
+      const fileName = `server-icons/${timestamp}_${file.name.replace(/\s+/g, "_")}`;
+
+      const { error: uploadError } = await supabaseClient.storage
+        .from("chat-files")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabaseClient.storage
+        .from("chat-files")
+        .getPublicUrl(fileName);
+
+      const newIconUrl = urlData.publicUrl;
+
+      const { error: updateError } = await supabaseClient
+        .from("servers")
+        .update({ icon_url: newIconUrl })
+        .eq("id", serverId);
+
+      if (updateError) throw updateError;
+
+      server.icon_url = newIconUrl;
+      renderServerList();
+      alert("✅ Icon updated!");
+    } catch (err) {
+      console.error("Icon update failed:", err);
+      alert("❌ Failed: " + err.message);
+    } finally {
+      if (uploadBtn) {
+        uploadBtn.textContent = "📎";
+        uploadBtn.disabled = false;
+      }
+    }
+  };
+
+  input.click();
+}
+
+async function deleteServer(serverId) {
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  if (!confirm(`Are you sure you want to delete "${server.name}"? This will permanently delete all channels, messages, members, emojis, and server data. This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    // 1. Delete channel_presence records (blocks server deletion)
+    const { error: presenceError } = await supabaseClient
+      .from("channel_presence")
+      .delete()
+      .eq("server_id", serverId);
+    if (presenceError) throw presenceError;
+
+    // 2. Delete server_invites
+    const { error: inviteError } = await supabaseClient
+      .from("server_invites")
+      .delete()
+      .eq("server_id", serverId);
+    if (inviteError) throw inviteError;
+
+    // 3. Delete custom_emojis
+    const { error: emojiError } = await supabaseClient
+      .from("custom_emojis")
+      .delete()
+      .eq("server_id", serverId);
+    if (emojiError) throw emojiError;
+
+    // 4. Delete server_roles (needed before members)
+    const { error: rolesError } = await supabaseClient
+      .from("server_roles")
+      .delete()
+      .eq("server_id", serverId);
+    if (rolesError) throw rolesError;
+
+    // 5. Delete server_member_roles (needed before members)
+    const { error: memberRolesError } = await supabaseClient
+      .from("server_member_roles")
+      .delete()
+      .eq("server_id", serverId);
+    if (memberRolesError) throw memberRolesError;
+
+    // 6. Delete server_members (needed before channels/messages if they reference members)
+    const { error: membersError } = await supabaseClient
+      .from("server_members")
+      .delete()
+      .eq("server_id", serverId);
+    if (membersError) throw membersError;
+
+    // 7. Delete categories (needed before channels)
+    const { error: categoriesError } = await supabaseClient
+      .from("categories")
+      .delete()
+      .eq("server_id", serverId);
+    if (categoriesError) throw categoriesError;
+
+    // 8. Delete channels (this will cascade delete messages/reactions if FKs are set up)
+    // If your messages table doesn't have CASCADE, you might need to delete messages first
+    const { error: channelsError } = await supabaseClient
+      .from("channels")
+      .delete()
+      .eq("server_id", serverId);
+    if (channelsError) throw channelsError;
+
+    // 9. Finally, delete the server itself
+    const { error } = await supabaseClient
+      .from("servers")
+      .delete()
+      .eq("id", serverId);
+
+    if (error) throw error;
+
+    // Update local state
+    servers = servers.filter(s => s.id !== serverId);
+    
+    // If we were in this server, switch away
+    if (currentServerId === serverId) {
+      currentServerId = null;
+      currentChannelId = null;
+      showNoServerScreen();
+    }
+
+    renderServerList();
+    alert("✅ Server and all associated data deleted successfully.");
+  } catch (err) {
+    console.error("Delete failed:", err);
+    alert("❌ Failed to delete server: " + err.message);
+  }
+}
+
+async function leaveServer(serverId) {
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  if (!confirm(`Leave "${server.name}"? You will lose access to all channels and messages.`)) {
+    return;
+  }
+
+  try {
+    const { error } = await supabaseClient
+      .from("server_members")
+      .delete()
+      .eq("server_id", serverId)
+      .eq("username", username);
+
+    if (error) throw error;
+
+    // Update local state
+    servers = servers.filter(s => s.id !== serverId);
+
+    if (currentServerId === serverId) {
+      currentServerId = null;
+      currentChannelId = null;
+      showNoServerScreen();
+    }
+
+    renderServerList();
+    alert("✅ You have left the server.");
+  } catch (err) {
+    console.error("Leave failed:", err);
+    alert("❌ Failed to leave: " + err.message);
+  }
+}
+
+// Close server menu when clicking outside
+document.addEventListener("click", (e) => {
+  const serverMenu = document.getElementById("serverMenu");
+  
+  // Only act if the menu is currently visible
+  if (serverMenu && serverMenu.style.display === "block") {
+    // If the click target is NOT the menu itself and NOT inside the menu
+    if (!serverMenu.contains(e.target)) {
+      serverMenu.style.display = "none";
+    }
+  }
+});
+
+async function changeName(targetUser) {
+  if (!currentServerId || !targetUser) {
+    alert("❌ No server or user selected.");
+    return;
+  }
+
+  // 1. Permission Check
+  // Only SysAdmins, Server Owners, or Users with manage_roles can change names
+  const isOwner = isServerOwner();
+  const isAdmin = currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager";
+  const hasManageRoles = userPermissions.manage_roles;
+
+  if (!isAdmin && !isOwner && !hasManageRoles) {
+    alert("❌ You don't have permission to change user names.");
+    return;
+  }
+
+  // 2. Get current name for the prompt
+  const member = serverMembers.find(m => m.username === targetUser);
+  const currentName = member?.profile_display_name || targetUser;
+
+  // 3. Prompt for new name
+  const newName = prompt(`Change display name for ${targetUser}:\n(Current: ${currentName})`, currentName);
+  
+  if (newName === null) return; // User cancelled
+  if (!newName.trim()) {
+    alert("❌ Name cannot be empty.");
+    return;
+  }
+
+  const trimmedName = newName.trim();
+
+  // 4. Update Database
+  try {
+    const { error } = await supabaseClient
+      .from("server_members")
+      .update({ profile_display_name: trimmedName })
+      .eq("server_id", currentServerId)
+      .eq("username", targetUser);
+
+    if (error) throw error;
+
+    // 5. Update Local State
+    if (member) {
+      member.profile_display_name = trimmedName;
+      // Update the cached profile data
+      setServerProfileData(currentServerId, targetUser, {
+        ...getServerProfileData(currentServerId, targetUser),
+        display_name: trimmedName
+      });
+    }
+
+    // 6. Re-render UI
+    renderMemberList();
+    if (currentConversationType === "channel") {
+      // Re-render messages to update display names in chat
+      await loadMessages(); 
+    }
+
+    alert(`✅ Display name for ${targetUser} updated to "${trimmedName}".`);
+
+  } catch (err) {
+    console.error("Change name failed:", err);
+    alert("❌ Failed to update name: " + err.message);
+  }
 }
