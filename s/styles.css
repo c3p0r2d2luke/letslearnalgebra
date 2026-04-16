@@ -2906,3 +2906,66 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
 #serverMenu button.danger:hover {
   background: rgba(237, 66, 69, 0.15);
 }
+
+.invite-item {
+  background: #2f3136;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.invite-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.invite-code {
+  font-weight: bold;
+  font-family: monospace;
+  font-size: 1.1em;
+  color: #fff;
+}
+.invite-status {
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.invite-status.active { background: #43b581; color: white; }
+.invite-status.expired { background: #f04747; color: white; }
+.invite-status.maxed { background: #faa61a; color: white; }
+.invite-details {
+  font-size: 0.9em;
+  color: #b9bbbe;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.invite-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.btn-edit-invite, .btn-delete-invite {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.btn-edit-invite { background: #5865f2; color: white; }
+.btn-delete-invite { background: #ed4245; color: white; }
+
+.channel-mention {
+  background-color: #4f545c;
+  color: #dcddde;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.channel-mention:hover {
+  background-color: #5865f2; /* Discord-like hover color */
+  color: white;
+}

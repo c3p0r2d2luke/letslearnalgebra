@@ -5734,19 +5734,34 @@ function formatMessageContent(content, role) {
 
   if (codeBlockMatch) {
     const code = codeBlockMatch[1];
-
-    return `<pre class="code-block"><code>${
-      escapeHTML(code)
-    }</code></pre>`;
+    return `<pre class="code-block"><code>${escapeHTML(code)}</code></pre>`;
   }
 
   // If admin → allow raw HTML
   if (role === "Admin") {
-    return content;
+    // For admins, we still want to process channel mentions for consistency
+    // But we must be careful not to break their raw HTML.
+    // We'll process mentions first, then let raw HTML pass through if not in a code block.
+    // Note: This is a simplified approach. A robust parser would be better.
+    let processed = content;
+    // Replace #channel with styled span
+    processed = processed.replace(/#([a-zA-Z0-9_-]+)/g, (match, channelName) => {
+      return `<span class="channel-mention" data-channel="${channelName}">#${escapeHTML(channelName)}</span>`;
+    });
+    return processed;
   }
 
-  // If user → escape everything
-  return escapeHTML(content);
+  // If user → escape everything first
+  let escaped = escapeHTML(content);
+  
+  // Now replace #channel patterns in the escaped string
+  // The pattern looks for # followed by alphanumeric/underscore/hyphen
+  // We need to be careful not to match inside HTML entities if we had any, but escapeHTML handles that.
+  escaped = escaped.replace(/#([a-zA-Z0-9_-]+)/g, (match, channelName) => {
+    return `<span class="channel-mention" data-channel="${channelName}">#${channelName}</span>`;
+  });
+
+  return escaped;
 }
 
 function executeScripts(container) {
@@ -7211,6 +7226,12 @@ function initServerModals() {
     }
   });
 
+  // Inside initServerModals()
+const closeManageInvites = document.getElementById("closeManageInvitesModal");
+if (closeManageInvites) closeManageInvites.addEventListener("click", () => closeModal("manageInvitesModal"));
+const closeManageInvitesX = document.getElementById("closeManageInvitesModalX");
+if (closeManageInvitesX) closeManageInvitesX.addEventListener("click", () => closeModal("manageInvitesModal"));
+
   setMemberListVisibility();
 }
 
@@ -7503,18 +7524,14 @@ function showServerContextMenu(x, y, serverId) {
   const menu = document.getElementById("serverMenu");
   if (!menu) return;
 
-  // 1. Close all other menus first
   closeAllContextMenus();
-
-  // 2. Get server data
   const server = servers.find(s => s.id === serverId);
   if (!server) return;
 
-  // 3. Determine permissions
   const isOwner = server.owner_username === username;
   const isSysAdmin = currentSystemRole === "SysAdmin";
   const canManage = isOwner || isSysAdmin;
-  const canLeave = !isOwner; // Owners can't "leave" their own server usually, they transfer/delete
+  const canLeave = !isOwner;
 
   menu.innerHTML = "";
 
@@ -7536,6 +7553,20 @@ function showServerContextMenu(x, y, serverId) {
     addOption("Edit Server Slug", () => editServerSetting(serverId, "slug"));
     addOption("Change Icon", () => editServerIcon(serverId));
     
+    // --- NEW: Invite Management ---
+    addOption("Generate Invite", () => {
+       // Reuse existing generateInvite logic but ensure it targets currentServerId
+       // We need to temporarily set currentServerId if not already set
+       const prevServerId = currentServerId;
+       currentServerId = serverId;
+       generateInvite();
+       currentServerId = prevServerId;
+    });
+    
+    addOption("Manage Invites", () => {
+       openManageInvitesModal(serverId);
+    });
+
     // Separator
     const sep = document.createElement("div");
     sep.style.height = "1px";
@@ -7546,7 +7577,7 @@ function showServerContextMenu(x, y, serverId) {
     addOption("Delete Server", () => deleteServer(serverId), true);
   }
 
-  // --- Leave Option (Non-owners) ---
+  // --- Leave Option ---
   if (canLeave) {
     const btn = document.createElement("button");
     btn.textContent = "Leave Server";
@@ -7559,17 +7590,13 @@ function showServerContextMenu(x, y, serverId) {
     menu.appendChild(btn);
   }
 
-  // 4. Position Menu
+  // Position Menu
   menu.style.display = "block";
-  
-  // Boundary checks
   const menuRect = menu.getBoundingClientRect();
   let left = x + 10;
   let top = y + 10;
-
   if (left + menuRect.width > window.innerWidth) left = x - menuRect.width - 10;
   if (top + menuRect.height > window.innerHeight) top = y - menuRect.height - 10;
-  
   menu.style.left = `${Math.max(10, left)}px`;
   menu.style.top = `${Math.max(10, top)}px`;
 }
@@ -7910,3 +7937,162 @@ async function changeName(targetUser) {
     alert("❌ Failed to update name: " + err.message);
   }
 }
+
+// --- New: Manage Invites Modal Logic ---
+
+async function openManageInvitesModal(serverId) {
+  if (!serverId) return;
+  const modal = document.getElementById("manageInvitesModal");
+  const listContainer = document.getElementById("inviteListContent");
+  const serverNameDisplay = document.getElementById("inviteServerName");
+  
+  const server = servers.find(s => s.id === serverId);
+  if (!server) return;
+
+  serverNameDisplay.textContent = server.name;
+  listContainer.innerHTML = '<div style="padding:20px;text-align:center;">Loading invites...</div>';
+  
+  openModal("manageInvitesModal");
+
+  try {
+    // Fetch invites for this server
+    const { data: invites, error } = await supabaseClient
+      .from("server_invites")
+      .select("*")
+      .eq("server_id", serverId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    if (!invites || invites.length === 0) {
+      listContainer.innerHTML = '<div style="padding:20px;text-align:center;color:#999;">No active invites found.</div>';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    
+    invites.forEach(invite => {
+      const isExpired = invite.expires_at && new Date(invite.expires_at) < new Date();
+      const isMaxed = invite.max_uses && invite.use_count >= invite.max_uses;
+      
+      const item = document.createElement("div");
+      item.className = "invite-item";
+      item.innerHTML = `
+        <div class="invite-header">
+          <span class="invite-code">${invite.code}</span>
+          <span class="invite-status ${isExpired ? 'expired' : isMaxed ? 'maxed' : 'active'}">
+            ${isExpired ? 'Expired' : isMaxed ? 'Max Uses' : 'Active'}
+          </span>
+        </div>
+        <div class="invite-details">
+          <div>Uses: ${invite.use_count || 0} / ${invite.max_uses || '∞'}</div>
+          <div>Created: ${new Date(invite.created_at).toLocaleDateString()}</div>
+          <div>Expires: ${invite.expires_at ? new Date(invite.expires_at).toLocaleString() : 'Never'}</div>
+        </div>
+        <div class="invite-actions">
+          <button class="btn-edit-invite" data-id="${invite.id}">Edit</button>
+          <button class="btn-delete-invite" data-id="${invite.id}">Delete</button>
+        </div>
+      `;
+      fragment.appendChild(item);
+    });
+
+    listContainer.innerHTML = "";
+    listContainer.appendChild(fragment);
+
+    // Attach listeners
+    listContainer.querySelectorAll(".btn-edit-invite").forEach(btn => {
+      btn.addEventListener("click", () => editInvite(btn.dataset.id));
+    });
+    listContainer.querySelectorAll(".btn-delete-invite").forEach(btn => {
+      btn.addEventListener("click", () => deleteInvite(btn.dataset.id));
+    });
+
+  } catch (err) {
+    console.error("Failed to load invites:", err);
+    listContainer.innerHTML = `<div style="color:red;padding:20px;">Error loading invites: ${err.message}</div>`;
+  }
+}
+
+async function editInvite(inviteId) {
+  const invite = await supabaseClient
+    .from("server_invites")
+    .select("*")
+    .eq("id", inviteId)
+    .single();
+
+  if (!invite) return;
+
+  const newMax = prompt("Max uses (leave blank for unlimited):", invite.max_uses || "");
+  if (newMax === null) return;
+  
+  const newExp = prompt("Expiration date (YYYY-MM-DD HH:MM or leave blank for never):", 
+    invite.expires_at ? new Date(invite.expires_at).toISOString().slice(0, 16) : "");
+  if (newExp === null) return;
+
+  const updateData = {};
+  if (newMax !== null && newMax.trim() !== "") {
+    const val = parseInt(newMax);
+    if (!isNaN(val)) updateData.max_uses = val;
+  }
+
+  if (newExp !== null && newExp.trim() !== "") {
+    const date = new Date(newExp);
+    if (!isNaN(date.getTime())) {
+      updateData.expires_at = date.toISOString();
+    } else {
+      alert("Invalid date format.");
+      return;
+    }
+  }
+
+  const { error } = await supabaseClient
+    .from("server_invites")
+    .update(updateData)
+    .eq("id", inviteId);
+
+  if (error) {
+    alert("Failed to update invite: " + error.message);
+  } else {
+    alert("Invite updated!");
+    // Refresh the modal
+    openManageInvitesModal(currentServerId);
+  }
+}
+
+async function deleteInvite(inviteId) {
+  if (!confirm("Delete this invite?")) return;
+  
+  const { error } = await supabaseClient
+    .from("server_invites")
+    .delete()
+    .eq("id", inviteId);
+
+  if (error) {
+    alert("Failed to delete: " + error.message);
+  } else {
+    openManageInvitesModal(currentServerId);
+  }
+}
+
+// --- Channel Mention Click Handler ---
+document.addEventListener("click", (e) => {
+  const channelMention = e.target.closest(".channel-mention");
+  if (!channelMention) return;
+
+  const channelName = channelMention.dataset.channel;
+  if (!channelName || !currentServerId) return;
+
+  // Find the channel in the current server
+  const targetChannel = channels.find(c => c.name.toLowerCase() === channelName.toLowerCase());
+  
+  if (targetChannel) {
+    e.preventDefault();
+    e.stopPropagation();
+    switchChannel(targetChannel.id);
+    if (window.innerWidth <= 768) closeSidebar();
+  } else {
+    // Optional: Alert if channel not found
+    // alert(`Channel #${channelName} not found in this server.`);
+  }
+});
