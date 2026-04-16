@@ -1533,8 +1533,17 @@ function applyMentionSuggestion(itemOrValue) {
   const before = input.value.slice(0, context.start);
   const after = input.value.slice(cursor);
   
-  // For channels, we want to insert #name and a space
-  const replacement = isChannel ? `#${item.value} ` : (isEmoji ? item.insertText : `${item.value} `);
+  // FIX: Use the full label (e.g., "@Takeo") instead of just the value ("Takeo")
+  // For channels, we still use the # prefix logic
+  let replacement;
+  if (isChannel) {
+    replacement = `#${item.value} `;
+  } else if (isEmoji) {
+    replacement = item.insertText; // Emoji usually has its own logic
+  } else {
+    // MENTIONS: Use the label which includes the @ symbol
+    replacement = `${item.label} `; 
+  }
   
   input.value = `${before}${replacement}${after}`;
   const nextCursor = before.length + replacement.length;
