@@ -54,11 +54,34 @@ function setPreviewCache(url, data) {
 
 const SERVER_ROLE_LADDER = ["User", "Manager", "Admin", "SysManager", "SysAdmin"];
 
-const BAD_WORDS = [
-  'bad', 'damn', 'hell', 'shit', 'fuck', 'bitch', 'asshole', 
-  'bastard', 'crap', 'piss', 'dick', 'cock', 'pussy', 'twat',
-  'fucking', 'pissing'
-];
+const DEFAULT_SERVER_SETTINGS = Object.freeze({
+  bad_word_filter_enabled: false,
+  admin_only_custom_emojis: false,
+  allow_plaintext_links: false,
+  allow_everyone_mentions: false
+});
+
+let currentServerSettings = { ...DEFAULT_SERVER_SETTINGS };
+let currentServerWordFilters = [];
+const serverSettingsCache = new Map();
+const serverWordFiltersCache = new Map();
+const FILTER_CHAR_MAP = Object.freeze({
+  "$": "s",
+  "5": "s",
+  "€": "e",
+  "3": "e",
+  "@": "a",
+  "4": "a",
+  "0": "o",
+  "1": "i",
+  "!": "i",
+  "|": "i",
+  "+": "t",
+  "7": "t",
+  "8": "b",
+  "9": "g",
+  "2": "z"
+});
 
 function normalizeServerRole(roleName, fallback = "User") {
   const raw = String(roleName || "").trim().toLowerCase();
@@ -456,6 +479,11 @@ function hideAuthGate() {
   document.getElementById("appContent").style.display = "block";
 }
 
+function getAuthRedirectUrl() {
+  // Must be an allow-listed Redirect URL in Supabase Auth settings.
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
 // In your auth section
 
 async function handleAuthSuccess(user) {
@@ -643,7 +671,36 @@ async function doSignIn() {
   await handleAuthSuccess(data.user);
 }
 
+async function sendMagicLink() {
+  const email = document.getElementById("signInEmail").value.trim();
+  const errorEl = document.getElementById("signInError");
+  errorEl.style.display = "none";
+
+  if (!email) {
+    errorEl.textContent = "❌ Enter your email first.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: getAuthRedirectUrl()
+    }
+  });
+
+  if (error) {
+    errorEl.textContent = "❌ " + error.message;
+    errorEl.style.display = "block";
+    return;
+  }
+
+  errorEl.textContent = "✅ Magic link sent. Check your email.";
+  errorEl.style.display = "block";
+}
+
 document.getElementById("signInBtn").addEventListener("click", doSignIn);
+document.getElementById("magicLinkBtn").addEventListener("click", sendMagicLink);
 document.getElementById("signInPassword").addEventListener("keydown", (e) => {
   if (e.key === "Enter") doSignIn();
 });
@@ -1133,9 +1190,156 @@ function canViewMembers() {
 }
 
 function canMentionEveryone() {
-  return ["Admin", "SysManager", "SysAdmin"].includes(currentRole)
+  return currentServerSettings.allow_everyone_mentions
+    || ["Admin", "SysManager", "SysAdmin"].includes(currentRole)
     || ["SysManager", "SysAdmin"].includes(currentSystemRole)
     || userPermissions.manage_roles;
+}
+
+function getEffectiveServerSettings(serverId = currentServerId) {
+  if (!serverId) return { ...DEFAULT_SERVER_SETTINGS };
+  return {
+    ...DEFAULT_SERVER_SETTINGS,
+    ...(serverSettingsCache.get(serverId) || {})
+  };
+}
+
+function getEffectiveServerWordFilters(serverId = currentServerId) {
+  if (!serverId) return [];
+  return [...(serverWordFiltersCache.get(serverId) || [])];
+}
+
+function canManageServerOptions(serverId = currentServerId) {
+  if (!serverId) return false;
+  const server = servers.find((entry) => entry.id === serverId);
+  return currentSystemRole === "SysAdmin" || server?.owner_username === username;
+}
+
+function canUseRestrictedCustomEmojis() {
+  return currentSystemRole === "SysAdmin" || isServerOwner() || userPermissions.manage_roles;
+}
+
+let currentServerOptionsTargetId = null;
+
+async function loadServerSettings(serverId = currentServerId, { force = false } = {}) {
+  if (!serverId) {
+    currentServerSettings = { ...DEFAULT_SERVER_SETTINGS };
+    currentServerWordFilters = [];
+    return currentServerSettings;
+  }
+
+  if (!force && serverSettingsCache.has(serverId)) {
+    currentServerSettings = getEffectiveServerSettings(serverId);
+    currentServerWordFilters = getEffectiveServerWordFilters(serverId);
+    return currentServerSettings;
+  }
+
+  const [{ data: settingsRow, error: settingsError }, { data: filterRows, error: filtersError }] = await Promise.all([
+    supabaseClient
+      .from("server_settings")
+      .select("bad_word_filter_enabled, admin_only_custom_emojis, allow_plaintext_links, allow_everyone_mentions")
+      .eq("server_id", serverId)
+      .maybeSingle(),
+    supabaseClient
+      .from("server_word_filters")
+      .select("word")
+      .eq("server_id", serverId)
+      .eq("is_active", true)
+      .order("word", { ascending: true })
+  ]);
+
+  if (settingsError) {
+    console.warn("⚠️ Failed to load server settings:", settingsError.message);
+  }
+  if (filtersError) {
+    console.warn("⚠️ Failed to load server word filters:", filtersError.message);
+  }
+
+  const resolvedSettings = {
+    ...DEFAULT_SERVER_SETTINGS,
+    ...(settingsRow || {})
+  };
+  const resolvedWords = (filterRows || [])
+    .map((row) => String(row.word || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  serverSettingsCache.set(serverId, resolvedSettings);
+  serverWordFiltersCache.set(serverId, resolvedWords);
+  currentServerSettings = resolvedSettings;
+  currentServerWordFilters = resolvedWords;
+  return resolvedSettings;
+}
+
+function normalizeFilterToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .split("")
+    .map((char) => FILTER_CHAR_MAP[char] || char)
+    .join("")
+    .replace(/[^a-z]/g, "")
+    .replace(/(.)\1{2,}/g, "$1$1");
+}
+
+function getFilterSkeleton(value) {
+  return normalizeFilterToken(value).replace(/[aeiou]/g, "");
+}
+
+function getDamerauLevenshteinDistance(a, b) {
+  const source = normalizeFilterToken(a);
+  const target = normalizeFilterToken(b);
+  const sourceLength = source.length;
+  const targetLength = target.length;
+
+  if (!sourceLength) return targetLength;
+  if (!targetLength) return sourceLength;
+
+  const matrix = Array.from({ length: sourceLength + 1 }, () => new Array(targetLength + 1).fill(0));
+  for (let i = 0; i <= sourceLength; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= targetLength; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i <= sourceLength; i += 1) {
+    for (let j = 1; j <= targetLength; j += 1) {
+      const cost = source[i - 1] === target[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+
+      if (
+        i > 1
+        && j > 1
+        && source[i - 1] === target[j - 2]
+        && source[i - 2] === target[j - 1]
+      ) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + cost);
+      }
+    }
+  }
+
+  return matrix[sourceLength][targetLength];
+}
+
+function tokenMatchesFilteredWord(token, filteredWord) {
+  const normalizedToken = normalizeFilterToken(token);
+  const normalizedWord = normalizeFilterToken(filteredWord);
+  if (!normalizedToken || !normalizedWord) return false;
+
+  if (normalizedToken === normalizedWord) return true;
+  if (getFilterSkeleton(normalizedToken) && getFilterSkeleton(normalizedToken) === getFilterSkeleton(normalizedWord)) return true;
+
+  const distance = getDamerauLevenshteinDistance(normalizedToken, normalizedWord);
+  const maxDistance = normalizedWord.length >= 6 ? 2 : 1;
+  return distance <= maxDistance;
+}
+
+function censorContent(text) {
+  if (!currentServerWordFilters.length) return text;
+
+  return String(text || "").replace(/[A-Za-z0-9@$!+|€._-]+/g, (token) => {
+    const matchesFilter = currentServerWordFilters.some((filteredWord) => tokenMatchesFilteredWord(token, filteredWord));
+    return matchesFilter ? "*".repeat(token.length) : token;
+  });
 }
 
 function getMentionReadStorageKey() {
@@ -1445,6 +1649,15 @@ function renderMentionSuggestions(items) {
 
   mentionSuggestionsEl.appendChild(fragment);
   mentionSuggestionsEl.style.display = "block";
+  const inputRect = input.getBoundingClientRect();
+  const popupHeight = mentionSuggestionsEl.offsetHeight || 0;
+  const maxWidth = Math.min(420, window.innerWidth - 24);
+  const left = Math.min(inputRect.left, window.innerWidth - maxWidth - 12);
+  const top = Math.max(12, inputRect.top - popupHeight - 8);
+  mentionSuggestionsEl.style.left = `${Math.max(12, left)}px`;
+  mentionSuggestionsEl.style.top = `${top}px`;
+  mentionSuggestionsEl.style.width = `${Math.min(inputRect.width, maxWidth)}px`;
+  mentionSuggestionsEl.style.transform = "none";
 }
 
 async function updateMentionSuggestions() {
@@ -2401,10 +2614,16 @@ async function loadCategories() {
 }
 
 async function loadChannels() {
-  await loadCategories();
-  let q = supabaseClient.from("channels").select("*").order("sort_order");
-  if (currentServerId) q = q.eq("server_id", currentServerId);
-  const { data, error } = await q;
+  let channelQuery = supabaseClient.from("channels").select("*").order("sort_order");
+  if (currentServerId) channelQuery = channelQuery.eq("server_id", currentServerId);
+  const [{ data: categoryData, error: categoriesError }, { data, error }] = await Promise.all([
+    supabaseClient.from("categories").select("*").eq("server_id", currentServerId).order("sort_order"),
+    channelQuery
+  ]);
+
+  if (!categoriesError && categoryData) {
+    categories = categoryData;
+  }
 
   if (error) {
     console.error("❌ loadChannels error:", error);
@@ -3178,28 +3397,26 @@ async function loadMessages() {
     return;
   }
 
-  await loadAvatarMapForUsernames((data || []).map(msg => msg.username));
-
   const messageIds = (data || []).map((msg) => msg.id);
-  if (messageIds.length > 0) {
-    const { data: reactions, error: reactionsError } = await supabaseClient
-      .from("reactions")
-      .select("*")
-      .in("message_id", messageIds);
+  const [{ data: reactions, error: reactionsError }] = await Promise.all([
+    messageIds.length > 0
+      ? supabaseClient.from("reactions").select("*").in("message_id", messageIds)
+      : Promise.resolve({ data: [], error: null }),
+    loadAvatarMapForUsernames((data || []).map((msg) => msg.username))
+  ]);
 
-    if (reactionsError) {
-      console.error("❌ Error preloading reactions:", reactionsError);
-    } else {
-      const reactionsByMessageId = new Map();
-      reactions.forEach((reaction) => {
-        const key = Number(reaction.message_id);
-        if (!reactionsByMessageId.has(key)) reactionsByMessageId.set(key, []);
-        reactionsByMessageId.get(key).push(reaction);
-      });
-      messageIds.forEach((messageId) => {
-        setReactionSnapshot(messageId, reactionsByMessageId.get(messageId) || []);
-      });
-    }
+  if (reactionsError) {
+    console.error("❌ Error preloading reactions:", reactionsError);
+  } else {
+    const reactionsByMessageId = new Map();
+    (reactions || []).forEach((reaction) => {
+      const key = Number(reaction.message_id);
+      if (!reactionsByMessageId.has(key)) reactionsByMessageId.set(key, []);
+      reactionsByMessageId.get(key).push(reaction);
+    });
+    messageIds.forEach((messageId) => {
+      setReactionSnapshot(messageId, reactionsByMessageId.get(messageId) || []);
+    });
   }
 
   messagesList.innerHTML = "";
@@ -3436,14 +3653,6 @@ function isUserBlockedOrMutedSync() {
   return false;
 }
 
-// ------------------------ Send Message ------------------------
-function censorContent(text) {
-  return BAD_WORDS.reduce((content, word) => {
-    const regex = new RegExp(`\\b${word}\\b`, 'gi');
-    return content.replace(regex, '*'.repeat(word.length));
-  }, text);
-}
-
 async function sendMessage() {
   if (currentConversationType === "channel" && !userPermissions.send_messages) {
     alert("❌ You don't have permission to send messages.");
@@ -3451,7 +3660,9 @@ async function sendMessage() {
   }
 
   let content = input.value.trim();
-  content = censorContent(content);
+  if (currentConversationType === "channel" && currentServerSettings.bad_word_filter_enabled) {
+    content = censorContent(content);
+  }
   if (!content || !username) return;
 
   if (isUserBlockedOrMutedSync()) {
@@ -3459,7 +3670,7 @@ async function sendMessage() {
     return;
   }
 
-  if (currentConversationType === "channel" && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
+  if (currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
     return;
   }
@@ -3467,6 +3678,20 @@ async function sendMessage() {
   if (currentConversationType === "channel" && !canMentionEveryone() && /@(everyone|here)\b/i.test(content)) {
     alert("❌ Only server admins and sysadmins can use @everyone or @here.");
     return;
+  }
+
+  if (
+    currentConversationType === "channel"
+    && currentServerSettings.admin_only_custom_emojis
+    && !canUseRestrictedCustomEmojis()
+    && /:([a-zA-Z0-9_-]+):/g.test(content)
+  ) {
+    const usesRestrictedCustomEmoji = [...content.matchAll(/:([a-zA-Z0-9_-]+):/g)]
+      .some((match) => allCustomEmojis.some((emoji) => emoji.name === String(match[1] || "").toLowerCase()));
+    if (usesRestrictedCustomEmoji) {
+      alert("❌ Custom emojis are restricted to server admins on this server.");
+      return;
+    }
   }
 
   // --- ROBUST IP LOGGING START ---
@@ -3946,10 +4171,7 @@ if (avatarInput) {
 document.addEventListener("keydown", async e => {
   if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase()==="t"){
     e.preventDefault();
-    localStorage.removeItem("chatUsername");
-    localStorage.removeItem("chatRole");
-    await supabaseClient.auth.signOut();
-    location.reload();
+    await performLogout();
   }
 });
 
@@ -4065,6 +4287,7 @@ const EMOJI_CATEGORIES = [
   { name: "Custom",      icon: "⭐", emojis: [] }
 ];
 
+let allCustomEmojis = []; // every active custom emoji in the server
 let customEmojis = []; // { id, name, url }
 let pickerBuilt = false;
 let currentPickerMessageId = null;
@@ -4151,6 +4374,7 @@ async function loadCustomEmojis() {
   if (!customCategory) return;
 
   if (!currentServerId) {
+    allCustomEmojis = [];
     customEmojis = [];
     customCategory.emojis = [];
     rebuildCustomGrid();
@@ -4159,8 +4383,9 @@ async function loadCustomEmojis() {
 
   const { data, error } = await supabaseClient
     .from("custom_emojis")
-    .select("id, server_id, name, url, created_by, created_at")
+    .select("id, server_id, name, url, created_by, created_at, visibility, is_active")
     .eq("server_id", currentServerId)
+    .eq("is_active", true)
     .order("name", { ascending: true });
 
   if (error) {
@@ -4168,10 +4393,18 @@ async function loadCustomEmojis() {
     return;
   }
 
-  customEmojis = (data || []).map((emoji) => ({
+  allCustomEmojis = (data || []).map((emoji) => ({
     ...emoji,
     name: String(emoji.name || "").trim().toLowerCase()
   }));
+  const canUseRestricted = canUseRestrictedCustomEmojis();
+  const restrictAll = currentServerSettings.admin_only_custom_emojis && !canUseRestricted;
+  customEmojis = allCustomEmojis.filter((emoji) => {
+    const visibility = String(emoji.visibility || "everyone").toLowerCase();
+    if (restrictAll) return false;
+    if (visibility === "everyone") return true;
+    return canUseRestricted;
+  });
   customCategory.emojis = customEmojis.map((emoji) => emoji.url);
   rebuildCustomGrid();
 }
@@ -4186,9 +4419,9 @@ function renderEmojiSuggestionPreview(item) {
 }
 
 function replaceCustomEmojiShortcodes(content) {
-  if (!content || !customEmojis.length) return content;
+  if (!content || !allCustomEmojis.length) return content;
   return content.replace(/:([a-zA-Z0-9_-]+):/g, (match, name) => {
-    const emoji = customEmojis.find(item => item.name === String(name).toLowerCase());
+    const emoji = allCustomEmojis.find(item => item.name === String(name).toLowerCase());
     if (!emoji) return match;
     return `<img src="${escapeHTML(emoji.url)}" alt=":${escapeHTML(emoji.name)}:" title=":${escapeHTML(emoji.name)}:" class="inline-custom-emoji">`;
   });
@@ -4793,24 +5026,43 @@ async function unblockUser(user) {
 
 // Delete all messages containing a keyword
 async function deleteKeyword() {
+  if (!currentServerId) {
+    alert("❌ No server selected.");
+    return;
+  }
+
   const keyword = prompt("Delete all messages containing keyword:");
   if (!keyword) return;
-  if (!confirm(`Delete ALL messages containing "${keyword}"?`)) return;
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) return;
+  if (!confirm(`Delete all messages in this server containing "${keyword}"?`)) return;
 
   try {
-    const { data, error } = await supabaseClient
-      .from("messages")
-      .select("id, content");
+    const serverChannelIds = channels
+      .filter((channel) => channel.server_id === currentServerId)
+      .map((channel) => channel.id);
 
-    if (error) throw error;
-
-    const matches = data.filter(m => m.content.toLowerCase().includes(keyword.toLowerCase()));
-    if (matches.length === 0) {
-      alert("No messages found with that keyword.");
+    if (serverChannelIds.length === 0) {
+      alert("No channels found for this server.");
       return;
     }
 
-    const ids = matches.map(m => m.id);
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("id, content")
+      .in("channel_id", serverChannelIds);
+
+    if (error) throw error;
+
+    const matches = data.filter((message) =>
+      String(message.content || "").toLowerCase().includes(normalizedKeyword)
+    );
+    if (matches.length === 0) {
+      alert("No messages found with that keyword in this server.");
+      return;
+    }
+
+    const ids = matches.map((message) => message.id);
     const { error: delError } = await supabaseClient
       .from("messages")
       .delete()
@@ -4823,7 +5075,7 @@ async function deleteKeyword() {
       if (li) { li.remove(); messagesMap.delete(Number(id)); }
     });
 
-    alert(`✅ Deleted ${ids.length} message(s) containing "${keyword}".`);
+    alert(`✅ Deleted ${ids.length} message(s) containing "${keyword}" in this server.`);
   } catch (err) {
     console.error("deleteKeyword failed", err);
     alert("❌ Failed: " + err.message);
@@ -6319,15 +6571,8 @@ async function loadServers() {
 
   try {
     await loadPersistedServerOrder();
-
-    // 1. Check user sys_admin status from the users table
-    const { data: profile } = await supabaseClient
-      .from("users")
-      .select("sys_admin, sys_manager")
-      .eq("username", username)
-      .single();
-
-    const isSysAdmin = profile?.sys_admin || false;
+    const isSysAdmin = currentSystemRole === "SysAdmin";
+    const isSysManager = currentSystemRole === "SysManager";
 
     if (isSysAdmin) {
       // SysAdmins see EVERY server
@@ -6359,8 +6604,8 @@ async function loadServers() {
     }
 
     // Ensure sysmanagers and sysadmins are added to all servers
-    if (profile?.sys_admin || profile?.sys_manager) {
-      await ensureSystemUserInAllServers(profile?.sys_admin, profile?.sys_manager);
+    if (isSysAdmin || isSysManager) {
+      await ensureSystemUserInAllServers(isSysAdmin, isSysManager);
     }
   } catch (err) {
     
@@ -6422,15 +6667,21 @@ async function switchServer(serverId, updateUrl = true) {
 
   const msgInput = document.getElementById("messageInput");
   if (msgInput) msgInput.disabled = false;
+  currentServerSettings = { ...DEFAULT_SERVER_SETTINGS };
+  currentServerWordFilters = [];
 
-  await loadCustomEmojis();
-
-  console.log("📂 Loading channels...");
-  await loadChannels();
+  console.log("📂 Loading channels and server settings...");
+  await Promise.all([
+    loadServerSettings(serverId, { force: true }),
+    loadChannels(),
+    refreshServerRole()
+  ]);
   const ensureResult = await ensureGeneralCategoryAndFixOrphans(currentServerId, { createGeneralChannelIfMissing: true });
   if (ensureResult?.changed) {
     await loadChannels();
   }
+
+  await loadCustomEmojis();
 
   if (channels.length > 0) {
     console.log("📝 Loading default channel...");
@@ -6443,9 +6694,6 @@ async function switchServer(serverId, updateUrl = true) {
 
   console.log("🌐 Subscribing to server realtime...");
   subscribeToServerRealtime(serverId);
-
-  console.log("🔐 Refreshing server role...");
-  await refreshServerRole();
   setMemberListVisibility();
 
   if (canViewMembers()) {
@@ -7652,6 +7900,7 @@ function showServerContextMenu(x, y, serverId) {
     addOption("Edit Server Name", () => editServerSetting(serverId, "name"));
     addOption("Edit Server Slug", () => editServerSetting(serverId, "slug"));
     addOption("Change Icon", () => editServerIcon(serverId));
+    addOption("Server Options", () => manageServerOptions(serverId));
     
     // --- NEW: Invite Management ---
     addOption("Generate Invite", () => {
@@ -7699,6 +7948,131 @@ function showServerContextMenu(x, y, serverId) {
   if (top + menuRect.height > window.innerHeight) top = y - menuRect.height - 10;
   menu.style.left = `${Math.max(10, left)}px`;
   menu.style.top = `${Math.max(10, top)}px`;
+}
+
+async function updateServerSettingValues(serverId, values = {}) {
+  const { error } = await supabaseClient
+    .from("server_settings")
+    .upsert({ server_id: serverId, ...values }, { onConflict: "server_id" });
+  if (error) throw error;
+
+  serverSettingsCache.set(serverId, {
+    ...getEffectiveServerSettings(serverId),
+    ...values
+  });
+
+  if (serverId === currentServerId) {
+    currentServerSettings = getEffectiveServerSettings(serverId);
+    await loadCustomEmojis();
+  }
+}
+
+function setServerOptionsError(message = "") {
+  const errorEl = document.getElementById("serverOptionsError");
+  if (!errorEl) return;
+  errorEl.textContent = message;
+  errorEl.style.display = message ? "block" : "none";
+}
+
+function closeServerOptionsModal() {
+  const modal = document.getElementById("serverOptionsModal");
+  if (modal) modal.style.display = "none";
+  currentServerOptionsTargetId = null;
+  setServerOptionsError("");
+}
+
+async function openServerOptionsModal(serverId) {
+  if (!canManageServerOptions(serverId)) {
+    alert("❌ You do not have permission to manage server options.");
+    return;
+  }
+
+  await loadServerSettings(serverId, { force: true });
+  const modal = document.getElementById("serverOptionsModal");
+  if (!modal) return;
+
+  const settings = getEffectiveServerSettings(serverId);
+  const words = getEffectiveServerWordFilters(serverId);
+  const server = servers.find((entry) => entry.id === serverId);
+
+  currentServerOptionsTargetId = serverId;
+  document.getElementById("serverOptionsSubtitle").textContent = `Manage feature toggles for ${server?.name || "this server"}.`;
+  document.getElementById("serverOptionBadWords").checked = Boolean(settings.bad_word_filter_enabled);
+  document.getElementById("serverOptionAdminEmoji").checked = Boolean(settings.admin_only_custom_emojis);
+  document.getElementById("serverOptionLinks").checked = Boolean(settings.allow_plaintext_links);
+  document.getElementById("serverOptionEveryone").checked = Boolean(settings.allow_everyone_mentions);
+  document.getElementById("serverOptionWordList").value = words.join(", ");
+  setServerOptionsError("");
+  modal.style.display = "flex";
+}
+
+async function saveServerOptionsModal() {
+  if (!currentServerOptionsTargetId) return;
+
+  const serverId = currentServerOptionsTargetId;
+  const values = {
+    bad_word_filter_enabled: document.getElementById("serverOptionBadWords").checked,
+    admin_only_custom_emojis: document.getElementById("serverOptionAdminEmoji").checked,
+    allow_plaintext_links: document.getElementById("serverOptionLinks").checked,
+    allow_everyone_mentions: document.getElementById("serverOptionEveryone").checked
+  };
+  const words = [...new Set(
+    document.getElementById("serverOptionWordList").value
+      .split(",")
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean)
+  )];
+
+  try {
+    await updateServerSettingValues(serverId, values);
+
+    const { data: existingRows, error: existingError } = await supabaseClient
+      .from("server_word_filters")
+      .select("id, word, is_active")
+      .eq("server_id", serverId);
+    if (existingError) throw existingError;
+
+    if (words.length > 0) {
+      const { error: upsertError } = await supabaseClient
+        .from("server_word_filters")
+        .upsert(
+          words.map((word) => ({
+            server_id: serverId,
+            word,
+            replacement: "****",
+            is_active: true,
+            created_by: username
+          })),
+          { onConflict: "server_id,word" }
+        );
+      if (upsertError) throw upsertError;
+    }
+
+    const wordSet = new Set(words);
+    const toDeactivate = (existingRows || [])
+      .filter((row) => row.is_active && !wordSet.has(String(row.word || "").toLowerCase()))
+      .map((row) => row.id)
+      .filter(Boolean);
+
+    if (toDeactivate.length > 0) {
+      const { error: deactivateError } = await supabaseClient
+        .from("server_word_filters")
+        .update({ is_active: false })
+        .in("id", toDeactivate);
+      if (deactivateError) throw deactivateError;
+    }
+
+    serverWordFiltersCache.set(serverId, words);
+    if (serverId === currentServerId) currentServerWordFilters = [...words];
+    closeServerOptionsModal();
+  } catch (error) {
+    console.error("❌ Failed to update server options:", error);
+    setServerOptionsError("Failed to save server options: " + error.message);
+  }
+}
+
+async function manageServerOptions(serverId) {
+  await openServerOptionsModal(serverId);
 }
 
 // Attach listener to server icons
@@ -8329,11 +8703,19 @@ async function openUserProfile(usernameVal, serverId = null) {
 
   // Show "Edit Profile" button only if it's the current user (for name/avatar)
   const editBtn = document.getElementById("profileEditBtn");
-  if (usernameVal === username && serverId === currentServerId) {
+  const logoutBtn = document.getElementById("profileLogoutBtn");
+  const authActions = document.getElementById("profileAuthActions");
+  const isOwnServerProfile = usernameVal === username && serverId === currentServerId;
+
+  if (isOwnServerProfile) {
     editBtn.style.display = "block";
     editBtn.textContent = "Edit Name & Avatar";
+    if (logoutBtn) logoutBtn.style.display = "block";
+    if (authActions) authActions.style.display = "block";
   } else {
     editBtn.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (authActions) authActions.style.display = "none";
   }
 
   modal.style.display = "flex";
@@ -8342,6 +8724,68 @@ async function openUserProfile(usernameVal, serverId = null) {
 function closeUserProfile() {
   const modal = document.getElementById("userProfileModal");
   if (modal) modal.style.display = "none";
+}
+
+async function performLogout({ showMessage = false } = {}) {
+  closeUserProfile();
+  localStorage.removeItem("chatUsername");
+  localStorage.removeItem("chatRole");
+  sessionStorage.clear();
+  await supabaseClient.auth.signOut();
+  if (showMessage) alert("You have been logged out.");
+  location.reload();
+}
+
+async function linkGoogleAccount() {
+  const linkIdentity = supabaseClient.auth.linkIdentity;
+  if (typeof linkIdentity !== "function") {
+    alert("❌ Google linking is not available in this client build.");
+    return;
+  }
+
+  const { error } = await linkIdentity.call(supabaseClient.auth, {
+    provider: "google",
+    options: {
+      redirectTo: getAuthRedirectUrl()
+    }
+  });
+
+  if (error) {
+    alert("❌ Failed to link Google: " + error.message);
+    return;
+  }
+}
+
+async function changeAccountPassword() {
+  const newPassword = prompt("Enter your new password:");
+  if (!newPassword) return;
+
+  const { error } = await supabaseClient.auth.updateUser({
+    password: newPassword
+  });
+
+  if (error) {
+    alert("❌ Failed to update password: " + error.message);
+    return;
+  }
+
+  alert("✅ Password updated.");
+}
+
+async function changeAccountEmail() {
+  const newEmail = prompt("Enter your new email:");
+  if (!newEmail) return;
+
+  const { error } = await supabaseClient.auth.updateUser({
+    email: newEmail
+  });
+
+  if (error) {
+    alert("❌ Failed to update email: " + error.message);
+    return;
+  }
+
+  alert("✅ Email update requested. Check your inbox to confirm the change.");
 }
 
 // --- Profile Modal Listeners ---
@@ -8375,6 +8819,36 @@ if (profileModal) {
     await editMyServerProfile();
     // Refresh modal data after edit
     openUserProfile(username, currentServerId);
+  });
+
+  document.getElementById("profileLogoutBtn").addEventListener("click", async () => {
+    if (currentProfileUsername !== username) return;
+    await performLogout();
+  });
+
+  document.getElementById("profileLinkGoogleBtn").addEventListener("click", async () => {
+    if (currentProfileUsername !== username) return;
+    await linkGoogleAccount();
+  });
+
+  document.getElementById("profileChangePasswordBtn").addEventListener("click", async () => {
+    if (currentProfileUsername !== username) return;
+    await changeAccountPassword();
+  });
+
+  document.getElementById("profileChangeEmailBtn").addEventListener("click", async () => {
+    if (currentProfileUsername !== username) return;
+    await changeAccountEmail();
+  });
+}
+
+const serverOptionsModal = document.getElementById("serverOptionsModal");
+if (serverOptionsModal) {
+  document.getElementById("closeServerOptionsModal").addEventListener("click", closeServerOptionsModal);
+  document.getElementById("cancelServerOptionsBtn").addEventListener("click", closeServerOptionsModal);
+  document.getElementById("saveServerOptionsBtn").addEventListener("click", saveServerOptionsModal);
+  serverOptionsModal.addEventListener("click", (event) => {
+    if (event.target === serverOptionsModal) closeServerOptionsModal();
   });
 }
 
