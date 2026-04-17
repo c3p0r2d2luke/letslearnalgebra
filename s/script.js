@@ -98,6 +98,7 @@ const memberSearchToggle = document.getElementById("memberSearchToggle");
 const dmListEl = document.getElementById("dmList");
 const newDmBtn = document.getElementById("newDmBtn");
 const mentionSuggestionsEl = document.getElementById("mentionSuggestions");
+const profileBtn = document.getElementById("profileBtn");
 const avatarInput = document.getElementById("avatarInput");
 const changeAvatarBtn = document.getElementById("changeAvatarBtn");
 let messageSearchTerm = "";
@@ -108,6 +109,11 @@ let activeSuggestionMode = null;
 let userProfileModal = null;
 let currentProfileUsername = null;
 let currentProfileServerId = null; // Null if global profile
+
+// Keep the suggestions popup out of any stacking/overflow contexts so it stays visible.
+if (mentionSuggestionsEl && mentionSuggestionsEl.parentElement !== document.body) {
+  document.body.appendChild(mentionSuggestionsEl);
+}
 
 input.addEventListener("input", () => {
   sendTyping(true);
@@ -481,7 +487,84 @@ function hideAuthGate() {
 
 function getAuthRedirectUrl() {
   // Must be an allow-listed Redirect URL in Supabase Auth settings.
-  return `${window.location.origin}${window.location.pathname}`;
+  // If the page is opened from `file://` (origin "null"), let Supabase use its configured Site URL.
+  const origin = window.location.origin;
+  if (!origin || origin === "null" || !/^https?:\/\//.test(origin)) return null;
+  return `${origin}${window.location.pathname}`;
+}
+
+function deriveDefaultUsername(authUser) {
+  const rawFromMetadata = authUser?.user_metadata?.username || authUser?.user_metadata?.preferred_username;
+  const rawFromEmail = authUser?.email ? String(authUser.email).split("@")[0] : "";
+  const candidate = String(rawFromMetadata || rawFromEmail || "user").trim();
+  return candidate.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20) || "user";
+}
+
+async function ensureUserProfileRow(authUser) {
+  const authId = authUser?.id;
+  if (!authId) throw new Error("Missing auth user id.");
+
+  const { data: existing, error: fetchError } = await supabaseClient
+    .from("users")
+    .select("username, sys_admin, sys_manager, blocked, muted_until, avatar_url")
+    .eq("auth_id", authId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (existing) return existing;
+
+  // If the auth user exists but no app profile row exists yet, create one now.
+  // This happens for first-time OAuth sign-in and (optionally) magic-link users.
+  let proposed = deriveDefaultUsername(authUser);
+  let chosen = "";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    chosen = prompt("Choose a username (letters, numbers, underscore):", proposed) || "";
+    chosen = chosen.trim();
+    if (!chosen) return null;
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(chosen)) {
+      alert("❌ Username must be 3–20 chars and only letters, numbers, underscore.");
+      proposed = chosen || proposed;
+      continue;
+    }
+
+    const { data: taken, error: takenError } = await supabaseClient
+      .from("users")
+      .select("username")
+      .eq("username", chosen)
+      .maybeSingle();
+
+    if (takenError) throw takenError;
+    if (taken) {
+      alert("❌ Username already taken.");
+      proposed = chosen;
+      continue;
+    }
+    break;
+  }
+
+  if (!chosen) return null;
+
+  const avatarUrl = authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture || null;
+  const { error: insertError } = await supabaseClient.from("users").insert({
+    username: chosen,
+    auth_id: authId,
+    sys_admin: false,
+    sys_manager: false,
+    blocked: false,
+    forceLogout: false,
+    avatar_url: avatarUrl
+  });
+
+  if (insertError) throw insertError;
+
+  return {
+    username: chosen,
+    sys_admin: false,
+    sys_manager: false,
+    blocked: false,
+    muted_until: null,
+    avatar_url: avatarUrl || ""
+  };
 }
 
 // In your auth section
@@ -490,22 +573,19 @@ async function handleAuthSuccess(user) {
   const authId = user.id;
   console.log("🔑 Auth Success. Fetching profile for auth_id:", authId);
 
-  // 1. Fetch the linked username from your 'users' table
-  const { data: userData, error: fetchError } = await supabaseClient
-    .from("users")
-    .select("username, sys_admin, sys_manager, blocked, muted_until, avatar_url")
-    .eq("auth_id", authId)
-    .maybeSingle();
-
-  if (fetchError) {
-    console.error("❌ DB Error fetching profile:", fetchError);
+  let userData;
+  try {
+    userData = await ensureUserProfileRow(user);
+  } catch (profileError) {
+    console.error("❌ DB Error fetching/creating profile:", profileError);
     alert("Database error. Please try again.");
     return;
   }
 
   if (!userData) {
-    console.error("❌ Profile not found for auth_id:", authId);
-    alert("Profile not linked. Please try signing up again.");
+    alert("Sign-in canceled. Please sign in again to continue.");
+    await supabaseClient.auth.signOut();
+    showAuthGate();
     return;
   }
 
@@ -623,14 +703,53 @@ async function doSignUp() {
 }
 
 // ✅ Check for existing session on page load
-document.addEventListener("DOMContentLoaded", async () => {
+let authBootstrapped = false;
+let authHandling = false;
+
+async function handleAuthRedirectIfNeeded() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+  if (!code) return;
+
+  const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+  if (error) {
+    console.warn("Auth code exchange failed:", error);
+    return;
+  }
+
+  url.searchParams.delete("code");
+  window.history.replaceState({}, document.title, url.toString());
+}
+
+async function bootstrapAuth() {
+  if (authBootstrapped) return;
+  authBootstrapped = true;
+
+  try {
+    await handleAuthRedirectIfNeeded();
+  } catch (err) {
+    console.warn("Auth redirect handling failed:", err);
+  }
+
   const { data: { session } } = await supabaseClient.auth.getSession();
-  if (session) {
+  if (session?.user) {
+    authHandling = true;
     await handleAuthSuccess(session.user);
+    authHandling = false;
   } else {
     showAuthGate();
   }
-});
+
+  supabaseClient.auth.onAuthStateChange(async (_event, nextSession) => {
+    if (authHandling) return;
+    if (!nextSession?.user) return;
+    authHandling = true;
+    await handleAuthSuccess(nextSession.user);
+    authHandling = false;
+  });
+}
+
+document.addEventListener("DOMContentLoaded", bootstrapAuth);
 
 // Toggle between sign in / sign up views
 document.getElementById("toSignUp").addEventListener("click", (e) => {
@@ -682,12 +801,24 @@ async function sendMagicLink() {
     return;
   }
 
+  const redirectTo = getAuthRedirectUrl();
+  const magicBtn = document.getElementById("magicLinkBtn");
+  if (magicBtn) {
+    magicBtn.disabled = true;
+    magicBtn.textContent = "Sending…";
+  }
   const { error } = await supabaseClient.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: getAuthRedirectUrl()
+      ...(redirectTo ? { emailRedirectTo: redirectTo } : {}),
+      shouldCreateUser: true
     }
   });
+
+  if (magicBtn) {
+    magicBtn.disabled = false;
+    magicBtn.textContent = "Email Me a Magic Link";
+  }
 
   if (error) {
     errorEl.textContent = "❌ " + error.message;
@@ -699,11 +830,47 @@ async function sendMagicLink() {
   errorEl.style.display = "block";
 }
 
+async function signInWithOAuthProvider(provider) {
+  const errorEl = document.getElementById("signInError");
+  if (errorEl) errorEl.style.display = "none";
+
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
+    provider,
+    options: {
+      ...(redirectTo ? { redirectTo } : {})
+    }
+  });
+
+  if (error) {
+    if (errorEl) {
+      errorEl.textContent = "❌ " + error.message;
+      errorEl.style.display = "block";
+    } else {
+      alert("❌ " + error.message);
+    }
+    return;
+  }
+
+  // Some builds return a URL; keep this as a fallback.
+  if (data?.url) window.location.href = data.url;
+}
+
 document.getElementById("signInBtn").addEventListener("click", doSignIn);
 document.getElementById("magicLinkBtn").addEventListener("click", sendMagicLink);
 document.getElementById("signInPassword").addEventListener("keydown", (e) => {
   if (e.key === "Enter") doSignIn();
 });
+
+const oauthGoogleBtn = document.getElementById("oauthGoogleBtn");
+if (oauthGoogleBtn) {
+  oauthGoogleBtn.addEventListener("click", () => signInWithOAuthProvider("google"));
+}
+
+const oauthSpotifyBtn = document.getElementById("oauthSpotifyBtn");
+if (oauthSpotifyBtn) {
+  oauthSpotifyBtn.addEventListener("click", () => signInWithOAuthProvider("spotify"));
+}
 
 document.getElementById("signUpBtn").addEventListener("click", doSignUp);
 document.getElementById("signUpPassword").addEventListener("keydown", (e) => {
@@ -1804,7 +1971,14 @@ const saveNameBtn = document.getElementById("saveNameButton");
 // ------------------------ Supabase Setup ------------------------
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
-const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    flowType: "pkce",
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 
 async function invokeSendPush(payload) {
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -8705,17 +8879,23 @@ async function openUserProfile(usernameVal, serverId = null) {
   const editBtn = document.getElementById("profileEditBtn");
   const logoutBtn = document.getElementById("profileLogoutBtn");
   const authActions = document.getElementById("profileAuthActions");
-  const isOwnServerProfile = usernameVal === username && serverId === currentServerId;
+  const isOwnProfile = usernameVal === username;
+  const isOwnServerProfile = isOwnProfile && serverId === currentServerId;
 
-  if (isOwnServerProfile) {
-    editBtn.style.display = "block";
-    editBtn.textContent = "Edit Name & Avatar";
+  if (isOwnProfile) {
     if (logoutBtn) logoutBtn.style.display = "block";
     if (authActions) authActions.style.display = "block";
   } else {
-    editBtn.style.display = "none";
     if (logoutBtn) logoutBtn.style.display = "none";
     if (authActions) authActions.style.display = "none";
+  }
+
+  // Editing name/avatar is server-profile specific, so keep this gated to the active server.
+  if (isOwnServerProfile) {
+    editBtn.style.display = "block";
+    editBtn.textContent = "Edit Name & Avatar";
+  } else {
+    editBtn.style.display = "none";
   }
 
   modal.style.display = "flex";
@@ -8737,28 +8917,57 @@ async function performLogout({ showMessage = false } = {}) {
 }
 
 async function linkGoogleAccount() {
+  await linkOAuthIdentity("google");
+}
+
+async function linkSpotifyAccount() {
+  await linkOAuthIdentity("spotify");
+}
+
+async function linkOAuthIdentity(provider) {
   const linkIdentity = supabaseClient.auth.linkIdentity;
   if (typeof linkIdentity !== "function") {
-    alert("❌ Google linking is not available in this client build.");
+    alert("❌ Provider linking is not available in this client build.");
     return;
   }
 
-  const { error } = await linkIdentity.call(supabaseClient.auth, {
-    provider: "google",
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session?.user) {
+    alert("❌ Please sign in again to link accounts.");
+    await performLogout();
+    return;
+  }
+
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await linkIdentity.call(supabaseClient.auth, {
+    provider,
     options: {
-      redirectTo: getAuthRedirectUrl()
+      ...(redirectTo ? { redirectTo } : {})
     }
   });
 
   if (error) {
-    alert("❌ Failed to link Google: " + error.message);
+    alert(`❌ Failed to link ${provider}: ` + error.message);
     return;
   }
+
+  if (data?.url) window.location.href = data.url;
 }
 
 async function changeAccountPassword() {
   const newPassword = prompt("Enter your new password:");
   if (!newPassword) return;
+  if (String(newPassword).length < 6) {
+    alert("❌ Password must be at least 6 characters.");
+    return;
+  }
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session?.user) {
+    alert("❌ Please sign in again to change your password.");
+    await performLogout();
+    return;
+  }
 
   const { error } = await supabaseClient.auth.updateUser({
     password: newPassword
@@ -8775,10 +8984,23 @@ async function changeAccountPassword() {
 async function changeAccountEmail() {
   const newEmail = prompt("Enter your new email:");
   if (!newEmail) return;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(newEmail))) {
+    alert("❌ Please enter a valid email address.");
+    return;
+  }
 
-  const { error } = await supabaseClient.auth.updateUser({
-    email: newEmail
-  });
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session?.user) {
+    alert("❌ Please sign in again to change your email.");
+    await performLogout();
+    return;
+  }
+
+  const redirectTo = getAuthRedirectUrl();
+  const { error } = await supabaseClient.auth.updateUser(
+    { email: newEmail },
+    redirectTo ? { emailRedirectTo: redirectTo } : undefined
+  );
 
   if (error) {
     alert("❌ Failed to update email: " + error.message);
@@ -8830,6 +9052,14 @@ if (profileModal) {
     if (currentProfileUsername !== username) return;
     await linkGoogleAccount();
   });
+
+  const linkSpotifyBtn = document.getElementById("profileLinkSpotifyBtn");
+  if (linkSpotifyBtn) {
+    linkSpotifyBtn.addEventListener("click", async () => {
+      if (currentProfileUsername !== username) return;
+      await linkSpotifyAccount();
+    });
+  }
 
   document.getElementById("profileChangePasswordBtn").addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;

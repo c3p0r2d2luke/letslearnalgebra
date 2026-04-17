@@ -202,6 +202,60 @@ body {
   background: rgba(255,255,255,0.12) !important;
 }
 
+.auth-oauth-details {
+  margin-top: 10px;
+}
+
+.auth-oauth-details > summary {
+  list-style: none;
+}
+
+.auth-oauth-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.auth-oauth-details > summary.auth-secondary-btn {
+  cursor: pointer;
+}
+
+.auth-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.auth-provider-btn {
+  width: 100%;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-main);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.auth-provider-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.22);
+}
+
+.auth-provider-spotify {
+  background: rgba(29, 185, 84, 0.14);
+  border-color: rgba(29, 185, 84, 0.22);
+}
+
+.auth-provider-spotify:hover {
+  background: rgba(29, 185, 84, 0.18);
+  border-color: rgba(29, 185, 84, 0.28);
+}
+
 .auth-error {
   color: var(--danger);
   font-size: 13px;
