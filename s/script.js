@@ -618,6 +618,7 @@ async function handleAuthSuccess(user) {
   // 5. Load the App (This will now see the username in localStorage)
   await loadUser(); 
   subscribeToGlobalMentions();
+  await handleAuthSuccess(signInData.user);
 }
 
 async function doSignUp() {
@@ -842,37 +843,34 @@ async function signInWithOAuthProvider(provider) {
   const errorEl = document.getElementById("signInError");
   if (errorEl) errorEl.style.display = "none";
 
-  const redirectTo = getAuthRedirectUrl();
+  // FORCE THE REDIRECT TO THE CURRENT FULL URL
+  // This bypasses any proxy origin confusion
+  const currentUrl = window.location.href.split('#')[0]; 
   
-  // 🔍 DEBUG: Log the redirect URL being sent
-  console.log(`🔑 Attempting ${provider} login. Redirect URL:`, redirectTo);
+  console.log(`🔑 Attempting ${provider} login. Redirect URL:`, currentUrl);
 
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
-      ...(redirectTo ? { redirectTo } : {})
+      redirectTo: currentUrl, // <--- FORCE THIS
+      queryParams: { 
+        scope: "openid profile email" 
+      }
     }
   });
 
   if (error) {
-    console.error(`❌ ${provider} Login Error:`, error); // 🔍 Log the full error object
+    console.error(`❌ ${provider} Login Error:`, error);
     if (errorEl) {
       errorEl.textContent = "❌ " + error.message;
       errorEl.style.display = "block";
-    } else {
-      alert("❌ " + error.message);
     }
     return;
   }
 
-  console.log(`✅ ${provider} Login Initiated. Data:`, data); // 🔍 Log success response
-  
-  // Some builds return a URL; keep this as a fallback.
   if (data?.url) {
     console.log(`🚀 Redirecting to:`, data.url);
     window.location.href = data.url;
-  } else {
-    console.warn("⚠️ No redirect URL returned from Supabase.");
   }
 }
 
@@ -1993,7 +1991,7 @@ const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
   auth: {
-    flowType: "pkce",
+    flowType: "implicit",
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true
@@ -8862,6 +8860,8 @@ async function openUserProfile(usernameVal, serverId = null) {
   // Fetch data
   const profile = await fetchUserProfile(usernameVal, serverId);
   
+await updateProfileAuthButtons(); // <--- Add this
+
   // Update UI
   document.getElementById("profileDisplayName").textContent = profile.display_name;
   document.getElementById("profileUsername").textContent = `@${usernameVal}`;
@@ -9196,4 +9196,53 @@ function enableBioEdit(currentBio) {
       saveBtn.click();
     }
   });
+}
+
+async function checkLinkedIdentities() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) return { google: false, azure: false };
+
+  // Supabase stores linked identities in user.identities
+  const identities = user.identities || [];
+  
+  return {
+    google: identities.some(id => id.provider === 'google'),
+    azure: identities.some(id => id.provider === 'azure')
+  };
+}
+
+async function updateProfileAuthButtons() {
+  const isOwnProfile = currentProfileUsername === username;
+  if (!isOwnProfile) return;
+
+  const linked = await checkLinkedIdentities();
+  
+  const googleBtn = document.getElementById("profileLinkGoogleBtn");
+  const azureBtn = document.getElementById("profileLinkAzureBtn");
+
+  if (googleBtn) {
+    if (linked.google) {
+      googleBtn.textContent = "✅ Google Linked";
+      googleBtn.disabled = true;
+      googleBtn.classList.add("modal-btn-secondary"); // Optional: style it differently
+      googleBtn.style.opacity = "0.7";
+    } else {
+      googleBtn.textContent = "Link Google";
+      googleBtn.disabled = false;
+      googleBtn.style.opacity = "1";
+    }
+  }
+
+  if (azureBtn) {
+    if (linked.azure) {
+      azureBtn.textContent = "✅ Microsoft Linked";
+      azureBtn.disabled = true;
+      azureBtn.classList.add("modal-btn-secondary");
+      azureBtn.style.opacity = "0.7";
+    } else {
+      azureBtn.textContent = "Link Microsoft";
+      azureBtn.disabled = false;
+      azureBtn.style.opacity = "1";
+    }
+  }
 }
