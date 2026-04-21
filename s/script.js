@@ -843,16 +843,15 @@ async function signInWithOAuthProvider(provider) {
   const errorEl = document.getElementById("signInError");
   if (errorEl) errorEl.style.display = "none";
 
-  // FORCE THE REDIRECT TO THE CURRENT FULL URL
-  // This bypasses any proxy origin confusion
-  const currentUrl = window.location.href.split('#')[0]; 
-  
-  console.log(`🔑 Attempting ${provider} login. Redirect URL:`, currentUrl);
+  console.log(`🔑 Attempting ${provider} login.`);
 
+  // 🔥 FIX: Remove redirectTo entirely!
+  // Let Supabase use the "Site URL" from the dashboard.
+  // This avoids the proxy getting confused by a hardcoded full path.
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: currentUrl, // <--- FORCE THIS
+      // redirectTo: currentUrl,  <-- DELETE THIS LINE
       queryParams: { 
         scope: "openid profile email" 
       }
