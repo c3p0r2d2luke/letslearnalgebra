@@ -486,10 +486,18 @@ function hideAuthGate() {
 }
 
 function getAuthRedirectUrl() {
-  // Must be an allow-listed Redirect URL in Supabase Auth settings.
-  // If the page is opened from `file://` (origin "null"), let Supabase use its configured Site URL.
   const origin = window.location.origin;
-  if (!origin || origin === "null" || !/^https?:\/\//.test(origin)) return null;
+  
+  // If running locally or on file://, we rely on the "Site URL" in Supabase settings
+  // but we should still try to pass a valid redirect if possible.
+  if (!origin || origin === "null" || origin === "file://") {
+    // Fallback: If you have a specific redirect URL configured in Supabase for localhost, use it.
+    // Otherwise, return null to let Supabase use the default Site URL.
+    // For development, ensure your Supabase "Site URL" is set to http://localhost:your-port
+    return null; 
+  }
+
+  // For production/deployment, ensure this matches EXACTLY what's in Supabase Dashboard
   return `${origin}${window.location.pathname}`;
 }
 
@@ -835,6 +843,10 @@ async function signInWithOAuthProvider(provider) {
   if (errorEl) errorEl.style.display = "none";
 
   const redirectTo = getAuthRedirectUrl();
+  
+  // 🔍 DEBUG: Log the redirect URL being sent
+  console.log(`🔑 Attempting ${provider} login. Redirect URL:`, redirectTo);
+
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
@@ -843,6 +855,7 @@ async function signInWithOAuthProvider(provider) {
   });
 
   if (error) {
+    console.error(`❌ ${provider} Login Error:`, error); // 🔍 Log the full error object
     if (errorEl) {
       errorEl.textContent = "❌ " + error.message;
       errorEl.style.display = "block";
@@ -852,8 +865,15 @@ async function signInWithOAuthProvider(provider) {
     return;
   }
 
+  console.log(`✅ ${provider} Login Initiated. Data:`, data); // 🔍 Log success response
+  
   // Some builds return a URL; keep this as a fallback.
-  if (data?.url) window.location.href = data.url;
+  if (data?.url) {
+    console.log(`🚀 Redirecting to:`, data.url);
+    window.location.href = data.url;
+  } else {
+    console.warn("⚠️ No redirect URL returned from Supabase.");
+  }
 }
 
 document.getElementById("signInBtn").addEventListener("click", doSignIn);
@@ -867,9 +887,9 @@ if (oauthGoogleBtn) {
   oauthGoogleBtn.addEventListener("click", () => signInWithOAuthProvider("google"));
 }
 
-const oauthSpotifyBtn = document.getElementById("oauthSpotifyBtn");
-if (oauthSpotifyBtn) {
-  oauthSpotifyBtn.addEventListener("click", () => signInWithOAuthProvider("spotify"));
+const oauthAzureBtn = document.getElementById("oauthAzureBtn");
+if (oauthAzureBtn) {
+  oauthAzureBtn.addEventListener("click", () => signInWithOAuthProvider("azure"));
 }
 
 document.getElementById("signUpBtn").addEventListener("click", doSignUp);
@@ -8920,8 +8940,8 @@ async function linkGoogleAccount() {
   await linkOAuthIdentity("google");
 }
 
-async function linkSpotifyAccount() {
-  await linkOAuthIdentity("spotify");
+async function linkAzureAccount() {
+  await linkOAuthIdentity("azure");
 }
 
 async function linkOAuthIdentity(provider) {
@@ -9053,11 +9073,11 @@ if (profileModal) {
     await linkGoogleAccount();
   });
 
-  const linkSpotifyBtn = document.getElementById("profileLinkSpotifyBtn");
-  if (linkSpotifyBtn) {
-    linkSpotifyBtn.addEventListener("click", async () => {
+  const linkAzureBtn = document.getElementById("profileLinkAzureBtn");
+  if (linkAzureBtn) {
+    linkAzureBtn.addEventListener("click", async () => {
       if (currentProfileUsername !== username) return;
-      await linkSpotifyAccount();
+      await linkAzureAccount();
     });
   }
 

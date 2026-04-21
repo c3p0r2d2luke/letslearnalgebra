@@ -246,12 +246,12 @@ body {
   box-shadow: 0 12px 28px rgba(0,0,0,0.22);
 }
 
-.auth-provider-spotify {
+.auth-provider-azure {
   background: rgba(29, 185, 84, 0.14);
   border-color: rgba(29, 185, 84, 0.22);
 }
 
-.auth-provider-spotify:hover {
+.auth-provider-azure:hover {
   background: rgba(29, 185, 84, 0.18);
   border-color: rgba(29, 185, 84, 0.28);
 }
