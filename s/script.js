@@ -1,5 +1,35 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+let loaderStartTime = 0;
+
+function showLoader() {
+  const el = document.getElementById("appLoader");
+  if (el) {
+    el.style.display = "flex";
+  }
+
+  loaderStartTime = Date.now();
+
+  // force paint
+  return new Promise(resolve => requestAnimationFrame(resolve));
+console.log("LOADER SHOW");
+}
+
+async function hideLoader() {
+  const el = document.getElementById("appLoader");
+  if (!el) return;
+
+  const MIN_TIME = 2000; // 5 seconds
+  const elapsed = Date.now() - loaderStartTime;
+
+  if (elapsed < MIN_TIME) {
+    await new Promise(resolve => setTimeout(resolve, MIN_TIME - elapsed));
+  }
+
+  el.style.display = "none";
+  console.log("LOADER HIDE");
+}
+
 (function () {
   const panel = document.getElementById("debugConsole");
 
@@ -145,6 +175,15 @@ const dmListEl = document.getElementById("dmList");
 const newDmBtn = document.getElementById("newDmBtn");
 const mentionSuggestionsEl = document.getElementById("mentionSuggestions");
 const profileBtn = document.getElementById("profileBtn");
+if (profileBtn) {
+  profileBtn.addEventListener("click", () => {
+    if (!username) {
+      console.warn("Profile clicked before user loaded");
+      return;
+    }
+    openUserProfile(username);
+  });
+}
 const avatarInput = document.getElementById("avatarInput");
 const changeAvatarBtn = document.getElementById("changeAvatarBtn");
 let messageSearchTerm = "";
@@ -777,6 +816,8 @@ async function bootstrapAuth() {
   if (authBootstrapped) return;
   authBootstrapped = true;
 
+  await showLoader(); // ✅ must await
+
   try {
     await handleAuthRedirectIfNeeded();
   } catch (err) {
@@ -784,21 +825,14 @@ async function bootstrapAuth() {
   }
 
   const { data: { session } } = await supabaseClient.auth.getSession();
+
   if (session?.user) {
-    authHandling = true;
     await handleAuthSuccess(session.user);
-    authHandling = false;
   } else {
     showAuthGate();
   }
 
-  supabaseClient.auth.onAuthStateChange(async (_event, nextSession) => {
-    if (authHandling) return;
-    if (!nextSession?.user) return;
-    authHandling = true;
-    await handleAuthSuccess(nextSession.user);
-    authHandling = false;
-  });
+  await hideLoader(); // ✅ must await
 }
 
 document.addEventListener("DOMContentLoaded", bootstrapAuth);
@@ -4370,18 +4404,6 @@ input.addEventListener("keyup", () => updateMentionSuggestions());
 input.addEventListener("blur", () => {
   setTimeout(() => hideMentionSuggestions(), 120);
 });
-
-if (profileBtn) {
-  profileBtn.addEventListener("click", () => {
-    // Open profile modal for current user in current server
-    if (username && currentServerId) {
-      openUserProfile(username, currentServerId);
-    } else if (username) {
-      // Fallback if no server selected (global profile)
-      openUserProfile(username, null);
-    }
-  });
-}
 
 // Keep the file input listener for when the user clicks the avatar IN the modal
 if (avatarInput) {
@@ -8877,6 +8899,7 @@ async function fetchUserProfile(usernameVal, serverId = null) {
 }
 
 async function openUserProfile(usernameVal, serverId = null) {
+  if (!username) return;
   if (!usernameVal) return;
   
   currentProfileUsername = usernameVal;

@@ -17,6 +17,36 @@
 </head>
 <body>
 
+<div id="appLoader"
+     style="
+       position: fixed;
+       inset: 0;
+       background: #1e1f22;
+       display: flex;
+       flex-direction: column; /* 🔥 stack vertically */
+       align-items: center;
+       justify-content: center;
+       gap: 16px; /* 🔥 space between spinner and text */
+       z-index: 999999;
+       color: white; /* make text visible */
+       font-family: sans-serif;
+     ">
+     
+  <div style="
+       width: 40px;
+       height: 40px;
+       border: 4px solid #444;
+       border-top: 4px solid #5865f2;
+       border-radius: 50%;
+       animation: spin 1s linear infinite;
+  "></div>
+
+  <p style="margin: 0; opacity: 0.8;">
+    Welcome to the LLA realtime chat
+  </p>
+
+</div>
+
 <div id="debugConsole" style="
   position:fixed;
   bottom:0;
@@ -42,7 +72,7 @@
   </div>
   <div id="authBox">
     <div class="auth-brand">
-      <div class="auth-brand-kicker">Realtime classroom chat</div>
+      <div class="auth-brand-kicker">Realtime Discord Imitator</div>
       <div class="auth-brand-mark">LLA</div>
     </div>
 
