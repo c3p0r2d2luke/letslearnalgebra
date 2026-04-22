@@ -618,7 +618,6 @@ async function handleAuthSuccess(user) {
   // 5. Load the App (This will now see the username in localStorage)
   await loadUser(); 
   subscribeToGlobalMentions();
-  await handleAuthSuccess(signInData.user);
 }
 
 async function doSignUp() {
@@ -840,35 +839,17 @@ async function sendMagicLink() {
 }
 
 async function signInWithOAuthProvider(provider) {
-  const errorEl = document.getElementById("signInError");
-  if (errorEl) errorEl.style.display = "none";
+  const redirectTo = window.location.origin + window.location.pathname;
 
-  console.log(`🔑 Attempting ${provider} login.`);
-
-  // 🔥 FIX: Remove redirectTo entirely!
-  // Let Supabase use the "Site URL" from the dashboard.
-  // This avoids the proxy getting confused by a hardcoded full path.
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
-      // redirectTo: currentUrl,  <-- DELETE THIS LINE
-      queryParams: { 
-        scope: "openid profile email" 
-      }
+      redirectTo, // ✅ REQUIRED for your setup
+      queryParams: { scope: "openid profile email" }
     }
   });
 
-  if (error) {
-    console.error(`❌ ${provider} Login Error:`, error);
-    if (errorEl) {
-      errorEl.textContent = "❌ " + error.message;
-      errorEl.style.display = "block";
-    }
-    return;
-  }
-
   if (data?.url) {
-    console.log(`🚀 Redirecting to:`, data.url);
     window.location.href = data.url;
   }
 }
