@@ -246,12 +246,12 @@ body {
   box-shadow: 0 12px 28px rgba(0,0,0,0.22);
 }
 
-.auth-provider-azure {
+.auth-provider-github {
   background: rgba(29, 185, 84, 0.14);
   border-color: rgba(29, 185, 84, 0.22);
 }
 
-.auth-provider-azure:hover {
+.auth-provider-github:hover {
   background: rgba(29, 185, 84, 0.18);
   border-color: rgba(29, 185, 84, 0.28);
 }

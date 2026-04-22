@@ -1,5 +1,51 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+(function () {
+  const panel = document.getElementById("debugConsole");
+
+  function write(type, args) {
+    if (!panel) return;
+
+    const line = document.createElement("div");
+    line.textContent = `[${type}] ` + args.map(a => {
+      try {
+        return typeof a === "object" ? JSON.stringify(a) : String(a);
+      } catch {
+        return "[unserializable]";
+      }
+    }).join(" ");
+
+    panel.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  ["log", "warn", "error"].forEach(type => {
+    const original = console[type];
+    console[type] = function (...args) {
+      write(type, args);
+      original.apply(console, args);
+    };
+  });
+
+  // Catch uncaught errors
+  window.onerror = function (msg, src, line, col, err) {
+    write("error", [msg, `@${line}:${col}`]);
+  };
+
+  window.onunhandledrejection = function (e) {
+    write("error", ["Unhandled Promise:", e.reason]);
+  };
+})();
+
+document.addEventListener("keydown", (e) => {
+  // Ctrl + ~ (or change this)
+  if (e.ctrlKey && e.altKey && e.key === "d") {
+    const panel = document.getElementById("debugConsole");
+    panel.style.display =
+      panel.style.display === "none" ? "block" : "none";
+  }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const confirmBtn = document.getElementById("newChannelConfirm");
   const cancelBtn = document.getElementById("newChannelCancel");
@@ -487,18 +533,16 @@ function hideAuthGate() {
 
 function getAuthRedirectUrl() {
   const origin = window.location.origin;
-  
-  // If running locally or on file://, we rely on the "Site URL" in Supabase settings
-  // but we should still try to pass a valid redirect if possible.
-  if (!origin || origin === "null" || origin === "file://") {
-    // Fallback: If you have a specific redirect URL configured in Supabase for localhost, use it.
-    // Otherwise, return null to let Supabase use the default Site URL.
-    // For development, ensure your Supabase "Site URL" is set to http://localhost:your-port
-    return null; 
+  // If origin is valid (http/https), use it.
+  if (origin && origin !== "null" && origin !== "file://") {
+    return `${origin}${window.location.pathname}`;
   }
-
-  // For production/deployment, ensure this matches EXACTLY what's in Supabase Dashboard
-  return `${origin}${window.location.pathname}`;
+  // Fallback: If you are on localhost but the origin detection is weird, 
+  // explicitly define your local dev URL.
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+     return `${window.location.origin}${window.location.pathname}`;
+  }
+  return null; 
 }
 
 function deriveDefaultUsername(authUser) {
@@ -839,19 +883,28 @@ async function sendMagicLink() {
 }
 
 async function signInWithOAuthProvider(provider) {
-  const redirectTo = window.location.origin + window.location.pathname;
+  const redirectTo = getAuthRedirectUrl();
 
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo, // ✅ REQUIRED for your setup
-      queryParams: { scope: "openid profile email" }
+      ...(redirectTo ? { redirectTo } : {})
     }
   });
 
-  if (data?.url) {
-    window.location.href = data.url;
+  if (error) {
+    console.error("OAuth error:", error);
+    alert(error.message);
+    return;
   }
+
+  if (!data?.url) {
+    console.error("No redirect URL returned:", data);
+    alert("OAuth failed: no redirect URL");
+    return;
+  }
+
+  window.location.href = data.url;
 }
 
 document.getElementById("signInBtn").addEventListener("click", doSignIn);
@@ -865,9 +918,9 @@ if (oauthGoogleBtn) {
   oauthGoogleBtn.addEventListener("click", () => signInWithOAuthProvider("google"));
 }
 
-const oauthAzureBtn = document.getElementById("oauthAzureBtn");
-if (oauthAzureBtn) {
-  oauthAzureBtn.addEventListener("click", () => signInWithOAuthProvider("azure"));
+const oauthGithubBtn = document.getElementById("oauthGithubBtn");
+if (oauthGithubBtn) {
+  oauthGithubBtn.addEventListener("click", () => signInWithOAuthProvider("github"));
 }
 
 document.getElementById("signUpBtn").addEventListener("click", doSignUp);
@@ -8919,8 +8972,8 @@ async function linkGoogleAccount() {
   await linkOAuthIdentity("google");
 }
 
-async function linkAzureAccount() {
-  await linkOAuthIdentity("azure");
+async function linkGithubAccount() {
+  await linkOAuthIdentity("github");
 }
 
 async function linkOAuthIdentity(provider) {
@@ -9052,11 +9105,11 @@ if (profileModal) {
     await linkGoogleAccount();
   });
 
-  const linkAzureBtn = document.getElementById("profileLinkAzureBtn");
-  if (linkAzureBtn) {
-    linkAzureBtn.addEventListener("click", async () => {
+  const linkGithubBtn = document.getElementById("profileLinkGithubBtn");
+  if (linkGithubBtn) {
+    linkGithubBtn.addEventListener("click", async () => {
       if (currentProfileUsername !== username) return;
-      await linkAzureAccount();
+      await linkGithubAccount();
     });
   }
 
@@ -9179,14 +9232,14 @@ function enableBioEdit(currentBio) {
 
 async function checkLinkedIdentities() {
   const { data: { user } } = await supabaseClient.auth.getUser();
-  if (!user) return { google: false, azure: false };
+  if (!user) return { google: false, github: false };
 
   // Supabase stores linked identities in user.identities
   const identities = user.identities || [];
   
   return {
     google: identities.some(id => id.provider === 'google'),
-    azure: identities.some(id => id.provider === 'azure')
+    github: identities.some(id => id.provider === 'github')
   };
 }
 
@@ -9197,7 +9250,7 @@ async function updateProfileAuthButtons() {
   const linked = await checkLinkedIdentities();
   
   const googleBtn = document.getElementById("profileLinkGoogleBtn");
-  const azureBtn = document.getElementById("profileLinkAzureBtn");
+  const githubBtn = document.getElementById("profileLinkGithubBtn");
 
   if (googleBtn) {
     if (linked.google) {
@@ -9212,16 +9265,16 @@ async function updateProfileAuthButtons() {
     }
   }
 
-  if (azureBtn) {
-    if (linked.azure) {
-      azureBtn.textContent = "✅ Microsoft Linked";
-      azureBtn.disabled = true;
-      azureBtn.classList.add("modal-btn-secondary");
-      azureBtn.style.opacity = "0.7";
+  if (githubBtn) {
+    if (linked.github) {
+      githubBtn.textContent = "✅ Github Linked";
+      githubBtn.disabled = true;
+      githubBtn.classList.add("modal-btn-secondary");
+      githubBtn.style.opacity = "0.7";
     } else {
-      azureBtn.textContent = "Link Microsoft";
-      azureBtn.disabled = false;
-      azureBtn.style.opacity = "1";
+      githubBtn.textContent = "Link Github";
+      githubBtn.disabled = false;
+      githubBtn.style.opacity = "1";
     }
   }
 }

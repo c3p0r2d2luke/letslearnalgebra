@@ -17,6 +17,22 @@
 </head>
 <body>
 
+<div id="debugConsole" style="
+  position:fixed;
+  bottom:0;
+  left:0;
+  width:100%;
+  max-height:40%;
+  overflow-y:auto;
+  background:rgba(0,0,0,0.9);
+  color:#0f0;
+  font-family:monospace;
+  font-size:12px;
+  padding:10px;
+  display:none;
+  z-index:999999;
+"></div>
+
 <!-- AUTH GATE -->
 <div id="authGate">
   <div class="auth-backdrop">
@@ -41,7 +57,7 @@
         <summary class="auth-secondary-btn" role="button">More sign-in options</summary>
         <div id="oauthProviders" class="auth-oauth">
           <button id="oauthGoogleBtn" class="auth-provider-btn" type="button">Continue with Google</button>
-          <button id="oauthAzureBtn" class="auth-provider-btn auth-provider-azure" type="button">Continue with Microsoft</button>
+          <button id="oauthGithubBtn" class="auth-provider-btn auth-provider-github" type="button">Continue with Github</button>
         </div>
       </details>
       <p class="auth-error" id="signInError" style="display:none;"></p>
@@ -303,7 +319,7 @@
           <div class="profile-about-label">Account</div>
           <div class="profile-auth-grid">
             <button id="profileLinkGoogleBtn" class="modal-btn modal-btn-secondary" type="button">Link Google</button>
-            <button id="profileLinkAzureBtn" class="modal-btn modal-btn-secondary" type="button">Link Microsoft</button>
+            <button id="profileLinkGithubBtn" class="modal-btn modal-btn-secondary" type="button">Link Github</button>
             <button id="profileChangePasswordBtn" class="modal-btn modal-btn-secondary" type="button">Change Password</button>
             <button id="profileChangeEmailBtn" class="modal-btn modal-btn-secondary" type="button">Change Email</button>
           </div>
