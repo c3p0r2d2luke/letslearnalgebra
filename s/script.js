@@ -1990,7 +1990,6 @@ const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
 const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
   auth: {
-    flowType: "implicit",
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true
