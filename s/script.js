@@ -763,7 +763,7 @@ async function handleAuthRedirectIfNeeded() {
   const code = url.searchParams.get("code");
   if (!code) return;
 
-  const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+  const { error } = await supabaseClient.auth.exchangeCodeForSession(window.location.href);
   if (error) {
     console.warn("Auth code exchange failed:", error);
     return;
