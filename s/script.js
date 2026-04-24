@@ -9909,59 +9909,111 @@ if (!openBtn || !closeBtn || !modal) {
   });
 }
 
-// ======================== /gif SLASH COMMAND ========================
-// Discord-style GIF picker. Type "/gif <query>" in the message input and
-// a panel of results pops up above the input. Click a result to send it.
+// ======================== /gif SLASH COMMAND (FORCED POSITION FIX) ========================
 (function setupGifSlashCommand() {
-  const TENOR_API_KEY = "LIVDSRZULELA"; // public Tenor demo key
+  const TENOR_API_KEY = "LIVDSRZULELA"; 
   const TENOR_LIMIT = 24;
   const DEBOUNCE_MS = 300;
 
   const inputEl = document.getElementById("messageInput");
   const controlsEl = document.getElementById("controls");
-  if (!inputEl || !controlsEl) {
-    console.warn("[gif-picker] Required DOM elements missing — skipping setup.");
+  
+  if (!inputEl) {
+    console.warn("[gif-picker] Input element missing.");
     return;
   }
 
+  // 1. CREATE PICKER INSIDE BODY (Bypasses parent overflow:hidden)
   const picker = document.createElement("div");
   picker.id = "gifPicker";
   picker.className = "hidden";
-  // Prevent the input from blurring when interacting with the picker.
+  
+  // FORCE STYLES IN-JS TO OVERRIDE CSS
+  picker.style.position = "fixed"; 
+  picker.style.zIndex = "9999999"; // Higher than everything
+  picker.style.backgroundColor = "#2f3136";
+  picker.style.border = "1px solid #40444b";
+  picker.style.borderRadius = "8px";
+  picker.style.boxShadow = "0 8px 32px rgba(0,0,0,0.5)";
+  picker.style.width = "320px";
+  picker.style.maxHeight = "360px";
+  picker.style.overflowY = "auto";
+  picker.style.display = "none"; // Start hidden
+  picker.style.gridTemplateColumns = "repeat(auto-fill, minmax(140px, 1fr))";
+  picker.style.gap = "8px";
+  picker.style.padding = "10px";
+  picker.style.left = "0";
+  picker.style.top = "0";
+
+  // Prevent focus loss
   picker.addEventListener("mousedown", (e) => e.preventDefault());
-  controlsEl.parentNode.insertBefore(picker, controlsEl);
+  
+  // Inject into BODY, not controlsEl
+  document.body.appendChild(picker);
 
   const tenorCache = new Map();
   let searchTimer = null;
   let searchSeq = 0;
 
-  const isOpen = () => !picker.classList.contains("hidden");
-  const open = () => picker.classList.remove("hidden");
+  const isOpen = () => picker.style.display !== "none";
+  
+  const open = (targetRect) => {
+    picker.style.display = "grid"; // Force grid layout
+    
+    // Position it right above the input
+    if (targetRect) {
+      const bottom = window.innerHeight - targetRect.bottom;
+      const left = targetRect.left;
+      
+      // Ensure it fits on screen
+      const pickerHeight = 360;
+      const spaceAbove = targetRect.top;
+      
+      if (spaceAbove > pickerHeight) {
+        // Show above input
+        picker.style.bottom = `${bottom + targetRect.height + 8}px`;
+        picker.style.top = "auto";
+        picker.style.left = `${left}px`;
+      } else {
+        // Show below input (if no space above)
+        picker.style.top = `${targetRect.bottom + 8}px`;
+        picker.style.bottom = "auto";
+        picker.style.left = `${left}px`;
+      }
+    }
+  };
+
   const close = () => {
-    picker.classList.add("hidden");
+    picker.style.display = "none";
     picker.innerHTML = "";
   };
 
   function setState(html, kind = "") {
     picker.innerHTML = `
-      <div class="gif-picker-header">
-        <span>GIF Search</span>
-        <span class="tenor-tag">Powered by Tenor</span>
+      <div style="grid-column: 1/-1; padding: 8px; font-size: 12px; color: #949ba4; text-transform: uppercase; border-bottom: 1px solid #40444b; margin-bottom: 8px;">
+        GIF Search <span style="float:right; opacity:0.6">Powered by Tenor</span>
       </div>
-      <div class="gif-state ${kind}">${html}</div>
+      <div class="gif-state ${kind}" style="padding: 20px; text-align: center; color: #dbdee1;">${html}</div>
     `;
   }
 
   function renderResults(results, query) {
     if (!results.length) {
-      setState(`No results for “${escapeHTML(query)}”.`);
+      setState(`No results for "${query}".`);
       return;
     }
-    picker.innerHTML = "";
+    
+    // Clear header
     const header = document.createElement("div");
-    header.className = "gif-picker-header";
-    header.innerHTML = `<span>GIFs for “${escapeHTML(query)}”</span>
-      <span class="tenor-tag">Powered by Tenor</span>`;
+    header.style.gridColumn = "1/-1";
+    header.style.padding = "8px";
+    header.style.fontSize = "12px";
+    header.style.color = "#949ba4";
+    header.style.textTransform = "uppercase";
+    header.style.borderBottom = "1px solid #40444b";
+    header.style.marginBottom = "8px";
+    header.innerHTML = `GIFs for "${query}" <span style="float:right; opacity:0.6">Powered by Tenor</span>`;
+    picker.innerHTML = "";
     picker.appendChild(header);
 
     results.forEach((r) => {
@@ -9970,13 +10022,34 @@ if (!openBtn || !closeBtn || !modal) {
       const thumb = m.tinygif?.url || m.nanogif?.url || m.gif?.url;
       const full  = m.gif?.url || m.tinygif?.url;
       if (!thumb || !full) return;
+      
       const item = document.createElement("div");
       item.className = "gif-item";
-      item.title = r.h1_title || r.content_description || "GIF";
+      item.style.cursor = "pointer";
+      item.style.borderRadius = "8px";
+      item.style.overflow = "hidden";
+      item.style.position = "relative";
+      item.style.aspectRatio = "1/1";
+      item.style.background = "#202225";
+      item.style.border = "2px solid transparent";
+      item.style.transition = "border-color 0.12s, transform 0.12s";
+      
+      item.onmouseover = () => {
+        item.style.borderColor = "#5865f2";
+        item.style.transform = "translateY(-2px)";
+      };
+      item.onmouseout = () => {
+        item.style.borderColor = "transparent";
+        item.style.transform = "translateY(0)";
+      };
+
       const img = document.createElement("img");
       img.src = thumb;
-      img.loading = "lazy";
-      img.alt = item.title;
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.objectFit = "cover";
+      img.style.display = "block";
+      
       item.appendChild(img);
       item.addEventListener("click", () => sendGif(full));
       picker.appendChild(item);
@@ -9988,12 +10061,18 @@ if (!openBtn || !closeBtn || !modal) {
     const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(query)}`
       + `&key=${TENOR_API_KEY}&limit=${TENOR_LIMIT}`
       + `&media_filter=minimal&contentfilter=high`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Tenor HTTP ${res.status}`);
-    const json = await res.json();
-    const results = Array.isArray(json.results) ? json.results : [];
-    tenorCache.set(query, results);
-    return results;
+    
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Tenor HTTP ${res.status}`);
+      const json = await res.json();
+      const results = Array.isArray(json.results) ? json.results : [];
+      tenorCache.set(query);
+      return results;
+    } catch (e) {
+      console.error("[gif-picker] Fetch failed:", e);
+      return [];
+    }
   }
 
   async function sendGif(gifUrl) {
@@ -10008,54 +10087,62 @@ if (!openBtn || !closeBtn || !modal) {
   }
 
   function handleInput() {
-    const value = inputEl.value;
+    const value = inputEl.value.trim();
     const match = value.match(/^\/gif(?:\s+(.*))?$/i);
+    
     if (!match) {
       if (isOpen()) close();
       return;
     }
+
     const query = (match[1] || "").trim();
-    open();
+    open(inputEl.getBoundingClientRect()); // Pass position
+
     if (!query) {
       setState("Type a search after <b>/gif</b> — e.g. <b>/gif cats</b>");
       return;
     }
-    setState("Searching…");
+
+    setState("Searching...");
     const seq = ++searchSeq;
-    clearTimeout(searchTimer);
+    
+    if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(async () => {
+      if (seq !== searchSeq) return;
       try {
         const results = await fetchTenor(query);
         if (seq !== searchSeq) return;
-        renderResults(results, query);
+        if (isOpen()) renderResults(results, query);
       } catch (e) {
-        console.error("[gif-picker] Tenor search failed:", e);
         if (seq !== searchSeq) return;
-        setState("GIF search failed. Please try again.", "error");
+        if (isOpen()) setState("GIF search failed.", "error");
       }
     }, DEBOUNCE_MS);
   }
 
-  // Capture-phase keydown so we run BEFORE the existing Enter→sendMessage
-  // handler. This lets Enter pick the first GIF and Escape close the picker
-  // without sending the literal "/gif …" text.
+  // Keydown handler
   inputEl.addEventListener("keydown", (e) => {
     if (!isOpen()) return;
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopImmediatePropagation();
       close();
-    } else if (e.key === "Enter" && !e.shiftKey) {
+      return;
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       e.stopImmediatePropagation();
       const first = picker.querySelector(".gif-item");
       if (first) first.click();
+      else close();
     }
   }, true);
 
   inputEl.addEventListener("input", handleInput);
+  
   inputEl.addEventListener("blur", () => {
-    // Small delay so a click on the picker still registers.
     setTimeout(() => {
       if (document.activeElement !== inputEl && !picker.contains(document.activeElement)) {
         close();
@@ -10063,10 +10150,11 @@ if (!openBtn || !closeBtn || !modal) {
     }, 150);
   });
 
-  // Click outside the picker → close.
   document.addEventListener("mousedown", (e) => {
     if (!isOpen()) return;
     if (picker.contains(e.target) || e.target === inputEl) return;
     close();
   });
+
+  console.log("✅ GIF Picker (Forced) Initialized!");
 })();
