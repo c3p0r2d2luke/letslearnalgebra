@@ -3743,3 +3743,91 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
   opacity: 1 !important;
   visibility: visible !important;
 }
+/* ======================== /gif PICKER ======================== */
+#controls { position: relative; }
+
+#gifPicker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 12px;
+  right: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: rgba(32, 34, 37, 0.98);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  z-index: 50;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+}
+
+#gifPicker.hidden { display: none; }
+
+#gifPicker .gif-picker-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 4px;
+}
+
+#gifPicker .gif-picker-header .tenor-tag {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#gifPicker .gif-item {
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  background: rgba(0,0,0,0.35);
+  aspect-ratio: 1 / 1;
+  border: 2px solid transparent;
+  transition: border-color 0.12s, transform 0.12s;
+}
+
+#gifPicker .gif-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#gifPicker .gif-item:hover {
+  border-color: var(--accent, #5865f2);
+  transform: translateY(-1px);
+}
+
+#gifPicker .gif-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 22px 12px;
+  font-size: 0.9rem;
+}
+
+#gifPicker .gif-state.error { color: #ed4245; }
+
+@media (max-width: 600px) {
+  #gifPicker {
+    left: 8px;
+    right: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    max-height: 280px;
+  }
+}

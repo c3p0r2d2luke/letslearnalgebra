@@ -4016,13 +4016,16 @@ function isUserBlockedOrMutedSync() {
   return false;
 }
 
-async function sendMessage() {
+async function sendMessage(options = {}) {
   if (currentConversationType === "channel" && !userPermissions.send_messages) {
     alert("❌ You don't have permission to send messages.");
     return;
   }
 
-  let content = input.value.trim();
+  const rawContent = (typeof options.overrideContent === "string")
+    ? options.overrideContent
+    : input.value;
+  let content = rawContent.trim();
   if (currentConversationType === "channel" && currentServerSettings.bad_word_filter_enabled) {
     content = censorContent(content);
   }
@@ -4033,7 +4036,7 @@ async function sendMessage() {
     return;
   }
 
-  if (currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
+  if (!options.bypassLinkCheck && currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
     return;
   }
@@ -4343,14 +4346,28 @@ body.appendChild(header);
     if (urlMatch) {
       const url = urlMatch[0];
       const gifUrl = resolveGifUrl(url);
-      if (gifUrl && msg.role === "Admin") {
-        const gif = document.createElement("img");
-        gif.src = gifUrl;
-        gif.className = "msg-image gif-embed";
-        gif.loading = "lazy";
-        gif.onclick = () => openLightbox(gifUrl);
-        contentDiv.appendChild(gif);
-      } else if (!cleanContent.includes(NO_EMBED_PHRASE)) {
+
+      // Strip the URL out of the message body so it isn't shown alongside
+      // the embedded gif. If the URL was the entire message, the body
+      // becomes empty.
+      const stripUrlFromBody = () => {
+        const escapedUrl = escapeHTML(url);
+        let html = contentDiv.innerHTML || "";
+        if (html.includes(escapedUrl)) {
+          html = html.split(escapedUrl).join("");
+        } else if (html.includes(url)) {
+          html = html.split(url).join("");
+        }
+        contentDiv.innerHTML = html.trim();
+      };
+
+      const appendInlineGif = (mediaUrl) => {
+        stripUrlFromBody();
+        contentDiv.appendChild(createInlineGifElement(mediaUrl));
+      };
+
+      const appendLinkPreview = () => {
+        if (cleanContent.includes(NO_EMBED_PHRASE)) return;
         const previewContainer = document.createElement("div");
         previewContainer.className = "link-preview-container";
         contentDiv.appendChild(previewContainer);
@@ -4363,6 +4380,28 @@ body.appendChild(header);
             previewContainer.remove();
           }
         }, 50);
+      };
+
+      if (gifUrl) {
+        // Direct gif/image URL or known CDN — render inline immediately.
+        appendInlineGif(gifUrl);
+      } else if (isLikelyGifPageUrl(url) && !cleanContent.includes(NO_EMBED_PHRASE)) {
+        // Tenor / Giphy page link — resolve via microlink, fall back to a
+        // normal link preview if it isn't actually a gif page.
+        const placeholder = document.createElement("div");
+        placeholder.className = "gif-resolving";
+        contentDiv.appendChild(placeholder);
+        setTimeout(async () => {
+          const resolved = await resolveGifPageUrlAsync(url);
+          placeholder.remove();
+          if (resolved) {
+            appendInlineGif(resolved);
+          } else {
+            appendLinkPreview();
+          }
+        }, 0);
+      } else {
+        appendLinkPreview();
       }
     }
   }
@@ -8365,6 +8404,89 @@ function resolveGifUrl(url) {
   }
 }
 
+// Page URLs that probably point to a single GIF (need async resolution
+// because the page itself isn't an image).
+function isLikelyGifPageUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if ((host === "tenor.com" || host === "www.tenor.com")
+        && u.pathname.startsWith("/view/")) return true;
+    if ((host === "giphy.com" || host === "www.giphy.com")
+        && (u.pathname.startsWith("/gifs/") || u.pathname.startsWith("/embed/"))) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// In-memory cache for resolved tenor/giphy page → media URLs so we don't
+// re-fetch during the same session.
+const _gifPageResolveCache = new Map();
+
+async function resolveGifPageUrlAsync(pageUrl) {
+  if (_gifPageResolveCache.has(pageUrl)) {
+    return _gifPageResolveCache.get(pageUrl);
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const res = await fetch(
+      `https://api.microlink.io?url=${encodeURIComponent(pageUrl)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+
+    const json = await res.json();
+    const candidate = json?.data?.image?.url
+      || json?.data?.video?.url
+      || null;
+
+    if (!candidate) {
+      _gifPageResolveCache.set(pageUrl, null);
+      return null;
+    }
+
+    // Only treat as a gif/image we can embed if the URL looks like media.
+    let pathname = "";
+    try { pathname = new URL(candidate).pathname; } catch { pathname = ""; }
+    if (/\.(gif|webp|png|jpe?g|mp4)(\?.*)?$/i.test(pathname)) {
+      _gifPageResolveCache.set(pageUrl, candidate);
+      return candidate;
+    }
+
+    _gifPageResolveCache.set(pageUrl, null);
+    return null;
+  } catch (e) {
+    console.warn("resolveGifPageUrlAsync failed:", pageUrl, e?.message || e);
+    return null;
+  }
+}
+
+// Build the inline GIF/video element for an embed URL.
+function createInlineGifElement(mediaUrl) {
+  const isVideo = /\.mp4(\?|$)/i.test(mediaUrl);
+  if (isVideo) {
+    const v = document.createElement("video");
+    v.src = mediaUrl;
+    v.autoplay = true;
+    v.loop = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.controls = false;
+    v.className = "msg-image gif-embed";
+    return v;
+  }
+  const img = document.createElement("img");
+  img.src = mediaUrl;
+  img.loading = "lazy";
+  img.className = "msg-image gif-embed";
+  img.onclick = () => openLightbox(mediaUrl);
+  return img;
+}
+
 
 window.addEventListener("beforeunload", () => {
   navigator.sendBeacon(
@@ -9786,3 +9908,165 @@ if (!openBtn || !closeBtn || !modal) {
     if (e.target === modal) modal.style.display = "none";
   });
 }
+
+// ======================== /gif SLASH COMMAND ========================
+// Discord-style GIF picker. Type "/gif <query>" in the message input and
+// a panel of results pops up above the input. Click a result to send it.
+(function setupGifSlashCommand() {
+  const TENOR_API_KEY = "LIVDSRZULELA"; // public Tenor demo key
+  const TENOR_LIMIT = 24;
+  const DEBOUNCE_MS = 300;
+
+  const inputEl = document.getElementById("messageInput");
+  const controlsEl = document.getElementById("controls");
+  if (!inputEl || !controlsEl) {
+    console.warn("[gif-picker] Required DOM elements missing — skipping setup.");
+    return;
+  }
+
+  const picker = document.createElement("div");
+  picker.id = "gifPicker";
+  picker.className = "hidden";
+  // Prevent the input from blurring when interacting with the picker.
+  picker.addEventListener("mousedown", (e) => e.preventDefault());
+  controlsEl.parentNode.insertBefore(picker, controlsEl);
+
+  const tenorCache = new Map();
+  let searchTimer = null;
+  let searchSeq = 0;
+
+  const isOpen = () => !picker.classList.contains("hidden");
+  const open = () => picker.classList.remove("hidden");
+  const close = () => {
+    picker.classList.add("hidden");
+    picker.innerHTML = "";
+  };
+
+  function setState(html, kind = "") {
+    picker.innerHTML = `
+      <div class="gif-picker-header">
+        <span>GIF Search</span>
+        <span class="tenor-tag">Powered by Tenor</span>
+      </div>
+      <div class="gif-state ${kind}">${html}</div>
+    `;
+  }
+
+  function renderResults(results, query) {
+    if (!results.length) {
+      setState(`No results for “${escapeHTML(query)}”.`);
+      return;
+    }
+    picker.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "gif-picker-header";
+    header.innerHTML = `<span>GIFs for “${escapeHTML(query)}”</span>
+      <span class="tenor-tag">Powered by Tenor</span>`;
+    picker.appendChild(header);
+
+    results.forEach((r) => {
+      const m = (r.media && r.media[0]) || null;
+      if (!m) return;
+      const thumb = m.tinygif?.url || m.nanogif?.url || m.gif?.url;
+      const full  = m.gif?.url || m.tinygif?.url;
+      if (!thumb || !full) return;
+      const item = document.createElement("div");
+      item.className = "gif-item";
+      item.title = r.h1_title || r.content_description || "GIF";
+      const img = document.createElement("img");
+      img.src = thumb;
+      img.loading = "lazy";
+      img.alt = item.title;
+      item.appendChild(img);
+      item.addEventListener("click", () => sendGif(full));
+      picker.appendChild(item);
+    });
+  }
+
+  async function fetchTenor(query) {
+    if (tenorCache.has(query)) return tenorCache.get(query);
+    const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(query)}`
+      + `&key=${TENOR_API_KEY}&limit=${TENOR_LIMIT}`
+      + `&media_filter=minimal&contentfilter=high`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Tenor HTTP ${res.status}`);
+    const json = await res.json();
+    const results = Array.isArray(json.results) ? json.results : [];
+    tenorCache.set(query, results);
+    return results;
+  }
+
+  async function sendGif(gifUrl) {
+    close();
+    inputEl.value = "";
+    try {
+      await sendMessage({ overrideContent: gifUrl, bypassLinkCheck: true });
+    } catch (e) {
+      console.error("[gif-picker] Failed to send GIF:", e);
+    }
+    inputEl.focus();
+  }
+
+  function handleInput() {
+    const value = inputEl.value;
+    const match = value.match(/^\/gif(?:\s+(.*))?$/i);
+    if (!match) {
+      if (isOpen()) close();
+      return;
+    }
+    const query = (match[1] || "").trim();
+    open();
+    if (!query) {
+      setState("Type a search after <b>/gif</b> — e.g. <b>/gif cats</b>");
+      return;
+    }
+    setState("Searching…");
+    const seq = ++searchSeq;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      try {
+        const results = await fetchTenor(query);
+        if (seq !== searchSeq) return;
+        renderResults(results, query);
+      } catch (e) {
+        console.error("[gif-picker] Tenor search failed:", e);
+        if (seq !== searchSeq) return;
+        setState("GIF search failed. Please try again.", "error");
+      }
+    }, DEBOUNCE_MS);
+  }
+
+  // Capture-phase keydown so we run BEFORE the existing Enter→sendMessage
+  // handler. This lets Enter pick the first GIF and Escape close the picker
+  // without sending the literal "/gif …" text.
+  inputEl.addEventListener("keydown", (e) => {
+    if (!isOpen()) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const first = picker.querySelector(".gif-item");
+      if (first) first.click();
+    }
+  }, true);
+
+  inputEl.addEventListener("input", handleInput);
+  inputEl.addEventListener("blur", () => {
+    // Small delay so a click on the picker still registers.
+    setTimeout(() => {
+      if (document.activeElement !== inputEl && !picker.contains(document.activeElement)) {
+        close();
+      }
+    }, 150);
+  });
+
+  // Click outside the picker → close.
+  document.addEventListener("mousedown", (e) => {
+    if (!isOpen()) return;
+    if (picker.contains(e.target) || e.target === inputEl) return;
+    close();
+  });
+})();
