@@ -1,80 +1,70 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
-let loaderStartTime = 0;
+/* =============================================================================
+ * LLA Realtime Chat — script.js
+ *
+ * TABLE OF CONTENTS
+ *   1.  Loader helpers                     (top of file)
+ *   2.  Link-preview cache helpers
+ *   3.  Server roles + filter constants
+ *   4.  Mobile context-menu helpers        (~ line 170)
+ *   5.  Message right-click / long-press menu
+ *   6.  Supabase auth + bootstrap          (~ line 520)
+ *   7.  Realtime manager                   (~ line 2170)
+ *   8.  Channels + categories rendering    (~ line 2900)
+ *   9.  Channel/category admin actions     (~ line 3260)
+ *   10. Messages: load / render / realtime (~ line 3650)
+ *   11. Send / save name handlers          (~ line 4380)
+ *   12. Mobile sidebar toggle              (~ line 4480)
+ *   13. Emoji picker + custom emojis       (~ line 4540)
+ *   14. Discord-style features
+ *         - Edit, reactions, replies,
+ *           typing, hover controls          (~ line 5670)
+ *   15. Threads + force-logout              (~ line 6000)
+ *   16. File upload + lightbox              (~ line 6050)
+ *   17. Scroll-to-bottom button             (~ line 6300)
+ *   18. Create-channel modal                (~ line 6520)
+ *   19. Server system + sortable            (~ line 6900)
+ *   20. Server role helpers                 (~ line 7960)
+ *   21. GIF / image URL resolver            (~ line 8140)
+ *   22. Server context menu + invites       (~ line 8260)
+ *   23. Profile modal listeners             (~ line 9210)
+ *   24. Account-link modal listeners        (~ line 9500)
+ * ============================================================================= */
+
+/* ---------- 1. LOADER HELPERS ----------
+ * The loader stays open only while the app is genuinely getting ready. As soon
+ * as bootstrapAuth() (or any failure path) calls hideLoader(), it fades out.
+ */
+let _loaderHidden = false;
 
 function showLoader() {
+  _loaderHidden = false;
   const el = document.getElementById("appLoader");
   if (el) {
+    el.style.removeProperty("opacity");
     el.style.display = "flex";
   }
-
-  loaderStartTime = Date.now();
-
-  // force paint
-  return new Promise(resolve => requestAnimationFrame(resolve));
-console.log("LOADER SHOW");
 }
 
-async function hideLoader() {
+function hideLoader() {
+  if (_loaderHidden) return;
+  _loaderHidden = true;
   const el = document.getElementById("appLoader");
   if (!el) return;
-
-  const MIN_TIME = 2000; // 5 seconds
-  const elapsed = Date.now() - loaderStartTime;
-
-  if (elapsed < MIN_TIME) {
-    await new Promise(resolve => setTimeout(resolve, MIN_TIME - elapsed));
-  }
-
-  el.style.display = "none";
-  console.log("LOADER HIDE");
+  el.style.transition = "opacity 180ms ease-out";
+  el.style.opacity = "0";
+  setTimeout(() => {
+    if (_loaderHidden) el.style.display = "none";
+  }, 200);
 }
 
-(function () {
-  const panel = document.getElementById("debugConsole");
-
-  function write(type, args) {
-    if (!panel) return;
-
-    const line = document.createElement("div");
-    line.textContent = `[${type}] ` + args.map(a => {
-      try {
-        return typeof a === "object" ? JSON.stringify(a) : String(a);
-      } catch {
-        return "[unserializable]";
-      }
-    }).join(" ");
-
-    panel.appendChild(line);
-    panel.scrollTop = panel.scrollHeight;
-  }
-
-  ["log", "warn", "error"].forEach(type => {
-    const original = console[type];
-    console[type] = function (...args) {
-      write(type, args);
-      original.apply(console, args);
-    };
-  });
-
-  // Catch uncaught errors
-  window.onerror = function (msg, src, line, col, err) {
-    write("error", [msg, `@${line}:${col}`]);
-  };
-
-  window.onunhandledrejection = function (e) {
-    write("error", ["Unhandled Promise:", e.reason]);
-  };
-})();
-
-document.addEventListener("keydown", (e) => {
-  // Ctrl + ~ (or change this)
-  if (e.ctrlKey && e.altKey && e.key === "d") {
-    const panel = document.getElementById("debugConsole");
-    panel.style.display =
-      panel.style.display === "none" ? "block" : "none";
-  }
+// Safety net: if bootstrap takes longer than expected, never trap the user
+// behind the loader forever.
+window.addEventListener("load", () => {
+  setTimeout(() => hideLoader(), 8000);
 });
+
 
 document.addEventListener("DOMContentLoaded", () => {
   const confirmBtn = document.getElementById("newChannelConfirm");
@@ -802,10 +792,51 @@ async function handleAuthRedirectIfNeeded() {
   const code = url.searchParams.get("code");
   if (!code) return;
 
+  // Check if this is an OAuth linking attempt
+  const isLinking = localStorage.getItem('oauth_linking') === 'true';
+  const linkingProvider = localStorage.getItem('oauth_provider');
+  const linkingUserId = localStorage.getItem('oauth_user_id');
+
   const { error } = await supabaseClient.auth.exchangeCodeForSession(window.location.href);
   if (error) {
     console.warn("Auth code exchange failed:", error);
+    // Clean up linking context on error
+    if (isLinking) {
+      localStorage.removeItem('oauth_linking');
+      localStorage.removeItem('oauth_provider');
+      localStorage.removeItem('oauth_user_id');
+    }
     return;
+  }
+
+  // Handle OAuth linking completion
+  if (isLinking && linkingProvider) {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (user && user.id === linkingUserId) {
+      console.log(`✅ Successfully linked ${linkingProvider} account!`);
+      // Show success message in the account link modal when it opens
+      setTimeout(() => {
+        const statusEl = document.getElementById("accountLinkStatus");
+        if (statusEl) {
+          statusEl.textContent = `✅ ${linkingProvider.charAt(0).toUpperCase() + linkingProvider.slice(1)} account linked successfully!`;
+          statusEl.style.display = "block";
+          statusEl.style.color = "#3ba55d";
+          statusEl.style.background = "rgba(59, 165, 93, 0.1)";
+          setTimeout(() => {
+            statusEl.style.display = "none";
+          }, 5000);
+        }
+        // Update button states if modal is open
+        updateAccountLinkButtons();
+      }, 1000);
+    } else {
+      console.warn("⚠️ OAuth linking may have failed - user ID mismatch");
+    }
+    
+    // Clean up linking context
+    localStorage.removeItem('oauth_linking');
+    localStorage.removeItem('oauth_provider');
+    localStorage.removeItem('oauth_user_id');
   }
 
   url.searchParams.delete("code");
@@ -816,23 +847,29 @@ async function bootstrapAuth() {
   if (authBootstrapped) return;
   authBootstrapped = true;
 
-  await showLoader(); // ✅ must await
+  showLoader();
 
   try {
-    await handleAuthRedirectIfNeeded();
+    try {
+      await handleAuthRedirectIfNeeded();
+    } catch (err) {
+      console.warn("Auth redirect handling failed:", err);
+    }
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+
+    if (session?.user) {
+      await handleAuthSuccess(session.user);
+    } else {
+      showAuthGate();
+    }
   } catch (err) {
-    console.warn("Auth redirect handling failed:", err);
-  }
-
-  const { data: { session } } = await supabaseClient.auth.getSession();
-
-  if (session?.user) {
-    await handleAuthSuccess(session.user);
-  } else {
+    console.error("Bootstrap failed:", err);
     showAuthGate();
+  } finally {
+    // Hide as soon as the app is ready — no minimum wait.
+    hideLoader();
   }
-
-  await hideLoader(); // ✅ must await
 }
 
 document.addEventListener("DOMContentLoaded", bootstrapAuth);
@@ -955,6 +992,16 @@ if (oauthGoogleBtn) {
 const oauthGithubBtn = document.getElementById("oauthGithubBtn");
 if (oauthGithubBtn) {
   oauthGithubBtn.addEventListener("click", () => signInWithOAuthProvider("github"));
+}
+
+const oauthDiscordBtn = document.getElementById("oauthDiscordBtn");
+if (oauthDiscordBtn) {
+  oauthDiscordBtn.addEventListener("click", () => signInWithOAuthProvider("discord"));
+}
+
+const oauthAzureBtn = document.getElementById("oauthAzureBtn");
+if (oauthAzureBtn) {
+  oauthAzureBtn.addEventListener("click", () => signInWithOAuthProvider("azure"));
 }
 
 document.getElementById("signUpBtn").addEventListener("click", doSignUp);
@@ -2961,18 +3008,37 @@ function renderChannelList() {
     itemsContainer.dataset.categoryName = catName;
     itemsContainer.style.display = isCollapsed ? "none" : "block";
 
-    catChannels.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(ch => {
-      const div = document.createElement("div");
-      div.className = `channel ${ch.id === currentChannelId ? 'active' : ''}`;
-      div.dataset.id = ch.id;
-      div.textContent = "# " + ch.name;
-      div.onclick = () => {
-        if (shouldSuppressClick(suppressChannelClickUntil)) return;
-        switchChannel(ch.id);
-        if (window.innerWidth <= 768) closeSidebar();
-      };
-      itemsContainer.appendChild(div);
-    });
+    catChannels
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .forEach(ch => {
+        const div = document.createElement("div");
+        div.className = `channel ${ch.id === currentChannelId ? "active" : ""}`;
+        div.dataset.id = ch.id;
+
+        const label = document.createElement("span");
+        label.className = "channel-label";
+        label.textContent = "# " + ch.name;
+        div.appendChild(label);
+
+        // Drag handle is shown for admins on every screen size. Tapping the
+        // row still selects the channel; the handle is the only thing that
+        // starts a drag.
+        if (userPermissions.manage_roles) {
+          const dragHandle = document.createElement("span");
+          dragHandle.className = "cat-drag-handle";
+          dragHandle.textContent = "⋮⋮";
+          dragHandle.title = "Drag to reorder";
+          dragHandle.setAttribute("aria-label", "Drag to reorder channel");
+          div.appendChild(dragHandle);
+        }
+
+        div.onclick = () => {
+          if (shouldSuppressClick(suppressChannelClickUntil)) return;
+          switchChannel(ch.id);
+          if (window.innerWidth <= 768) closeSidebar();
+        };
+        itemsContainer.appendChild(div);
+      });
 
     block.appendChild(itemsContainer);
     fragment.appendChild(block);
@@ -2988,34 +3054,46 @@ function renderChannelList() {
 }
 
 function initSortables() {
-  // Category Sortable
+  const onTouchDevice = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+
+  // Category Sortable — drag the whole category block by its ☰ handle.
   const outerSort = Sortable.create(channelList, {
-    handle: ".cat-drag-handle",
+    handle: ".category-header .cat-drag-handle",
     animation: 150,
     draggable: ".category-block",
+    forceFallback: onTouchDevice,
+    fallbackOnBody: true,
+    fallbackTolerance: 6,
     onEnd: async () => {
-      const categoryBlocks = Array.from(channelList.querySelectorAll('.category-block'));
+      const categoryBlocks = Array.from(channelList.querySelectorAll(".category-block"));
       const updates = categoryBlocks.map((block, index) => {
         const catName = block.dataset.categoryName;
         const category = categories.find(c => c.name === catName);
-        return category ? supabaseClient.from('categories').update({ sort_order: index }).eq('id', category.id) : null;
+        return category
+          ? supabaseClient.from("categories").update({ sort_order: index }).eq("id", category.id)
+          : null;
       }).filter(Boolean);
-      
+
       await Promise.all(updates);
     }
   });
   _sortableInstances.push(outerSort);
 
-  // Channels Sortable
+  // Channels Sortable — drag a channel by its ☰ handle. Tapping the row
+  // anywhere else still selects the channel (no long-press needed).
   document.querySelectorAll(".channel-items").forEach(container => {
     const innerSort = Sortable.create(container, {
       group: "channels",
       animation: 150,
       draggable: ".channel",
-      delay: 3000,
-      delayOnTouchOnly: true,
-      touchStartThreshold: 8,
-      fallbackTolerance: 8,
+      handle: ".cat-drag-handle",
+      // No long-press delay: the ☰ handle alone is what initiates the drag,
+      // so tapping the channel still works for selection.
+      delay: 0,
+      touchStartThreshold: 4,
+      fallbackTolerance: 6,
+      forceFallback: onTouchDevice,
+      fallbackOnBody: true,
       onEnd: async (evt) => {
         suppressChannelClickUntil = Date.now() + 500;
         const channelId = parseInt(evt.item.dataset.id, 10);
@@ -3024,7 +3102,7 @@ function initSortables() {
 
         const newCat = categories.find(c => c.name === newCatName);
         const newCatId = newCat ? newCat.id : null;
-        
+
         updates.push(supabaseClient.from("channels").update({ category_id: newCatId }).eq("id", channelId));
 
         const items = channelList.querySelectorAll(".channel");
@@ -3065,7 +3143,11 @@ channelList.addEventListener("contextmenu", (e) => {
   if (!ch) return;
 
   showContextMenu(document.getElementById("channelMenu"), e.clientX, e.clientY, [
-    { label: "Rename Channel", color: "white", action: () => openInlineRow("channel-rename", ch.name, channelId) },
+    // Renaming is disabled in the inline row. 
+    // If you have a modal for renaming, replace the action below:
+    // { label: "Rename Channel", color: "white", action: () => openModal('renameChannelModal') }, 
+    
+    // For now, we just show Delete
     { label: "Delete Channel", color: "#ed4245", action: () => showInlineDelete("channel", channelId, ch.name) }
   ]);
 });
@@ -4492,11 +4574,14 @@ if (serverSwitchBtn) {
 }
 
 if (sidebarOverlay) {
-  sidebarOverlay.addEventListener("click", () => {
-    closeSidebar();
-    closeServerSidebar();
-    const ml = document.getElementById("memberList");
-    if (ml) ml.classList.remove("open");
+  sidebarOverlay.addEventListener("click", (e) => {
+    // Only close if clicking the overlay itself, not its children
+    if (e.target === sidebarOverlay) {
+      closeSidebar();
+      closeServerSidebar();
+      const ml = document.getElementById("memberList");
+      if (ml) ml.classList.remove("open");
+    }
   });
 }
 
@@ -6495,77 +6580,156 @@ function applyMuteBlockUI() {
   stopMuteCountdownUI();
 }
 
-// ======================== CHANNEL HEADER BUTTONS + INLINE ROW ========================
+// ======================== CREATE CHANNEL MODAL LOGIC (FIXED) ========================
 (function () {
   const createChannelBtn = document.getElementById("createChannelBtn");
-  const createCategoryBtn = document.getElementById("createCategoryBtn");
-  const row = document.getElementById("newChannelRow");
-  const inp = document.getElementById("newChannelInput");
-  const confirmBtn = document.getElementById("newChannelConfirm");
-  const cancelBtn = document.getElementById("newChannelCancel");
+  const modal = document.getElementById("createChannelModal");
+  const nameInput = document.getElementById("createChannelNameInput");
+  const categorySelect = document.getElementById("createChannelCategorySelect");
+  const confirmBtn = document.getElementById("confirmCreateChannelBtn");
+  const cancelBtn = document.getElementById("cancelCreateChannelBtn");
+  const closeBtn = document.getElementById("closeCreateChannelModal");
+  const errorEl = document.getElementById("createChannelError");
 
+  // Helper: Populate Category Dropdown
+  function populateCategories() {
+    if (!categorySelect || !currentServerId) return;
+    
+    // Clear existing options except the first placeholder
+    categorySelect.innerHTML = '<option value="">Select a category...</option>';
+    
+    const serverCats = categories.filter(c => c.server_id === currentServerId);
+    
+    if (serverCats.length === 0) {
+      const opt = document.createElement("option");
+      opt.textContent = "No categories available (Create one first)";
+      opt.disabled = true;
+      categorySelect.appendChild(opt);
+      return;
+    }
+
+    serverCats.forEach(cat => {
+      const opt = document.createElement("option");
+      opt.value = cat.id;
+      opt.textContent = cat.name;
+      categorySelect.appendChild(opt);
+    });
+  }
+
+  // Helper: Open Modal
+  function openCreateChannelModal() {
+    if (!userPermissions.manage_roles) {
+      alert("You don't have permission to create channels.");
+      return;
+    }
+    
+    populateCategories();
+    
+    // Reset Form
+    nameInput.value = "";
+    errorEl.style.display = "none";
+    errorEl.textContent = "";
+    
+    modal.style.display = "flex";
+    setTimeout(() => nameInput.focus(), 100);
+  }
+
+  // Helper: Close Modal
+  function closeCreateChannelModal() {
+    modal.style.display = "none";
+  }
+
+  // Event: Open Modal (CRITICAL FIX HERE)
   if (createChannelBtn) {
     createChannelBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      openInlineRow("channel-create", "", null);
+      console.log("Create Channel Button Clicked!"); // Debug log
+      openCreateChannelModal();
     });
+  } else {
+    console.error("❌ #createChannelBtn not found in DOM!");
   }
 
-  if (createCategoryBtn) {
-    createCategoryBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openInlineRow("category-create", "", null);
-    });
-  }
-
-  if (cancelBtn) {
-    cancelBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeInlineRow();
-    });
-  }
-
-  async function dispatch() {
-    const mode = row.dataset.mode;
-    const val = inp.value.trim();
-    if (!val) { closeInlineRow(); return; }
-
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = "⏳";
-
-    try {
-      if (mode === "channel-create") {
-        await performCreateChannel(val);
-        closeInlineRow();
-      } else if (mode === "channel-rename") {
-        const id = parseInt(row.dataset.targetId, 10);
-        await performRenameChannel(id, val);
-        closeInlineRow();
-      } else if (mode === "category-create") {
-        await performCreateCategory(val);
-        closeInlineRow();
-      } else if (mode === "category-rename") {
-        const oldName = row.dataset.targetName;
-        await performRenameCategory(oldName, val);
-        closeInlineRow();
-      }
-    } finally {
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = "✓";
-    }
-  }
-
+  // Event: Confirm Create
   if (confirmBtn) {
-    confirmBtn.addEventListener("click", (e) => { e.stopPropagation(); dispatch(); });
-  }
-  if (inp) {
-    inp.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); dispatch(); }
-      else if (e.key === "Escape") { closeInlineRow(); }
+    confirmBtn.addEventListener("click", async () => {
+      const name = nameInput.value.trim();
+      const categoryId = categorySelect.value;
+
+      // Validation
+      if (!name) {
+        errorEl.textContent = "❌ Channel name is required.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      if (!categoryId) {
+        errorEl.textContent = "❌ Please select a category.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "⏳ Creating...";
+      errorEl.style.display = "none";
+
+      try {
+        // Create Channel (NO ICON)
+        const trimmedName = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        
+        const { data, error } = await supabaseClient
+          .from("channels")
+          .insert({
+            name: trimmedName,
+            created_by: username,
+            sort_order: channels.filter(c => c.server_id === currentServerId).length,
+            server_id: currentServerId,
+            category_id: categoryId
+            // icon_url removed
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Success
+        channels.push(data);
+        renderChannelList();
+        closeCreateChannelModal();
+        
+        // Optional: Switch to new channel immediately
+        // switchChannel(data.id);
+        
+      } catch (err) {
+        console.error("Create channel failed:", err);
+        errorEl.textContent = "❌ " + (err.message || "Failed to create channel");
+        errorEl.style.display = "block";
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Create Channel";
+      }
     });
   }
+
+  // Event: Cancel / Close
+  if (cancelBtn) cancelBtn.addEventListener("click", closeCreateChannelModal);
+  if (closeBtn) closeBtn.addEventListener("click", closeCreateChannelModal);
+  
+  // Close on backdrop click
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeCreateChannelModal();
+    });
+  }
+
+  // Keyboard shortcuts
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.style.display === "flex") {
+      closeCreateChannelModal();
+    }
+  });
+
 })();
 
 async function loadDefaultChannel() {
@@ -6812,6 +6976,7 @@ function closeModal(id) {
   if (el) el.style.display = "none";
 }
 
+// In loadServers(), ensure this logic is present:
 async function loadServers() {
   if (!username) return;
 
@@ -6828,6 +6993,16 @@ async function loadServers() {
         .order("created_at", { ascending: true });
       
       if (!error) servers = data || [];
+    } else if (isSysManager) {
+      // SysManagers see all servers they're members of + all servers
+      const { data: allServers, error: allError } = await supabaseClient
+        .from("servers")
+        .select("*")
+        .order("created_at", { ascending: true });
+      
+      if (!allError) {
+        servers = allServers || [];
+      }
     } else {
       // Regular users only see servers they are members of
       const { data, error } = await supabaseClient
@@ -6854,7 +7029,6 @@ async function loadServers() {
       await ensureSystemUserInAllServers(isSysAdmin, isSysManager);
     }
   } catch (err) {
-    
     console.error("❌ loadServers error:", err);
   }
   
@@ -7624,7 +7798,13 @@ async function checkInviteOnLoad() {
   openModal("acceptInviteModal");
 }
 
+// Replace your existing createServer function with this:
 async function createServer(name, slug) {
+  // Check if user is SysAdmin
+  if (currentSystemRole !== "SysAdmin") {
+    return "❌ Only SysAdmins can create servers.";
+  }
+  
   const iconInput = document.getElementById("newServerIcon");
   const trimName = name.trim();
   const trimSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -7668,6 +7848,7 @@ async function createServer(name, slug) {
 
   if (error) return "❌ Failed to create server: " + error.message;
 
+  // SysAdmin becomes the owner and admin
   const { data: existingMember } = await supabaseClient
     .from("server_members")
     .select("id")
@@ -7689,9 +7870,7 @@ async function createServer(name, slug) {
     });
   }
 
-  // Ensure structure exists for new servers:
-  // - real "General" category
-  // - #general channel inside that category
+  // Ensure structure exists for new servers
   await ensureGeneralCategoryAndFixOrphans(newServer.id, { createGeneralChannelIfMissing: true });
 
   servers.push(newServer);
@@ -7701,8 +7880,20 @@ async function createServer(name, slug) {
 }
 
 function initServerModals() {
-  const addBtn = document.getElementById("addServerBtn");
-  if (addBtn) addBtn.addEventListener("click", () => openModal("serverModal"));
+  // In initServerModals(), modify the addServerBtn listener:
+const addBtn = document.getElementById("addServerBtn");
+if (addBtn) {
+  // Only show for SysAdmins
+  addBtn.style.display = currentSystemRole === "SysAdmin" ? "flex" : "none";
+  
+  addBtn.addEventListener("click", () => {
+    if (currentSystemRole !== "SysAdmin") {
+      alert("❌ Only SysAdmins can create servers.");
+      return;
+    }
+    openModal("serverModal");
+  });
+}
 
   const goCreate = document.getElementById("goCreateServer");
   if (goCreate) goCreate.addEventListener("click", () => {
@@ -8104,12 +8295,29 @@ async function handleInlineConfirm() {
   closeInlineRow();
 }
 
+// ================================
+// DISABLED: OLD INLINE TRIGGERS
+// ================================
+// We no longer support the inline row at the bottom.
+// Channel creation is now handled exclusively via:
+// 1. Right-clicking in the channel list (Context Menu)
+// 2. The dedicated "Create Channel" modal (if implemented separately)
+
 const createChannelBtn = document.getElementById("createChannelBtn");
+const createCategoryBtn = document.getElementById("createCategoryBtn");
 
 if (createChannelBtn) {
-  createChannelBtn.addEventListener("click", () => {
-    openInlineRow("channel-create", "", null);
-  });
+  // Option 1: Hide the button entirely if you only use Right-Click
+  createChannelBtn.style.display = "none";
+  
+  // Option 2: If you want to keep the button but link it to a NEW modal, 
+  // uncomment the line below and replace 'YOUR_NEW_MODAL_ID' with your actual modal ID
+  // createChannelBtn.addEventListener("click", () => openModal('YOUR_NEW_MODAL_ID'));
+}
+
+if (createCategoryBtn) {
+  // Same logic for categories if needed
+  createCategoryBtn.style.display = "none";
 }
 
 // ======================== SERVER CONTEXT MENU ========================
@@ -8452,6 +8660,7 @@ async function editServerIcon(serverId) {
   input.click();
 }
 
+// Replace your existing deleteServer function with this simplified version
 async function deleteServer(serverId) {
   const server = servers.find(s => s.id === serverId);
   if (!server) return;
@@ -8461,64 +8670,7 @@ async function deleteServer(serverId) {
   }
 
   try {
-    // 1. Delete channel_presence records (blocks server deletion)
-    const { error: presenceError } = await supabaseClient
-      .from("channel_presence")
-      .delete()
-      .eq("server_id", serverId);
-    if (presenceError) throw presenceError;
-
-    // 2. Delete server_invites
-    const { error: inviteError } = await supabaseClient
-      .from("server_invites")
-      .delete()
-      .eq("server_id", serverId);
-    if (inviteError) throw inviteError;
-
-    // 3. Delete custom_emojis
-    const { error: emojiError } = await supabaseClient
-      .from("custom_emojis")
-      .delete()
-      .eq("server_id", serverId);
-    if (emojiError) throw emojiError;
-
-    // 4. Delete server_roles (needed before members)
-    const { error: rolesError } = await supabaseClient
-      .from("server_roles")
-      .delete()
-      .eq("server_id", serverId);
-    if (rolesError) throw rolesError;
-
-    // 5. Delete server_member_roles (needed before members)
-    const { error: memberRolesError } = await supabaseClient
-      .from("server_member_roles")
-      .delete()
-      .eq("server_id", serverId);
-    if (memberRolesError) throw memberRolesError;
-
-    // 6. Delete server_members (needed before channels/messages if they reference members)
-    const { error: membersError } = await supabaseClient
-      .from("server_members")
-      .delete()
-      .eq("server_id", serverId);
-    if (membersError) throw membersError;
-
-    // 7. Delete categories (needed before channels)
-    const { error: categoriesError } = await supabaseClient
-      .from("categories")
-      .delete()
-      .eq("server_id", serverId);
-    if (categoriesError) throw categoriesError;
-
-    // 8. Delete channels (this will cascade delete messages/reactions if FKs are set up)
-    // If your messages table doesn't have CASCADE, you might need to delete messages first
-    const { error: channelsError } = await supabaseClient
-      .from("channels")
-      .delete()
-      .eq("server_id", serverId);
-    if (channelsError) throw channelsError;
-
-    // 9. Finally, delete the server itself
+    // With cascade, we only need to delete the server itself
     const { error } = await supabaseClient
       .from("servers")
       .delete()
@@ -9000,33 +9152,67 @@ async function linkGithubAccount() {
 }
 
 async function linkOAuthIdentity(provider) {
-  const linkIdentity = supabaseClient.auth.linkIdentity;
-  if (typeof linkIdentity !== "function") {
-    alert("❌ Provider linking is not available in this client build.");
-    return;
-  }
-
+  console.log(`🔄 Attempting to link ${provider}...`);
+  
+  // 1. Check if user is logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (!session?.user) {
-    alert("❌ Please sign in again to link accounts.");
-    await performLogout();
+    showLinkStatus(`❌ You must be logged in to link accounts.`, "error");
     return;
   }
 
+  // 2. Store linking context for post-redirect handling
+  localStorage.setItem('oauth_linking', 'true');
+  localStorage.setItem('oauth_provider', provider);
+  localStorage.setItem('oauth_user_id', session.user.id);
+
+  // 3. Use linkIdentity for manual linking (this is the correct approach)
   const redirectTo = getAuthRedirectUrl();
-  const { data, error } = await linkIdentity.call(supabaseClient.auth, {
-    provider,
+  
+  const { data, error } = await supabaseClient.auth.linkIdentity({
+    provider: provider,
     options: {
+      skipBrowserRedirect: false,
       ...(redirectTo ? { redirectTo } : {})
     }
   });
 
   if (error) {
-    alert(`❌ Failed to link ${provider}: ` + error.message);
+    console.error("❌ Link Error:", error);
+    // Clean up linking context on error
+    localStorage.removeItem('oauth_linking');
+    localStorage.removeItem('oauth_provider');
+    localStorage.removeItem('oauth_user_id');
+    showLinkStatus(`❌ Failed to link ${provider}: ${error.message}`, "error");
     return;
   }
 
-  if (data?.url) window.location.href = data.url;
+  if (data?.url) {
+    console.log(`🔄 Redirecting to ${provider} for manual linking...`);
+    showLinkStatus(`🔄 Redirecting to ${provider} to link account...`, "success");
+    // This will redirect the whole page
+    window.location.href = data.url;
+  } else {
+    // Clean up linking context
+    localStorage.removeItem('oauth_linking');
+    localStorage.removeItem('oauth_provider');
+    localStorage.removeItem('oauth_user_id');
+    showLinkStatus(`❌ No redirect URL received.`, "error");
+  }
+}
+
+function showLinkStatus(message, type = "success") {
+  const statusEl = document.getElementById("accountLinkStatus");
+  if (!statusEl) return;
+  
+  statusEl.textContent = message;
+  statusEl.style.display = "block";
+  statusEl.style.color = type === "error" ? "#ed4245" : "#3ba55d";
+  statusEl.style.background = type === "error" ? "rgba(237, 66, 69, 0.1)" : "rgba(59, 165, 93, 0.1)";
+  
+  setTimeout(() => {
+    statusEl.style.display = "none";
+  }, 5000);
 }
 
 async function changeAccountPassword() {
@@ -9123,19 +9309,7 @@ if (profileModal) {
     await performLogout();
   });
 
-  document.getElementById("profileLinkGoogleBtn").addEventListener("click", async () => {
-    if (currentProfileUsername !== username) return;
-    await linkGoogleAccount();
-  });
-
-  const linkGithubBtn = document.getElementById("profileLinkGithubBtn");
-  if (linkGithubBtn) {
-    linkGithubBtn.addEventListener("click", async () => {
-      if (currentProfileUsername !== username) return;
-      await linkGithubAccount();
-    });
-  }
-
+  
   document.getElementById("profileChangePasswordBtn").addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
     await changeAccountPassword();
@@ -9255,15 +9429,104 @@ function enableBioEdit(currentBio) {
 
 async function checkLinkedIdentities() {
   const { data: { user } } = await supabaseClient.auth.getUser();
-  if (!user) return { google: false, github: false };
+  if (!user) return { google: false, github: false, discord: false, azure: false };
 
   // Supabase stores linked identities in user.identities
   const identities = user.identities || [];
   
   return {
     google: identities.some(id => id.provider === 'google'),
-    github: identities.some(id => id.provider === 'github')
+    github: identities.some(id => id.provider === 'github'),
+    discord: identities.some(id => id.provider === 'discord'),
+    azure: identities.some(id => id.provider === 'azure')
   };
+}
+
+async function unlinkOAuthIdentity(provider) {
+  console.log(`🔄 Attempting to unlink ${provider}...`);
+  
+  // 1. Check if user is logged in
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) {
+    showLinkStatus(`❌ You must be logged in to unlink accounts.`, "error");
+    return;
+  }
+
+  // 2. Find the identity to unlink
+  const identity = user.identities?.find(id => id.provider === provider);
+  if (!identity) {
+    showLinkStatus(`❌ ${provider} account is not linked.`, "error");
+    return;
+  }
+
+  // 3. Unlink the identity using Supabase admin API
+  const { error } = await supabaseClient.auth.admin.unlinkIdentity(user.id, identity.id);
+
+  if (error) {
+    console.error("❌ Unlink Error:", error);
+    showLinkStatus(`❌ Failed to unlink ${provider}: ${error.message}`, "error");
+    return;
+  }
+
+  console.log(`✅ Successfully unlinked ${provider}`);
+  showLinkStatus(`✅ ${provider} account unlinked successfully!`, "success");
+  
+  // 4. Update the button states
+  await updateAccountLinkButtons();
+}
+
+async function updateAccountLinkButtons() {
+  const linked = await checkLinkedIdentities();
+  
+  const buttons = {
+    google: document.getElementById("linkGoogleBtn"),
+    github: document.getElementById("linkGithubBtn"),
+    discord: document.getElementById("linkDiscordBtn"),
+    azure: document.getElementById("linkAzureBtn")
+  };
+
+  const providerNames = {
+    google: "Google",
+    github: "GitHub",
+    discord: "Discord",
+    azure: "Azure"
+  };
+
+  const providerIcons = {
+    google: "🔵",
+    github: "🐙",
+    discord: "💬",
+    azure: "🐦"
+  };
+
+  Object.keys(buttons).forEach(provider => {
+    const button = buttons[provider];
+    if (!button) return;
+
+    if (linked[provider]) {
+      // Account is linked - show unlink option
+      button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> ${providerNames[provider]} Linked! :) Unlink?`;
+      button.style.background = "linear-gradient(135deg, #dc3545, #c82333)";
+      button.onclick = async () => {
+        if (confirm(`Are you sure you want to unlink your ${providerNames[provider]} account?`)) {
+          await unlinkOAuthIdentity(provider);
+        }
+      };
+    } else {
+      // Account is not linked - show link option
+      button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> Link ${providerNames[provider]} Account`;
+      
+      // Restore original gradient colors
+      const originalGradients = {
+        google: "linear-gradient(135deg, #4285f4, #34a853)",
+        github: "linear-gradient(135deg, #24292e, #5865f2)",
+        discord: "linear-gradient(135deg, #5865f2, #99aab5)",
+        azure: "linear-gradient(135deg, #1da1f2, #14171a)"
+      };
+      button.style.background = originalGradients[provider];
+      button.onclick = async () => await linkOAuthIdentity(provider);
+    }
+  });
 }
 
 async function updateProfileAuthButtons() {
@@ -9300,4 +9563,108 @@ async function updateProfileAuthButtons() {
       githubBtn.style.opacity = "1";
     }
   }
+}
+
+// --- SAFE MODAL LISTENER ATTACHMENT ---
+// Run this immediately to ensure we don't miss the element
+function setupAccountLinkListeners() {
+  const openBtn = document.getElementById("openAccountLinkModal");
+  const closeBtn = document.getElementById("closeAccountLinkModal");
+  const modal = document.getElementById("accountLinkModal");
+  
+  // 1. Check if elements exist
+  if (!openBtn || !closeBtn || !modal) {
+    console.error("❌ Account Link Modal elements not found! Retrying in 100ms...");
+    setTimeout(setupAccountLinkListeners, 100);
+    return;
+  }
+
+  console.log("✅ Account Link Modal listeners attached successfully.");
+
+  // 2. Open Listener
+  openBtn.addEventListener("click", async () => {
+    // Double check ownership
+    if (currentProfileUsername && currentProfileUsername !== username) {
+      alert("You can only link accounts for your own profile.");
+      return;
+    }
+    
+    // Debug log
+    console.log("🔓 Opening Account Link Modal for:", currentProfileUsername);
+    
+    // Update button states before showing modal
+    await updateAccountLinkButtons();
+    
+    modal.style.display = "flex";
+  });
+
+  // 3. Close Listener
+  closeBtn.addEventListener("click", () => {
+    modal.style.display = "none";
+  });
+
+  // 4. Backdrop Click
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      modal.style.display = "none";
+    }
+  });
+
+  }
+
+// Run immediately
+setupAccountLinkListeners();
+
+// Also run on DOMContentLoaded just in case
+document.addEventListener("DOMContentLoaded", setupAccountLinkListeners);
+
+// --- FORCE RE-ATTACH LISTENERS FOR ACCOUNT LINK MODAL ---
+function forceAttachAccountLinkListeners() {
+  const modal = document.getElementById("accountLinkModal");
+  const closeBtn = document.getElementById("closeAccountLinkModal");
+  const linkGoogle = document.getElementById("linkGoogleBtn");
+  const linkGithub = document.getElementById("linkGithubBtn");
+  const linkDiscord = document.getElementById("linkDiscordBtn");
+  const linkAzure = document.getElementById("linkAzureBtn");
+
+  console.log("🔧 Forcing account link listeners...");
+
+  
+  // Close on backdrop click
+  if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        console.log("✅ Backdrop clicked");
+        modal.style.display = "none";
+      }
+    };
+  }
+}
+
+// Run immediately
+forceAttachAccountLinkListeners();
+
+// Also run on DOMContentLoaded just in case
+document.addEventListener("DOMContentLoaded", forceAttachAccountLinkListeners);
+
+const openBtn = document.getElementById("openAccountLinkModal");
+const closeBtn = document.getElementById("closeAccountLinkModal");
+const modal = document.getElementById("accountLinkModal");
+
+if (!openBtn || !closeBtn || !modal) {
+  console.error("❌ Modal elements missing");
+} else {
+  openBtn.addEventListener("click", () => {
+    console.log("OPEN CLICKED");
+    modal.style.display = "flex";
+  });
+
+  closeBtn.addEventListener("click", () => {
+    console.log("CLOSE CLICKED");
+    modal.style.display = "none";
+  });
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.style.display = "none";
+  });
 }
