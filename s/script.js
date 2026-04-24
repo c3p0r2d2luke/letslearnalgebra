@@ -1938,22 +1938,43 @@ function renderMentionSuggestions(items) {
     buttonEl.type = "button";
     buttonEl.className = `mention-suggestion-item${index === mentionSelectedIndex ? " active" : ""}`;
     
-    // Differentiate rendering for channels vs users
     let previewHtml = "";
-    if (item.kind === "channel") {
-      // Simple hash icon for channels
+    
+    if (item.kind === "command") {
+      // Style for commands: Bold label, grey description
+      buttonEl.innerHTML = `
+        <div class="mention-suggestion-main">
+          <span style="font-weight: 700; color: #fff;">${escapeHTML(item.label)}</span>
+        </div>
+        <div class="mention-suggestion-meta" style="color: #949ba4;">${escapeHTML(item.meta || "")}</div>
+      `;
+    } else if (item.kind === "channel") {
       previewHtml = `<span style="font-size:18px; margin-right:8px; color:#b9bbbe;">#</span>`;
+      buttonEl.innerHTML = `
+        <div class="mention-suggestion-main">
+          ${previewHtml}
+          ${escapeHTML(item.label)}
+        </div>
+        <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
+      `;
     } else if (item.kind === "emoji") {
       previewHtml = renderEmojiSuggestionPreview(item);
+      buttonEl.innerHTML = `
+        <div class="mention-suggestion-main">
+          ${previewHtml}
+          ${escapeHTML(item.label)}
+        </div>
+        <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
+      `;
+    } else {
+      // Standard user mention
+      buttonEl.innerHTML = `
+        <div class="mention-suggestion-main">
+          ${escapeHTML(item.label)}
+        </div>
+        <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
+      `;
     }
-    
-    buttonEl.innerHTML = `
-      <div class="mention-suggestion-main">
-        ${previewHtml}
-        ${escapeHTML(item.label)}
-      </div>
-      <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
-    `;
     
     buttonEl.addEventListener("mousedown", (event) => {
       event.preventDefault();
@@ -1977,52 +1998,50 @@ function renderMentionSuggestions(items) {
 
 async function updateMentionSuggestions() {
   const context = getMentionContext();
-  
-  // --- MENTION HANDLING ---
-  if (context) {
-    activeSuggestionMode = "mention";
-    const mentionCandidates = await getMentionCandidates();
-    const normalizedQuery = normalizeSearchValue(context.query);
+  const channelContext = getChannelContext();
+  const emojiContext = getEmojiContext();
+
+  // --- 1. SLASH COMMAND HANDLING (NEW) ---
+  // Check if we are at the start of the input or after whitespace with a '/'
+  const cursor = input.selectionStart ?? input.value.length;
+  const beforeCursor = input.value.slice(0, cursor);
+  const slashMatch = beforeCursor.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
+
+  if (slashMatch) {
+    activeSuggestionMode = "command";
+    mentionSelectedIndex = 0;
+    const query = slashMatch[2].toLowerCase();
     
-    // Base items (@everyone, @here)
-    const baseItems = canMentionEveryone()
-      ? [
-          { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
-          { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
-        ]
-      : [];
+    // Define your commands here
+    const commands = [
+      { label: "/gif", value: "gif", description: "Search for a GIF", insert: "/gif " },
+/*      { label: "/help", value: "help", description: "Show available commands", insert: "/help " },
+      { label: "/me", value: "me", description: "Display an action", insert: "/me " },
+      { label: "/clear", value: "clear", description: "Clear chat locally", insert: "/clear " }*/
+    ];
 
-    // Filter users
-    const userItems = mentionCandidates
-      .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
-      .map(candidate => ({
-        kind: "mention",
-        value: candidate.username,
-        label: `@${candidate.username}`,
-        meta: candidate.role || "Member"
+    // Filter commands based on query
+    const filtered = commands
+      .filter(cmd => !query || cmd.value.startsWith(query) || cmd.label.startsWith(query))
+      .slice(0, 8);
+
+    if (filtered.length > 0) {
+      mentionSuggestionItems = filtered.map(cmd => ({
+        kind: "command",
+        value: cmd.value,
+        label: cmd.label,
+        meta: cmd.description,
+        insertText: cmd.insert
       }));
-
-    // Combine and deduplicate
-    const allItems = [...baseItems, ...userItems];
-    const seen = new Set();
-    const uniqueItems = allItems.filter(item => {
-      const key = item.value.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 8); // Limit to 8 results
-
-    renderMentionSuggestions(uniqueItems);
-    return;
+      renderMentionSuggestions(mentionSuggestionItems);
+      return;
+    }
   }
 
-  // --- CHANNEL HANDLING (NEW) ---
-  const channelContext = getChannelContext();
+  // --- 2. CHANNEL HANDLING (Existing Logic) ---
   if (channelContext) {
     activeSuggestionMode = "channel";
     const normalizedQuery = normalizeSearchValue(channelContext.query);
-    
-    // Get all channels in current server
     const serverChannels = channels.filter(ch => ch.server_id === currentServerId);
     
     const channelItems = serverChannels
@@ -2033,57 +2052,115 @@ async function updateMentionSuggestions() {
         value: ch.name,
         label: `#${ch.name}`,
         meta: "Channel",
-        id: ch.id // Store ID for switching
+        id: ch.id
       }));
 
     renderMentionSuggestions(channelItems);
     return;
   }
 
-  // --- EMOJI HANDLING ---
-  const emojiContext = getEmojiContext();
-  if (!emojiContext) {
-    hideMentionSuggestions();
+  // --- 3. EMOJI HANDLING (Existing Logic) ---
+  if (emojiContext) {
+    activeSuggestionMode = "emoji";
+    const normalizedQuery = normalizeSearchValue(emojiContext.query);
+    const items = getEmojiSuggestionItems(normalizedQuery);
+    renderMentionSuggestions(items);
     return;
   }
 
-  activeSuggestionMode = "emoji";
-  const normalizedQuery = normalizeSearchValue(emojiContext.query);
-  const items = getEmojiSuggestionItems(normalizedQuery);
-  renderMentionSuggestions(items);
+  // --- 4. MENTION HANDLING (Existing Logic) ---
+  if (context) {
+    activeSuggestionMode = "mention";
+    const mentionCandidates = await getMentionCandidates();
+    const normalizedQuery = normalizeSearchValue(context.query);
+    
+    const baseItems = canMentionEveryone()
+      ? [
+          { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
+          { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
+        ]
+      : [];
+
+    const userItems = mentionCandidates
+      .filter(candidate => !normalizedQuery || String(candidate.username).toLowerCase().includes(normalizedQuery))
+      .map(candidate => ({
+        kind: "mention",
+        value: candidate.username,
+        label: `@${candidate.username}`,
+        meta: candidate.role || "Member"
+      }));
+
+    const allItems = [...baseItems, ...userItems];
+    const seen = new Set();
+    const uniqueItems = allItems.filter(item => {
+      const key = item.value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+
+    renderMentionSuggestions(uniqueItems);
+    return;
+  }
+
+  hideMentionSuggestions();
 }
 
 function applyMentionSuggestion(itemOrValue) {
-  const item = typeof itemOrValue === "object"
-    ? itemOrValue
-    : { kind: activeSuggestionMode || "mention", value: itemOrValue };
+  const item = typeof itemOrValue === "object" ? itemOrValue : { kind: activeSuggestionMode || "mention", value: itemOrValue };
   
+  const isCommand = item.kind === "command";
   const isEmoji = item.kind === "emoji";
   const isChannel = item.kind === "channel";
   
-  const context = isEmoji ? getEmojiContext() : (isChannel ? getChannelContext() : getMentionContext());
-  if (!context) return;
-  
   const cursor = input.selectionStart ?? input.value.length;
-  const before = input.value.slice(0, context.start);
-  const after = input.value.slice(cursor);
+  const beforeCursor = input.value.slice(0, cursor);
   
-  // FIX: Use the full label (e.g., "@Takeo") instead of just the value ("Takeo")
-  // For channels, we still use the # prefix logic
-  let replacement;
-  if (isChannel) {
+  let start = cursor;
+  let replacement = "";
+
+  if (isCommand) {
+    // Find the start of the slash command: look for space or start of string before the slash
+    // Regex: (^|\s)\/[a-zA-Z0-9_-]*$
+    const match = beforeCursor.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
+    
+    if (match) {
+      // match.index is where the match started (either 0 or the space before /)
+      // We want to replace starting from the '/' character, not the space.
+      // The '/' is at match.index + (match[1].length)
+      start = match.index + match[1].length; 
+      replacement = item.insertText; // e.g., "/gif "
+    } else {
+      // Fallback if regex fails (shouldn't happen if triggered correctly)
+      return;
+    }
+  } else if (isChannel) {
+    const ctx = getChannelContext();
+    if (!ctx) return;
+    start = ctx.start;
     replacement = `#${item.value} `;
   } else if (isEmoji) {
-    replacement = item.insertText; // Emoji usually has its own logic
+    const ctx = getEmojiContext();
+    if (!ctx) return;
+    start = ctx.start;
+    replacement = item.insertText;
   } else {
-    // MENTIONS: Use the label which includes the @ symbol
-    replacement = `${item.label} `; 
+    // Standard mention
+    const ctx = getMentionContext();
+    if (!ctx) return;
+    start = ctx.start;
+    replacement = `${item.label} `;
   }
+
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(cursor);
   
   input.value = `${before}${replacement}${after}`;
+  
   const nextCursor = before.length + replacement.length;
   input.focus();
   input.setSelectionRange(nextCursor, nextCursor);
+  
   hideMentionSuggestions();
 }
 
@@ -4036,6 +4113,22 @@ async function sendMessage(options = {}) {
     return;
   }
 
+  // --- NEW: GIF PERMISSION CHECK ---
+  // Check if the content is a direct GIF URL or a /gif command result
+  const isGifContent = content.startsWith("http") && (content.includes("tenor.com") || content.includes("giphy.com") || content.endsWith(".gif") || content.endsWith(".webp") || content.endsWith(".mp4"));
+  
+  // If the user is trying to send a GIF and is NOT Manager/Admin/SysManager/SysAdmin
+  if (isGifContent && !["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)) {
+    alert("❌ Only Managers and above can send GIFs.");
+    return;
+  }
+  // ----------------------------------
+
+  if (!options.bypassLinkCheck && currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
+    alert("❌ Only admins are allowed to send links.");
+    return;
+  }
+
   if (!options.bypassLinkCheck && currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
     alert("❌ Only admins are allowed to send links.");
     return;
@@ -4256,24 +4349,30 @@ function createMessageElement(msg) {
   const li = document.createElement("li");
   li.dataset.id = msg.id;
   li.dataset.user = msg.username;
+  
   const row = document.createElement("div");
   row.className = "message-row";
+  
   const avatarEl = buildAvatarElement(msg.username, "message-avatar");
   row.appendChild(avatarEl);
+  
   const body = document.createElement("div");
   body.className = "message-body";
   
+  // Role classes for styling
   const roleLower = (msg.role || "").toLowerCase();
   if (roleLower === "admin") li.classList.add("admin");
   else if (roleLower === "manager") li.classList.add("manager");
   else if (roleLower === "sysmanager") li.classList.add("sysmanager");
   else if (roleLower === "sysadmin") li.classList.add("sysadmin");
+  
   if (msg.is_pinned) li.dataset.pinned = "true";
   if (msg.reply_to) li.classList.add("is-reply");
 
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
   const timestamp = msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
+  // --- REPLY CONTEXT ---
   if (msg.reply_to) {
     const parentMsg = messageDataMap.get(msg.reply_to);
     if (parentMsg) {
@@ -4295,24 +4394,25 @@ function createMessageElement(msg) {
     }
   }
 
-  // Header Row
-// Inside createMessageElement, after creating the header:
-const header = document.createElement("div");
-header.className = "username";
-header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
-header.style.cursor = "pointer";
-header.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openUserProfile(msg.username, currentServerId);
-});
-body.appendChild(header);
+  // --- HEADER ROW ---
+  const header = document.createElement("div");
+  header.className = "username";
+  header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
+  header.style.cursor = "pointer";
+  header.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openUserProfile(msg.username, currentServerId);
+  });
+  body.appendChild(header);
 
-  // Content Row
+  // --- CONTENT ROW ---
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
   
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
+  
   if (fileMatch) {
+    // Handle File Uploads
     const url = fileMatch[2].trim();
     const type = getFileType(url);
     if (type === "image") {
@@ -4328,28 +4428,37 @@ body.appendChild(header);
       contentDiv.innerHTML = `<a href="${url}" target="_blank">📄 ${escapeHTML(fileMatch[1])}</a>`;
     }
   } else {
+    // --- TEXT MESSAGE HANDLING ---
     let formatted = formatMessageContent(cleanContent, msg.role);
-    // Mentions
-    if (msg.role !== "Admin") {
-      formatted = formatted.replace(/@(\w+)/g, (match, name) => renderMentionToken(name));
-    }
+    
+    // --- CRITICAL: FORCE @ MENTION STYLING (BLUE) ---
+    // This regex finds @username patterns and wraps them in the styled span
+    // It runs AFTER formatMessageContent to ensure we catch raw text mentions
+    formatted = formatted.replace(/@([a-zA-Z0-9_]+)/g, (match, name) => {
+      const isMine = name.toLowerCase() === (username || "").toLowerCase();
+      const mentionClass = isMine ? "mention mine" : "mention";
+      // We escape the name to prevent XSS, but keep the structure
+      return `<span class="${mentionClass}"><span class="mention-mark">@</span><span class="mention-name">${escapeHTML(name)}</span></span>`;
+    });
+
+    // Handle Code Blocks (Admin only usually, but good to check)
     if (!formatted.startsWith("<pre class=\"code-block\">")) {
       formatted = replaceCustomEmojiShortcodes(formatted);
     }
+    
     contentDiv.innerHTML = formatted;
+
+    // Emoji-only message styling
     if (isEmojiOnlyMessage(cleanContent)) {
       contentDiv.classList.add("emoji-only-message");
     }
 
-    // Link Previews & GIFS (Post-render to avoid blocking)
+    // --- LINK PREVIEWS & GIFS (Post-render) ---
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
     if (urlMatch) {
       const url = urlMatch[0];
       const gifUrl = resolveGifUrl(url);
 
-      // Strip the URL out of the message body so it isn't shown alongside
-      // the embedded gif. If the URL was the entire message, the body
-      // becomes empty.
       const stripUrlFromBody = () => {
         const escapedUrl = escapeHTML(url);
         let html = contentDiv.innerHTML || "";
@@ -4383,11 +4492,8 @@ body.appendChild(header);
       };
 
       if (gifUrl) {
-        // Direct gif/image URL or known CDN — render inline immediately.
         appendInlineGif(gifUrl);
       } else if (isLikelyGifPageUrl(url) && !cleanContent.includes(NO_EMBED_PHRASE)) {
-        // Tenor / Giphy page link — resolve via microlink, fall back to a
-        // normal link preview if it isn't actually a gif page.
         const placeholder = document.createElement("div");
         placeholder.className = "gif-resolving";
         contentDiv.appendChild(placeholder);
@@ -4415,11 +4521,14 @@ body.appendChild(header);
 
   row.appendChild(body);
   li.appendChild(row);
+  
   if (currentConversationType === "channel") {
     renderReactions(msg.id, li);
   }
+  
   attachMessageLongPress(li);
   attachHoverControls(li, msg);
+  
   return li;
 }
 
@@ -10088,15 +10197,25 @@ if (!openBtn || !closeBtn || !modal) {
 
   function handleInput() {
     const value = inputEl.value.trim();
-    const match = value.match(/^\/gif(?:\s+(.*))?$/i);
-    
-    if (!match) {
-      if (isOpen()) close();
-      return;
-    }
+  const match = value.match(/^\/gif(?:\s+(.*))?$/i);
+  
+  if (!match) {
+    if (isOpen()) close();
+    return;
+  }
 
-    const query = (match[1] || "").trim();
-    open(inputEl.getBoundingClientRect()); // Pass position
+  // --- NEW: Restrict /gif command usage ---
+  if (!["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)) {
+    // If they type /gif but aren't allowed, close the picker and alert
+    if (isOpen()) close();
+    // Optional: Alert them immediately or just silently ignore
+    // alert("❌ Only Managers and above can use /gif."); 
+    return; 
+  }
+  // -----------------------------------------
+
+  const query = (match[1] || "").trim();
+  open(inputEl.getBoundingClientRect());
 
     if (!query) {
       setState("Type a search after <b>/gif</b> — e.g. <b>/gif cats</b>");
