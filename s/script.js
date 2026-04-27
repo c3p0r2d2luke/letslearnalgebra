@@ -1698,12 +1698,22 @@ function markServerMentionsRead(serverId) {
   renderServerList();
 }
 
-function setServerCheckpoint(serverId) {
+// In script.js, find setServerCheckpoint
+function setServerCheckpoint(serverId, messageId = null) {
   if (!serverId) return;
   const checkpointMap = readServerCheckpointMap();
+  
+  // Get current max ID if not provided (e.g., when scrolling)
+  let currentMaxId = messageId;
+  if (!currentMaxId && messagesMap.size > 0) {
+    // Find the highest ID in the current view
+    const ids = Array.from(messagesMap.keys());
+    currentMaxId = Math.max(...ids);
+  }
+
   checkpointMap[serverId] = {
     lastViewed: new Date().toISOString(),
-    messageId: null // Will be set when messages are loaded
+    lastMessageId: currentMaxId // <--- NEW: Track ID
   };
   writeServerCheckpointMap(checkpointMap);
 }
@@ -1761,9 +1771,10 @@ async function refreshUnreadMentionCounts() {
       return;
     }
 
-    // Use checkpoint time if available, otherwise fall back to readMap
+    // 1. Get the checkpoint data
     const checkpoint = checkpointMap[serverId];
-    const lastViewTime = checkpoint?.lastViewed || readMap[serverId];
+    const lastViewTime = checkpoint?.lastViewed;
+    const lastMessageId = checkpoint?.lastMessageId; // <--- NEW: Check ID first
 
     let query = supabaseClient
       .from("messages")
@@ -1773,7 +1784,12 @@ async function refreshUnreadMentionCounts() {
       .order("inserted_at", { ascending: false })
       .limit(200);
 
-    if (lastViewTime) {
+    // 2. Apply the filter: Prefer ID, fallback to Time
+    if (lastMessageId && lastMessageId > 0) {
+      // Filter strictly by ID: Only count messages newer than the last one we saw
+      query = query.gt("id", lastMessageId);
+    } else if (lastViewTime) {
+      // Fallback to timestamp if no ID is recorded
       query = query.gt("inserted_at", lastViewTime);
     }
 
@@ -3766,7 +3782,7 @@ async function deleteChannel(channelId, channelName) {
 }
 
 
-function switchChannel(channelId) {
+async function switchChannel(channelId) {
   // 🔥 CRITICAL: Set this IMMEDIATELY
   currentConversationType = "channel";
   currentDmConversationId = null;
@@ -3798,9 +3814,12 @@ function switchChannel(channelId) {
   hideMentionSuggestions();
 
   // 🔥 Call loadMessages
-  loadMessages();
+  await loadMessages(); // Make it await so we wait for messages to load
 
-  // 🔥 CRITICAL: Subscribe to realtime for THIS specific channel
+  // 🔥 CRITICAL: Mark this channel as read immediately upon loading
+  await markCurrentChannelAsRead();
+
+  // 🔥 Subscribe to realtime for THIS specific channel
   subscribeToCurrentChannel();
 
   // Update channel presence for member list
@@ -4539,20 +4558,31 @@ async function handleRealtimeMessage(newMsg, eventType) {
     await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
+    
+    // Update the checkpoint immediately so we don't count this message as unread later
+    // We pass the new message ID so the "read" state moves forward
+    if (currentServerId) {
+      setServerCheckpoint(currentServerId, newMsg.id);
+    }
+
     setTimeout(() => {
       waitForImagesBeforeScroll();
     }, 100);
 
     if (messageMentionsUser(newMsg.content, username)) {
-  showMentionToast(newMsg);
-  await notifyMentionClientSide(newMsg);
+      showMentionToast(newMsg);
+      await notifyMentionClientSide(newMsg);
 
-  const el = messagesMap.get(newMsg.id);
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.style.background = "#3a3d44";
-  }
-}
+      const el = messagesMap.get(newMsg.id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.background = "#3a3d44";
+        // Reset background after a bit
+        setTimeout(() => {
+          if(el) el.style.background = "";
+        }, 2000);
+      }
+    }
   }
 
   else if (eventType === "UPDATE") {
@@ -4560,15 +4590,18 @@ async function handleRealtimeMessage(newMsg, eventType) {
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
     if (messageMentionsUser(newMsg.content, username)) {
-  showMentionToast(newMsg);
-  await notifyMentionClientSide(newMsg);
+      showMentionToast(newMsg);
+      await notifyMentionClientSide(newMsg);
 
-  const el = messagesMap.get(newMsg.id);
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.style.background = "#3a3d44";
-  }
-}
+      const el = messagesMap.get(newMsg.id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.background = "#3a3d44";
+        setTimeout(() => {
+          if(el) el.style.background = "";
+        }, 2000);
+      }
+    }
   }
 
   else if (eventType === "DELETE") {
@@ -10287,3 +10320,15 @@ if (!openBtn || !closeBtn || !modal) {
 
   console.log("✅ GIF Picker (Forced) Initialized!");
 })();
+
+// Add this helper near your other helper functions
+async function markCurrentChannelAsRead() {
+  if (!currentServerId || !currentChannelId) return;
+  
+  // If we have messages loaded, take the highest ID
+  if (messagesMap.size > 0) {
+    const maxId = Math.max(...Array.from(messagesMap.keys()));
+    setServerCheckpoint(currentServerId, maxId);
+    markServerMentionsRead(currentServerId); // Clears the badge
+  }
+}
