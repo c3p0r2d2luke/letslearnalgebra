@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "npm": "^11.12.1",
-    "supabase": "^2.85.0",
-    "surge": "^0.27.3"
+    "supabase": "^2.85.0"
   }
 }
