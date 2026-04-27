@@ -10332,3 +10332,71 @@ async function markCurrentChannelAsRead() {
     markServerMentionsRead(currentServerId); // Clears the badge
   }
 }
+
+// ================= EDGE FUNCTION PATCHES =================
+
+async function censorContent(text, serverId = currentServerId) {
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("censor-message", {
+      body: { text, serverId }
+    });
+    if (error) throw error;
+    return data?.text || text;
+  } catch (err) {
+    console.warn("Censor fallback:", err);
+    return text;
+  }
+}
+
+async function fetchLinkPreviewEdge(url) {
+  try {
+    const res = await fetch(`${supabaseClient.supabaseUrl}/functions/v1/get-link-preview?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("Preview failed");
+    return await res.json();
+  } catch (err) {
+    console.warn("Preview error:", err);
+    return null;
+  }
+}
+
+async function resolveGifEdge(query) {
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("resolve-gif", {
+      body: { query }
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.warn("GIF error:", err);
+    return null;
+  }
+}
+
+async function invokeSendPush(payload) {
+  try {
+    const { error } = await supabaseClient.functions.invoke("send-push", {
+      body: payload
+    });
+    if (error) throw error;
+  } catch (err) {
+    console.error("Push failed:", err);
+  }
+}
+
+async function logIpEdge() {
+  try {
+    await supabaseClient.functions.invoke("log-ip", {
+      body: { username }
+    });
+  } catch (err) {
+    console.warn("IP log failed:", err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(() => {
+    if (typeof username !== "undefined") logIpEdge();
+  }, 2000);
+});
+
+// ================= END PATCH =================
