@@ -9829,21 +9829,24 @@ async function updateAccountLinkButtons() {
     google: document.getElementById("linkGoogleBtn"),
     github: document.getElementById("linkGithubBtn"),
     discord: document.getElementById("linkDiscordBtn"),
-    azure: document.getElementById("linkAzureBtn")
+    azure: document.getElementById("linkAzureBtn"),
+    spotify: document.getElementById("linkSpotifyBtn")
   };
 
   const providerNames = {
     google: "Google",
     github: "GitHub",
     discord: "Discord",
-    azure: "Azure"
+    azure: "Azure",
+    spotify: "Spotify"
   };
 
   const providerIcons = {
     google: "🔵",
     github: "🐙",
     discord: "💬",
-    azure: "🐦"
+    azure: "🐦",
+    spotify: "🎵"
   };
 
   Object.keys(buttons).forEach(provider => {
@@ -9973,6 +9976,7 @@ function forceAttachAccountLinkListeners() {
   const linkGithub = document.getElementById("linkGithubBtn");
   const linkDiscord = document.getElementById("linkDiscordBtn");
   const linkAzure = document.getElementById("linkAzureBtn");
+  const linkSpotify = document.getElementById("linkSpotifyBtn");
 
   console.log("🔧 Forcing account link listeners...");
 
