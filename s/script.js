@@ -4153,37 +4153,35 @@ async function sendMessage(options = {}) {
     }
   }
 
-  // --- ROBUST IP LOGGING START ---
+   // --- FIXED: NON-BLOCKING IP LOGGING ---
   let ip = "unknown";
-  try {
-    // Use a timeout to prevent hanging if the API is slow
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+  
+  // 1. Try to fetch IP asynchronously WITHOUT blocking the message send
+  fetch("https://api.ipify.org?format=json", { 
+    signal: AbortSignal.timeout(2000) // Hard 2-second timeout
+  })
+  .then(res => res.ok ? res.json() : null)
+  .then(data => {
+    if (data?.ip) {
+      ip = data.ip;
+      // Update DB in the background (fire and forget)
+      supabaseClient
+        .from("users")
+        .update({ ip: ip })
+        .eq("username", username)
+        .then(() => console.log("✅ IP updated to:", ip))
+        .catch(err => console.warn("⚠️ IP update failed:", err.message));
+    }
+  })
+  .catch(err => {
+    // Silently fail if IP fetch fails; message still sends
+    console.warn("⚠️ Could not fetch IP:", err.message);
+  });
 
-    const res = await fetch("https://api.ipify.org?format=json", { 
-      signal: controller.signal 
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    
-    const data = await res.json();
-    ip = data.ip || "unknown";
-    
-    // Update the user's profile in the database with the latest IP
-    // This ensures the IP is always current in the 'users' table
-    await supabaseClient
-      .from("users")
-      .update({ ip: ip })
-      .eq("username", username);
-
-  } catch (err) {
-    console.warn("⚠️ Failed to fetch IP (non-critical):", err.message);
-    // If fetch fails, we still proceed with "unknown" so the message sends
-    ip = "unknown"; 
-  }
-  // --- ROBUST IP LOGGING END ---
+  // 2. Proceed with message sending immediately (don't wait for IP)
+  // The 'ip' variable might still be "unknown" here, which is fine.
+  // The background fetch will update the DB later.
+  // -----------------------------------------------------------
 
   try {
     const messageData = {
