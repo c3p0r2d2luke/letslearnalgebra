@@ -9498,35 +9498,45 @@ async function linkGithubAccount() {
   await linkOAuthIdentity("github");
 }
 
+/*async function linkSpotifyAccount() {
+  await linkOAuthIdentity("spotify");
+}*/
+
 async function linkOAuthIdentity(provider) {
   console.log(`🔄 Attempting to link ${provider}...`);
   
-  // 1. Check if user is logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (!session?.user) {
     showLinkStatus(`❌ You must be logged in to link accounts.`, "error");
     return;
   }
 
-  // 2. Store linking context for post-redirect handling
   localStorage.setItem('oauth_linking', 'true');
   localStorage.setItem('oauth_provider', provider);
   localStorage.setItem('oauth_user_id', session.user.id);
 
-  // 3. Use linkIdentity for manual linking (this is the correct approach)
   const redirectTo = getAuthRedirectUrl();
   
+  // 🔥 CRITICAL FIX: Define required scopes for Spotify
+  const scopes = {
+    //spotify: ['user-read-email'], // These are required for Supabase to get the profile
+    google: [],
+    github: [],
+    discord: [],
+    azure: []
+  };
+
   const { data, error } = await supabaseClient.auth.linkIdentity({
     provider: provider,
     options: {
       skipBrowserRedirect: false,
+      scopes: (scopes[provider] || []).join(" "),
       ...(redirectTo ? { redirectTo } : {})
     }
   });
 
   if (error) {
     console.error("❌ Link Error:", error);
-    // Clean up linking context on error
     localStorage.removeItem('oauth_linking');
     localStorage.removeItem('oauth_provider');
     localStorage.removeItem('oauth_user_id');
@@ -9535,12 +9545,10 @@ async function linkOAuthIdentity(provider) {
   }
 
   if (data?.url) {
-    console.log(`🔄 Redirecting to ${provider} for manual linking...`);
+    console.log(`🔄 Redirecting to ${provider}...`);
     showLinkStatus(`🔄 Redirecting to ${provider} to link account...`, "success");
-    // This will redirect the whole page
     window.location.href = data.url;
   } else {
-    // Clean up linking context
     localStorage.removeItem('oauth_linking');
     localStorage.removeItem('oauth_provider');
     localStorage.removeItem('oauth_user_id');
@@ -9829,24 +9837,24 @@ async function updateAccountLinkButtons() {
     google: document.getElementById("linkGoogleBtn"),
     github: document.getElementById("linkGithubBtn"),
     discord: document.getElementById("linkDiscordBtn"),
-    azure: document.getElementById("linkAzureBtn"),
-    spotify: document.getElementById("linkSpotifyBtn")
+    azure: document.getElementById("linkAzureBtn")
+   // spotify: document.getElementById("linkSpotifyBtn")
   };
 
   const providerNames = {
     google: "Google",
     github: "GitHub",
     discord: "Discord",
-    azure: "Azure",
-    spotify: "Spotify"
+    azure: "Azure"
+   // spotify: "Spotify"
   };
 
   const providerIcons = {
     google: "🔵",
     github: "🐙",
     discord: "💬",
-    azure: "🐦",
-    spotify: "🎵"
+    azure: "🐦"
+    //spotify: "🎵"
   };
 
   Object.keys(buttons).forEach(provider => {
@@ -9976,7 +9984,7 @@ function forceAttachAccountLinkListeners() {
   const linkGithub = document.getElementById("linkGithubBtn");
   const linkDiscord = document.getElementById("linkDiscordBtn");
   const linkAzure = document.getElementById("linkAzureBtn");
-  const linkSpotify = document.getElementById("linkSpotifyBtn");
+ // const linkSpotify = document.getElementById("linkSpotifyBtn");
 
   console.log("🔧 Forcing account link listeners...");
 
