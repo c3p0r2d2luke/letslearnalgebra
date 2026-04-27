@@ -1648,15 +1648,6 @@ function tokenMatchesFilteredWord(token, filteredWord) {
   return distance <= maxDistance;
 }
 
-function censorContent(text) {
-  if (!currentServerWordFilters.length) return text;
-
-  return String(text || "").replace(/[A-Za-z0-9@$!+|€._-]+/g, (token) => {
-    const matchesFilter = currentServerWordFilters.some((filteredWord) => tokenMatchesFilteredWord(token, filteredWord));
-    return matchesFilter ? "*".repeat(token.length) : token;
-  });
-}
-
 function getMentionReadStorageKey() {
   return `serverMentionReadAt:${username || "guest"}`;
 }
@@ -10369,17 +10360,6 @@ async function resolveGifEdge(query) {
   } catch (err) {
     console.warn("GIF error:", err);
     return null;
-  }
-}
-
-async function invokeSendPush(payload) {
-  try {
-    const { error } = await supabaseClient.functions.invoke("send-push", {
-      body: payload
-    });
-    if (error) throw error;
-  } catch (err) {
-    console.error("Push failed:", err);
   }
 }
 
