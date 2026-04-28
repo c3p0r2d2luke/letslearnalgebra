@@ -1012,6 +1012,7 @@ let categories = [];
 let collapsedCategories = new Set();
 try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
 let currentChannelId = null;
+let lastTextChannelId = null; // last non-voice channel — used to return after VC disconnect
 let currentServerId = null;
 let currentConversationType = "channel";
 let currentDmConversationId = null;
@@ -3822,6 +3823,12 @@ async function switchChannel(channelId) {
   currentConversationType = "channel";
   currentDmConversationId = null;
   currentChannelId = channelId;
+
+  // Remember the last text channel so we can return to it after a VC disconnect.
+  const _switchedCh = channels.find(c => c.id === channelId);
+  if (_switchedCh && _switchedCh.channel_type !== 'voice') {
+    lastTextChannelId = channelId;
+  }
   console.log("🔄 switchChannel called. currentChannelId set to:", currentChannelId);
 
   // Highlight selected channel
@@ -9532,7 +9539,7 @@ async function fetchUserProfile(usernameVal, serverId = null) {
     // Fetch server member profile
     const { data, error } = await supabaseClient
       .from("server_members")
-      .select("profile_display_name, profile_avatar_url, profile_description") // Added description
+      .select("profile_display_name, profile_avatar_url, profile_description, role")
       .eq("server_id", serverId)
       .eq("username", usernameVal)
       .maybeSingle();
@@ -9544,7 +9551,8 @@ async function fetchUserProfile(usernameVal, serverId = null) {
     return {
       display_name: data?.profile_display_name || usernameVal,
       avatar_url: data?.profile_avatar_url || getAvatarUrl(usernameVal),
-      description: data?.profile_description || "" // Added description
+      description: data?.profile_description || "",
+      role: data?.role || null
     };
   } else {
     // Fallback for global (optional)
@@ -9573,11 +9581,26 @@ async function openUserProfile(usernameVal, serverId = null) {
   // Fetch data
   const profile = await fetchUserProfile(usernameVal, serverId);
 
-await updateProfileAuthButtons(); // <--- Add this
-
   // Update UI
   document.getElementById("profileDisplayName").textContent = profile.display_name;
   document.getElementById("profileUsername").textContent = `@${usernameVal}`;
+
+  // Role in this server (only when viewing in a server context)
+  const roleWrap = document.getElementById("profileServerRole");
+  const roleBadge = document.getElementById("profileServerRoleBadge");
+  if (roleWrap && roleBadge) {
+    let roleToShow = null;
+    if (serverId && profile && profile.role) roleToShow = profile.role;
+    else if (usernameVal === username && serverId === currentServerId) roleToShow = currentRole;
+    if (roleToShow) {
+      const norm = (typeof normalizeServerRole === "function") ? normalizeServerRole(roleToShow) : roleToShow;
+      roleBadge.textContent = norm;
+      roleBadge.className = "profile-server-role-badge role-" + String(norm).toLowerCase();
+      roleWrap.style.display = "flex";
+    } else {
+      roleWrap.style.display = "none";
+    }
+  }
 
   // Handle Bio
   const descEl = document.getElementById("profileDescription");
@@ -9608,27 +9631,18 @@ await updateProfileAuthButtons(); // <--- Add this
     avatarFallback.textContent = getInitials(usernameVal);
   }
 
-  // Show "Edit Profile" button only if it's the current user (for name/avatar)
+  // Show "Edit Profile" button only if it's the current user viewing themselves in this server.
   const editBtn = document.getElementById("profileEditBtn");
-  const logoutBtn = document.getElementById("profileLogoutBtn");
-  const authActions = document.getElementById("profileAuthActions");
   const isOwnProfile = usernameVal === username;
   const isOwnServerProfile = isOwnProfile && serverId === currentServerId;
 
-  if (isOwnProfile) {
-    if (logoutBtn) logoutBtn.style.display = "block";
-    if (authActions) authActions.style.display = "block";
-  } else {
-    if (logoutBtn) logoutBtn.style.display = "none";
-    if (authActions) authActions.style.display = "none";
-  }
-
-  // Editing name/avatar is server-profile specific, so keep this gated to the active server.
-  if (isOwnServerProfile) {
-    editBtn.style.display = "block";
-    editBtn.textContent = "Edit Name & Avatar";
-  } else {
-    editBtn.style.display = "none";
+  if (editBtn) {
+    if (isOwnServerProfile) {
+      editBtn.style.display = "block";
+      editBtn.textContent = "Edit Name & Avatar";
+    } else {
+      editBtn.style.display = "none";
+    }
   }
 
   modal.style.display = "flex";
@@ -9647,6 +9661,62 @@ async function performLogout({ showMessage = false } = {}) {
   await supabaseClient.auth.signOut();
   if (showMessage) alert("You have been logged out.");
   location.reload();
+}
+
+/* ======================================================================
+   DANGER — Delete Account (irreversible app-side delete + sign out)
+   The auth.users row may persist; account profile/data is wiped here.
+   ====================================================================== */
+async function deleteMyAccount() {
+  if (!username) return;
+  const status = document.getElementById("settingsDeleteAccountStatus");
+  const setStatus = (txt, isErr = false) => {
+    if (!status) return;
+    status.textContent = txt;
+    status.classList.toggle("error", !!isErr);
+  };
+
+  // Two-step confirmation: confirm() + type-username prompt.
+  if (!confirm(`This will permanently delete your account "${username}", remove you from every server, and erase your messages, reactions and DMs.\n\nThis CANNOT be undone. Continue?`)) return;
+  const typed = window.prompt(`Type your username to confirm permanent deletion:\n\n${username}`);
+  if (typed == null) return;
+  if (typed.trim() !== username) { setStatus("❌ Username didn't match. Aborted.", true); return; }
+
+  setStatus("⏳ Deleting your account…");
+  const btn = document.getElementById("settingsDeleteAccountBtn");
+  if (btn) btn.disabled = true;
+
+  try {
+    // Best-effort cleanup. RLS should permit a user to delete their own rows.
+    const tables = [
+      { table: "reactions",                 col: "username" },
+      { table: "messages",                  col: "username" },
+      { table: "dm_messages",               col: "username" },
+      { table: "voice_room_participants",   col: "username" },
+      { table: "channel_permissions",       col: "username" },
+      { table: "server_member_roles",       col: "username" },
+      { table: "server_members",            col: "username" },
+      { table: "users",                     col: "username" }
+    ];
+    for (const t of tables) {
+      try {
+        await supabaseClient.from(t.table).delete().eq(t.col, username);
+      } catch (err) {
+        console.warn(`delete from ${t.table} failed:`, err.message);
+      }
+    }
+
+    setStatus("✅ Account data removed. Signing you out…");
+    // Wipe local state and sign out.
+    try { localStorage.clear(); } catch {}
+    try { sessionStorage.clear(); } catch {}
+    try { await supabaseClient.auth.signOut(); } catch {}
+
+    setTimeout(() => { location.reload(); }, 800);
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    setStatus("❌ Failed to delete: " + err.message, true);
+  }
 }
 
 async function linkGoogleAccount() {
@@ -9818,18 +9888,19 @@ if (profileModal) {
     openUserProfile(username, currentServerId);
   });
 
-  document.getElementById("profileLogoutBtn").addEventListener("click", async () => {
+  // Note: profile-modal account/log-out/link buttons were moved to the User Settings modal.
+  const _profileLogoutBtn = document.getElementById("profileLogoutBtn");
+  if (_profileLogoutBtn) _profileLogoutBtn.addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
     await performLogout();
   });
-
-
-  document.getElementById("profileChangePasswordBtn").addEventListener("click", async () => {
+  const _profileChgPwdBtn = document.getElementById("profileChangePasswordBtn");
+  if (_profileChgPwdBtn) _profileChgPwdBtn.addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
     await changeAccountPassword();
   });
-
-  document.getElementById("profileChangeEmailBtn").addEventListener("click", async () => {
+  const _profileChgEmailBtn = document.getElementById("profileChangeEmailBtn");
+  if (_profileChgEmailBtn) _profileChgEmailBtn.addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
     await changeAccountEmail();
   });
@@ -10083,16 +10154,15 @@ async function updateProfileAuthButtons() {
 }
 
 // --- SAFE MODAL LISTENER ATTACHMENT ---
-// Run this immediately to ensure we don't miss the element
+// (Legacy: the in-profile "Link Accounts" button was moved to User Settings → Connections.
+//  These listeners now only attach if the legacy modal still exists; otherwise no-op.)
 function setupAccountLinkListeners() {
   const openBtn = document.getElementById("openAccountLinkModal");
   const closeBtn = document.getElementById("closeAccountLinkModal");
   const modal = document.getElementById("accountLinkModal");
 
-  // 1. Check if elements exist
   if (!openBtn || !closeBtn || !modal) {
-    console.error("❌ Account Link Modal elements not found! Retrying in 100ms...");
-    setTimeout(setupAccountLinkListeners, 100);
+    // Legacy modal/button no longer exists — silently skip.
     return;
   }
 
@@ -10169,19 +10239,9 @@ const openBtn = document.getElementById("openAccountLinkModal");
 const closeBtn = document.getElementById("closeAccountLinkModal");
 const modal = document.getElementById("accountLinkModal");
 
-if (!openBtn || !closeBtn || !modal) {
-  console.error("❌ Modal elements missing");
-} else {
-  openBtn.addEventListener("click", () => {
-    console.log("OPEN CLICKED");
-    modal.style.display = "flex";
-  });
-
-  closeBtn.addEventListener("click", () => {
-    console.log("CLOSE CLICKED");
-    modal.style.display = "none";
-  });
-
+if (openBtn && closeBtn && modal) {
+  openBtn.addEventListener("click", () => { modal.style.display = "flex"; });
+  closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.style.display = "none";
   });
@@ -10730,12 +10790,12 @@ function subscribeToVoiceRoom(channelId) {
         voiceParticipantState.set(p.username, next);
         renderVoiceParticipant(p.username, next);
 
-        // If admin-muted my own mic, force-mute locally
-        if (p.username === username && typeof applyLocalMicState === "function") {
+        // If admin-muted my own mic, force-mute locally and refresh the bar.
+        if (p.username === username) {
           try { applyLocalMicState(); } catch {}
-        }
-        if (p.username === username && typeof applyLocalDeafenState === "function") {
           try { applyLocalDeafenState(); } catch {}
+          try { refreshVoiceControlButtons(); } catch {}
+          try { updateSelfMuteBadge(); } catch {}
         }
       }
     )
@@ -10997,6 +11057,20 @@ async function joinVoiceChannel(channelId) {
     renderVoiceParticipant(username, voiceParticipantState.get(username));
   }
 
+  // If the user previously self-muted, sync that state to the DB so others see the badge.
+  try {
+    if (selfMuted) {
+      const st = voiceParticipantState.get(username) || {};
+      voiceParticipantState.set(username, { ...st, is_muted: true });
+      renderVoiceParticipant(username, voiceParticipantState.get(username));
+      await supabaseClient
+        .from("voice_room_participants")
+        .update({ is_muted: true })
+        .eq("channel_id", channelId)
+        .eq("username", username);
+    }
+  } catch (err) { console.warn("initial mute sync failed:", err.message); }
+
   applyLocalMicState();
   applyLocalDeafenState();
   refreshVoiceControlButtons();
@@ -11067,8 +11141,217 @@ function leaveVoiceChannel() {
     document.getElementById("currentChannelName").textContent = `# ${channel.name}`;
   }
 
+  const _wasInVoice = currentVoiceChannelId;
   currentVoiceChannelId = null;
+
+  // Return to the last text channel the user was viewing (if it still exists).
+  if (_wasInVoice && lastTextChannelId && channels.some(c => c.id === lastTextChannelId)) {
+    switchChannel(lastTextChannelId);
+  }
 }
+
+/* ======================================================================
+   VOICE — local mic / deafen state, control bar wiring, admin menu
+   ====================================================================== */
+function applyLocalMicState() {
+  // Mic should be off if either the user self-muted OR an admin server-muted them.
+  const st = voiceParticipantState.get(username) || {};
+  const shouldMute = !!selfMuted || !!st.is_admin_muted;
+  if (localStream) {
+    localStream.getAudioTracks().forEach(t => { t.enabled = !shouldMute; });
+  }
+}
+
+function applyLocalDeafenState() {
+  const st = voiceParticipantState.get(username) || {};
+  const isDeafened = !!st.is_deafened || !!st.is_admin_deafened;
+  // Mute every remote audio element when deafened.
+  document.querySelectorAll('audio.remote-voice').forEach(a => {
+    a.muted = isDeafened;
+    if (!isDeafened) {
+      a.volume = (cachedUserVoiceVolume || 100) / 100;
+    }
+  });
+  // Deafened implies muted mic (Discord behavior): if we became deafened, also mute outgoing audio.
+  if (isDeafened && localStream) {
+    localStream.getAudioTracks().forEach(t => { t.enabled = false; });
+  } else {
+    applyLocalMicState();
+  }
+}
+
+function refreshVoiceControlButtons() {
+  const st = voiceParticipantState.get(username) || {};
+  const muteBtn = document.getElementById('vcMuteBtn');
+  const deafBtn = document.getElementById('vcDeafenBtn');
+
+  const isAdminMuted = !!st.is_admin_muted;
+  const isAdminDeafened = !!st.is_admin_deafened;
+  const isMuted = !!selfMuted || isAdminMuted;
+  const isDeafened = !!st.is_deafened || isAdminDeafened;
+
+  if (muteBtn) {
+    muteBtn.classList.toggle('active', isMuted);
+    muteBtn.classList.toggle('admin-locked', isAdminMuted);
+    muteBtn.disabled = isAdminMuted;
+    const icon = muteBtn.querySelector('.vc-icon');
+    if (icon) icon.textContent = isMuted ? '🔇' : '🎤';
+    muteBtn.title = isAdminMuted ? 'Server muted by admin' : (isMuted ? 'Unmute microphone' : 'Mute microphone');
+    muteBtn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
+  }
+  if (deafBtn) {
+    deafBtn.classList.toggle('active', isDeafened);
+    deafBtn.classList.toggle('admin-locked', isAdminDeafened);
+    deafBtn.disabled = isAdminDeafened;
+    const icon = deafBtn.querySelector('.vc-icon');
+    if (icon) icon.textContent = isDeafened ? '🔇' : '🎧';
+    deafBtn.title = isAdminDeafened ? 'Server deafened by admin' : (isDeafened ? 'Undeafen' : 'Deafen');
+    deafBtn.setAttribute('aria-pressed', isDeafened ? 'true' : 'false');
+  }
+}
+
+async function toggleVoiceMute() {
+  if (!currentVoiceChannelId) return;
+  const st = voiceParticipantState.get(username) || {};
+  if (st.is_admin_muted) return; // can't override admin mute
+  selfMuted = !selfMuted;
+  localStorage.setItem("chatSelfMuted", selfMuted ? "true" : "false");
+  const next = { ...st, is_muted: selfMuted };
+  voiceParticipantState.set(username, next);
+  applyLocalMicState();
+  refreshVoiceControlButtons();
+  renderVoiceParticipant(username, next);
+  updateSelfMuteBadge();
+  try {
+    await supabaseClient
+      .from("voice_room_participants")
+      .update({ is_muted: selfMuted })
+      .eq("channel_id", currentVoiceChannelId)
+      .eq("username", username);
+  } catch (err) { console.warn("mute sync failed:", err.message); }
+}
+
+async function toggleVoiceDeafen() {
+  if (!currentVoiceChannelId) return;
+  const st = voiceParticipantState.get(username) || {};
+  if (st.is_admin_deafened) return;
+  const newDeafened = !st.is_deafened;
+  // Discord-style: deafen forces mute on, undeafen restores prior self-mute choice.
+  const newMuted = newDeafened ? true : !!selfMuted;
+  if (newDeafened) selfMuted = true;
+  localStorage.setItem("chatSelfMuted", selfMuted ? "true" : "false");
+  const next = { ...st, is_deafened: newDeafened, is_muted: newMuted };
+  voiceParticipantState.set(username, next);
+  applyLocalDeafenState();
+  refreshVoiceControlButtons();
+  renderVoiceParticipant(username, next);
+  updateSelfMuteBadge();
+  try {
+    await supabaseClient
+      .from("voice_room_participants")
+      .update({ is_deafened: newDeafened, is_muted: newMuted })
+      .eq("channel_id", currentVoiceChannelId)
+      .eq("username", username);
+  } catch (err) { console.warn("deafen sync failed:", err.message); }
+}
+
+// --- Admin context menu on a remote voice participant ---
+let _activeVoiceMenuTarget = null;
+function openVoiceParticipantMenu(targetUsername, x, y) {
+  const menu = document.getElementById('voiceParticipantMenu');
+  if (!menu) return;
+  // Only Admin / SysAdmin / Manager (or Manager scoped to others) may use this menu.
+  const canAdmin = ["Admin", "SysAdmin", "Manager"].includes(currentRole);
+  if (!canAdmin) return;
+  _activeVoiceMenuTarget = targetUsername;
+
+  const st = voiceParticipantState.get(targetUsername) || {};
+  // Toggle visibility of mute/unmute, deafen/undeafen based on current state.
+  menu.querySelector('[data-action="server-mute"]').style.display    = st.is_admin_muted    ? 'none' : 'block';
+  menu.querySelector('[data-action="server-unmute"]').style.display  = st.is_admin_muted    ? 'block' : 'none';
+  menu.querySelector('[data-action="server-deafen"]').style.display  = st.is_admin_deafened ? 'none' : 'block';
+  menu.querySelector('[data-action="server-undeafen"]').style.display= st.is_admin_deafened ? 'block' : 'none';
+
+  // Position within viewport.
+  menu.style.display = 'block';
+  const w = menu.offsetWidth || 200;
+  const h = menu.offsetHeight || 160;
+  const px = Math.min(x, window.innerWidth - w - 8);
+  const py = Math.min(y, window.innerHeight - h - 8);
+  menu.style.left = px + 'px';
+  menu.style.top  = py + 'px';
+}
+
+function closeVoiceParticipantMenu() {
+  const menu = document.getElementById('voiceParticipantMenu');
+  if (menu) menu.style.display = 'none';
+  _activeVoiceMenuTarget = null;
+}
+
+async function applyAdminVoiceAction(targetUsername, action) {
+  if (!currentVoiceChannelId || !targetUsername) return;
+  const updates = {};
+  if (action === 'server-mute')      updates.is_admin_muted    = true;
+  if (action === 'server-unmute')    updates.is_admin_muted    = false;
+  if (action === 'server-deafen')  { updates.is_admin_deafened = true;  updates.is_admin_muted = true; }
+  if (action === 'server-undeafen')  updates.is_admin_deafened = false;
+
+  if (action === 'disconnect') {
+    try {
+      await supabaseClient
+        .from("voice_room_participants")
+        .delete()
+        .eq("channel_id", currentVoiceChannelId)
+        .eq("username", targetUsername);
+    } catch (err) { alert("❌ Disconnect failed: " + err.message); }
+    return;
+  }
+
+  try {
+    const { error } = await supabaseClient
+      .from("voice_room_participants")
+      .update(updates)
+      .eq("channel_id", currentVoiceChannelId)
+      .eq("username", targetUsername);
+    if (error) throw error;
+  } catch (err) {
+    alert("❌ Voice admin action failed: " + err.message);
+  }
+}
+
+// Wire VC control bar + participant menu (idempotent).
+(function wireVoiceControlsOnce() {
+  function init() {
+    const muteBtn  = document.getElementById('vcMuteBtn');
+    const deafBtn  = document.getElementById('vcDeafenBtn');
+    const leaveBtn = document.getElementById('vcLeaveBtn');
+    if (muteBtn  && !muteBtn.dataset.wired)  { muteBtn.dataset.wired = "1";  muteBtn.addEventListener('click',  (e) => { e.stopPropagation(); toggleVoiceMute(); }); }
+    if (deafBtn  && !deafBtn.dataset.wired)  { deafBtn.dataset.wired = "1";  deafBtn.addEventListener('click',  (e) => { e.stopPropagation(); toggleVoiceDeafen(); }); }
+    if (leaveBtn && !leaveBtn.dataset.wired) { leaveBtn.dataset.wired = "1"; leaveBtn.addEventListener('click', (e) => { e.stopPropagation(); leaveVoiceChannel(); }); }
+
+    const menu = document.getElementById('voiceParticipantMenu');
+    if (menu && !menu.dataset.wired) {
+      menu.dataset.wired = "1";
+      menu.querySelectorAll('button[data-action]').forEach(b => {
+        b.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const action = b.dataset.action;
+          const target = _activeVoiceMenuTarget;
+          closeVoiceParticipantMenu();
+          if (target) await applyAdminVoiceAction(target, action);
+        });
+      });
+      // Close on outside click / scroll / esc.
+      document.addEventListener('click', (e) => {
+        if (menu.style.display === 'block' && !menu.contains(e.target)) closeVoiceParticipantMenu();
+      });
+      window.addEventListener('scroll', closeVoiceParticipantMenu, true);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeVoiceParticipantMenu(); });
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
 
 /* ======================================================================
    GLOBAL MUTE (SysAdmin only) — uses users.muted_until
@@ -11118,11 +11401,159 @@ const BUILTIN_THEMES = [
       "--bg-tertiary": "#313338",
       "--bg-hover": "#35373c",
       "--bg-elevated": "#3a3d44",
+      "--bg-deepest": "#111214",
+      "--bg-input": "#1e1f22",
+      "--bg-modal": "#313338",
+      "--bg-message-hover": "rgba(4,4,5,0.07)",
+      "--body-gradient-1": "rgba(88,101,242,0.18)",
+      "--body-gradient-2": "rgba(0,168,252,0.12)",
+      "--body-bg-from": "#24262b",
+      "--body-bg-to": "#1b1d20",
       "--text-main": "#dbdee1",
       "--text-muted": "#949ba4",
       "--text-link": "#00a8fc",
       "--accent": "#5865f2",
       "--accent-strong": "#7c88ff",
+      "--danger": "#ed4245",
+      "--success": "#3ba55d"
+    }
+  },
+  {
+    id: "__builtin_light",
+    name: "light",
+    display_name: "Light",
+    is_default: false,
+    css_variables: {
+      "--bg-main": "#ffffff",
+      "--bg-secondary": "#f2f3f5",
+      "--bg-tertiary": "#ebedef",
+      "--bg-hover": "#e3e5e8",
+      "--bg-elevated": "#ffffff",
+      "--bg-deepest": "#d4d7dc",
+      "--bg-input": "#ebedef",
+      "--bg-modal": "#ffffff",
+      "--bg-message-hover": "rgba(6,6,7,0.04)",
+      "--body-gradient-1": "rgba(88,101,242,0.10)",
+      "--body-gradient-2": "rgba(0,168,252,0.06)",
+      "--body-bg-from": "#f2f3f5",
+      "--body-bg-to": "#e3e5e8",
+      "--text-main": "#2e3338",
+      "--text-muted": "#5c6772",
+      "--text-link": "#0067e0",
+      "--accent": "#5865f2",
+      "--accent-strong": "#4752c4",
+      "--danger": "#d83c3e",
+      "--success": "#248045"
+    }
+  },
+  {
+    id: "__builtin_amoled",
+    name: "amoled",
+    display_name: "AMOLED Black",
+    is_default: false,
+    css_variables: {
+      "--bg-main": "#000000",
+      "--bg-secondary": "#050505",
+      "--bg-tertiary": "#0d0d0d",
+      "--bg-hover": "#1c1c1c",
+      "--bg-elevated": "#161616",
+      "--bg-deepest": "#000000",
+      "--bg-input": "#0d0d0d",
+      "--bg-modal": "#0d0d0d",
+      "--bg-message-hover": "rgba(255,255,255,0.04)",
+      "--body-gradient-1": "rgba(88,101,242,0.10)",
+      "--body-gradient-2": "rgba(124,136,255,0.06)",
+      "--body-bg-from": "#000000",
+      "--body-bg-to": "#000000",
+      "--text-main": "#f5f5f5",
+      "--text-muted": "#9a9a9a",
+      "--text-link": "#3da9ff",
+      "--accent": "#5865f2",
+      "--accent-strong": "#7c88ff",
+      "--danger": "#ff5364",
+      "--success": "#43d17a"
+    }
+  },
+  {
+    id: "__builtin_midnight",
+    name: "midnight",
+    display_name: "Midnight Indigo",
+    is_default: false,
+    css_variables: {
+      "--bg-main": "#1a1d2e",
+      "--bg-secondary": "#13162a",
+      "--bg-tertiary": "#1f2340",
+      "--bg-hover": "#262b4d",
+      "--bg-elevated": "#2c3055",
+      "--bg-deepest": "#0a0c1d",
+      "--bg-input": "#13162a",
+      "--bg-modal": "#1f2340",
+      "--bg-message-hover": "rgba(124,136,255,0.07)",
+      "--body-gradient-1": "rgba(124,136,255,0.20)",
+      "--body-gradient-2": "rgba(0,168,252,0.10)",
+      "--body-bg-from": "#13162a",
+      "--body-bg-to": "#0a0c1d",
+      "--text-main": "#e6e9ef",
+      "--text-muted": "#8a93a4",
+      "--text-link": "#7aa7ff",
+      "--accent": "#7c88ff",
+      "--accent-strong": "#9aa3ff",
+      "--danger": "#ff5b6e",
+      "--success": "#3ddc97"
+    }
+  },
+  {
+    id: "__builtin_forest",
+    name: "forest",
+    display_name: "Forest Green",
+    is_default: false,
+    css_variables: {
+      "--bg-main": "#1f2a25",
+      "--bg-secondary": "#16201c",
+      "--bg-tertiary": "#243029",
+      "--bg-hover": "#2c3a32",
+      "--bg-elevated": "#34433a",
+      "--bg-deepest": "#0e1612",
+      "--bg-input": "#16201c",
+      "--bg-modal": "#243029",
+      "--bg-message-hover": "rgba(86,196,123,0.07)",
+      "--body-gradient-1": "rgba(59,165,93,0.18)",
+      "--body-gradient-2": "rgba(86,196,123,0.10)",
+      "--body-bg-from": "#1a241f",
+      "--body-bg-to": "#0d1410",
+      "--text-main": "#e6efe9",
+      "--text-muted": "#9bb1a3",
+      "--text-link": "#7fd6a0",
+      "--accent": "#3ba55d",
+      "--accent-strong": "#56c47b",
+      "--danger": "#ed4245",
+      "--success": "#3ba55d"
+    }
+  },
+  {
+    id: "__builtin_crimson",
+    name: "crimson",
+    display_name: "Crimson",
+    is_default: false,
+    css_variables: {
+      "--bg-main": "#2b1f24",
+      "--bg-secondary": "#1f1418",
+      "--bg-tertiary": "#332229",
+      "--bg-hover": "#3d2832",
+      "--bg-elevated": "#4a303c",
+      "--bg-deepest": "#15090d",
+      "--bg-input": "#1f1418",
+      "--bg-modal": "#332229",
+      "--bg-message-hover": "rgba(255,122,166,0.07)",
+      "--body-gradient-1": "rgba(226,91,138,0.20)",
+      "--body-gradient-2": "rgba(237,66,69,0.10)",
+      "--body-bg-from": "#231419",
+      "--body-bg-to": "#13070b",
+      "--text-main": "#f5e6ec",
+      "--text-muted": "#c79bb0",
+      "--text-link": "#ff9bbf",
+      "--accent": "#e25b8a",
+      "--accent-strong": "#ff7aa6",
       "--danger": "#ed4245",
       "--success": "#3ba55d"
     }
@@ -11372,20 +11803,77 @@ function updatePresenceDot() {
   dot.title = "Status: " + currentPresenceStatus;
 }
 
+const CONNECTION_PROVIDERS = [
+  { id: "google",   name: "Google",    icon: "G",  brand: "#ea4335" },
+  { id: "github",   name: "GitHub",    icon: "GH", brand: "#1f2328" },
+  { id: "discord",  name: "Discord",   icon: "D",  brand: "#5865f2" },
+  { id: "azure",    name: "Microsoft", icon: "M",  brand: "#0067b8" }
+];
+
+function getProviderHandleFromIdentity(identity) {
+  const d = identity?.identity_data || {};
+  return d.user_name || d.preferred_username || d.global_name || d.full_name || d.name || d.email || "";
+}
+
 async function refreshSettingsConnections() {
+  const list = document.getElementById("settingsConnectionsList");
   const status = document.getElementById("settingsConnectionsStatus");
-  if (!status) return;
+  if (!list) return;
+  list.innerHTML = '<div class="connections-loading">Loading connections…</div>';
+
+  let identities = [];
   try {
-    const linked = await checkLinkedIdentities();
-    const labels = Object.entries(linked).filter(([, v]) => v).map(([k]) => k);
-    status.textContent = labels.length
-      ? "✅ Linked accounts: " + labels.join(", ")
-      : "No external accounts linked yet.";
-    status.classList.remove("error");
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    identities = user?.identities || [];
   } catch (err) {
-    status.textContent = "❌ Could not check linked accounts.";
-    status.classList.add("error");
+    list.innerHTML = '<div class="connections-loading error">Could not load linked accounts.</div>';
+    if (status) { status.textContent = "❌ " + err.message; status.classList.add("error"); }
+    return;
   }
+  if (status) { status.textContent = ""; status.classList.remove("error"); }
+
+  list.innerHTML = "";
+  CONNECTION_PROVIDERS.forEach(p => {
+    const linked = identities.find(i => i.provider === p.id);
+    const handle = linked ? getProviderHandleFromIdentity(linked) : "";
+
+    const card = document.createElement("div");
+    card.className = "connection-card" + (linked ? " is-linked" : "");
+    card.innerHTML = `
+      <div class="connection-card-icon" style="background:${p.brand};">${escapeHTML(p.icon)}</div>
+      <div class="connection-card-body">
+        <div class="connection-card-name">${escapeHTML(p.name)}</div>
+        <div class="connection-card-handle">${linked
+          ? (handle ? escapeHTML(handle) : "Linked")
+          : "Not connected"}</div>
+      </div>
+      <button class="connection-card-btn ${linked ? 'disconnect' : 'connect'}"
+              data-provider="${p.id}" data-action="${linked ? 'disconnect' : 'connect'}">
+        ${linked ? "Disconnect" : "Connect"}
+      </button>
+    `;
+    list.appendChild(card);
+  });
+
+  // Wire buttons (delegated each refresh — fine since list was rebuilt).
+  list.querySelectorAll(".connection-card-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const provider = btn.dataset.provider;
+      const action = btn.dataset.action;
+      btn.disabled = true;
+      try {
+        if (action === "connect") {
+          await linkOAuthIdentity(provider);
+        } else {
+          if (!confirm(`Disconnect your ${provider} account?`)) { btn.disabled = false; return; }
+          await unlinkOAuthIdentity(provider);
+          await refreshSettingsConnections();
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 /* ======================================================================
@@ -11460,15 +11948,11 @@ async function refreshSettingsConnections() {
       btn.addEventListener("click", () => setPresenceStatus(btn.dataset.status));
     });
 
-    // Connections — reuse existing OAuth link helpers
-    const lnkG = document.getElementById("settingsLinkGoogleBtn");
-    if (lnkG) lnkG.addEventListener("click", () => linkGoogleAccount());
-    const lnkH = document.getElementById("settingsLinkGithubBtn");
-    if (lnkH) lnkH.addEventListener("click", () => linkGithubAccount());
-    const lnkD = document.getElementById("settingsLinkDiscordBtn");
-    if (lnkD) lnkD.addEventListener("click", () => linkOAuthIdentity("discord"));
-    const lnkA = document.getElementById("settingsLinkAzureBtn");
-    if (lnkA) lnkA.addEventListener("click", () => linkOAuthIdentity("azure"));
+    // (Connections — now rendered as cards; click handlers wired in refreshSettingsConnections.)
+
+    // Danger Zone — Delete Account
+    const delBtn = document.getElementById("settingsDeleteAccountBtn");
+    if (delBtn) delBtn.addEventListener("click", () => deleteMyAccount());
 
     // Self-mute mic button on user panel
     const muteBtn = document.getElementById("selfMuteBtn");

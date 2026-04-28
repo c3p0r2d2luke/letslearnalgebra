@@ -8,6 +8,15 @@
   --bg-tertiary: #313338;
   --bg-hover: #35373c;
   --bg-elevated: #3a3d44;
+  --bg-deepest: #111214;
+  --bg-input: #1e1f22;
+  --bg-modal: #313338;
+  --bg-message-hover: rgba(4,4,5,0.07);
+
+  --body-gradient-1: rgba(88, 101, 242, 0.18);
+  --body-gradient-2: rgba(0, 168, 252, 0.12);
+  --body-bg-from: #24262b;
+  --body-bg-to: #1b1d20;
 
   --text-main: #dbdee1;
   --text-muted: #949ba4;
@@ -27,9 +36,9 @@
 body {
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(88, 101, 242, 0.18), transparent 26%),
-    radial-gradient(circle at bottom right, rgba(0, 168, 252, 0.12), transparent 24%),
-    linear-gradient(180deg, #24262b 0%, #1b1d20 100%);
+    radial-gradient(circle at top left, var(--body-gradient-1), transparent 26%),
+    radial-gradient(circle at bottom right, var(--body-gradient-2), transparent 24%),
+    linear-gradient(180deg, var(--body-bg-from) 0%, var(--body-bg-to) 100%);
   color: var(--text-main);
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
                "Helvetica Neue", Arial, sans-serif;
@@ -727,7 +736,7 @@ li[data-pinned="true"] {
 
 #mentionSuggestions {
   position: fixed;
-  background: #111214;
+  background: var(--bg-deepest);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(0,0,0,0.42);
@@ -1232,7 +1241,7 @@ li[data-pinned="true"] {
 }
 
 .code-block {
-  background: #1e1f22;
+  background: var(--bg-secondary);
   padding: 10px;
   border-radius: 6px;
   font-family: monospace;
@@ -1499,7 +1508,7 @@ li[data-pinned="true"] {
 }
 
 #adminMenu button:hover {
-  background: #40444b;
+  background: var(--bg-elevated);
 }
 
 /* Hover controls on messages */
@@ -1546,7 +1555,7 @@ li[data-pinned="true"] {
 }
 
 .channel.active {
-  background: #40444b;
+  background: var(--bg-elevated);
   color: white;
   font-weight: 600;
 }
@@ -1588,7 +1597,7 @@ li[data-pinned="true"] {
 #adminMenu {
   display: none;
   position: fixed;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border: 1px solid #444;
   padding: 4px;
   z-index: 999999 !important; /* SUPER HIGH */
@@ -1634,7 +1643,7 @@ li[data-pinned="true"] {
   min-height: 42px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #1c1d21;
+  background: var(--bg-deepest);
   color: #fff;
   padding: 0 12px;
   font-size: 14px;
@@ -1669,7 +1678,7 @@ li[data-pinned="true"] {
 .ep-container {
   position: fixed;
   z-index: 99999;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border: 1px solid #40444b;
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.7);
@@ -1683,13 +1692,13 @@ li[data-pinned="true"] {
 
 .ep-search-row {
   padding: 8px 8px 4px;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   flex-shrink: 0;
 }
 
 .ep-search {
   width: 100%;
-  background: #202225;
+  background: var(--bg-secondary);
   border: 1px solid #40444b;
   border-radius: 4px;
   color: #dcddde;
@@ -1707,7 +1716,7 @@ li[data-pinned="true"] {
   overflow-x: auto;
   gap: 2px;
   padding: 4px 8px;
-  background: #292b2f;
+  background: var(--bg-secondary);
   border-bottom: 1px solid #40444b;
   flex-shrink: 0;
   scrollbar-width: none;
@@ -1725,7 +1734,7 @@ li[data-pinned="true"] {
   flex-shrink: 0;
   opacity: 0.6;
 }
-.ep-tab:hover { background: #40444b; opacity: 1; }
+.ep-tab:hover { background: var(--bg-elevated); opacity: 1; }
 .ep-tab.active { background: #5865f2; opacity: 1; }
 
 .ep-grid-area {
@@ -1736,7 +1745,7 @@ li[data-pinned="true"] {
   scrollbar-color: #40444b transparent;
 }
 .ep-grid-area::-webkit-scrollbar { width: 5px; }
-.ep-grid-area::-webkit-scrollbar-thumb { background: #40444b; border-radius: 3px; }
+.ep-grid-area::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 3px; }
 
 .ep-cat-label {
   font-size: 11px;
@@ -1767,7 +1776,7 @@ li[data-pinned="true"] {
   justify-content: center;
   position: relative;
 }
-.ep-emoji-btn:hover { background: #40444b; }
+.ep-emoji-btn:hover { background: var(--bg-elevated); }
 
 .ep-custom-delete {
   position: absolute;
@@ -1788,7 +1797,7 @@ li[data-pinned="true"] {
 .ep-emoji-btn:hover .ep-custom-delete { display: flex; }
 
 .ep-admin-bar {
-  background: #292b2f;
+  background: var(--bg-secondary);
   border-top: 1px solid #40444b;
   padding: 6px 8px;
   flex-shrink: 0;
@@ -1860,7 +1869,7 @@ li[data-pinned="true"] {
   flex-direction: column;
   gap: 4px;
   padding: 4px 8px;
-  background: #292b2f;
+  background: var(--bg-secondary);
 }
 
 #newChannelLabel {
@@ -1874,7 +1883,7 @@ li[data-pinned="true"] {
 
 #newChannelInput,
 .extra-input {
-  background: #40444b;
+  background: var(--bg-elevated);
   border: 1px solid #5865f2;
   border-radius: 4px;
   color: #dcddde;
@@ -2003,7 +2012,7 @@ li[data-pinned="true"] {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  background: #292b2f;
+  background: var(--bg-secondary);
   border-left: 3px solid #ed4245;
   font-size: 12px;
   color: #dcddde;
@@ -2031,7 +2040,7 @@ li[data-pinned="true"] {
   cursor: pointer;
   font-size: 12px;
 }
-.inline-delete-no:hover { background: #36393f; }
+.inline-delete-no:hover { background: var(--bg-hover); }
 
 /* ===============================
    LEGACY MENU ITEMS
@@ -2125,7 +2134,7 @@ li[data-pinned="true"] {
   max-height: min(80vh, calc(100vh - 16px));
   overflow-y: auto;
   border-radius: 8px !important;
-  background: #111214 !important;
+  background: var(--bg-deepest) !important;
   border: 1px solid rgba(255,255,255,0.08) !important;
   box-shadow: 0 18px 48px rgba(0,0,0,0.45) !important;
 }
@@ -2136,7 +2145,7 @@ li[data-pinned="true"] {
 
 .member-list {
   width: 240px;
-  background: #2b2d31;
+  background: var(--bg-main);
 }
 
 .member-item {
@@ -2413,7 +2422,7 @@ li[data-pinned="true"] {
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border-radius: 4px;
   color: #949ba4;
   font-size: 13px;
@@ -2441,7 +2450,7 @@ li[data-pinned="true"] {
   display: flex;
   gap: 12px;
   padding: 12px;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border-radius: 4px;
   margin-top: 8px;
   max-width: 400px;
@@ -2610,7 +2619,7 @@ body.dm-mode .member-list {
 .member-role-badge.admin { background: #ff4d4f; color: white; }
 .member-role-badge.manager { background: #3ba55d; color: white; }
 .member-role-badge.sysmanager { background: #5865f2; color: white; }
-.member-role-badge.sysadmin { background: #111214; color: #fff; border: 1px solid rgba(255,255,255,0.18); }
+.member-role-badge.sysadmin { background: var(--bg-deepest); color: #fff; border: 1px solid rgba(255,255,255,0.18); }
 
 #memberListToggle {
   background: transparent;
@@ -3238,7 +3247,7 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
 #serverMenu {
   display: none;
   position: fixed;
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border: 1px solid #444;
   padding: 4px;
   z-index: 99999;
@@ -3263,7 +3272,7 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
 }
 
 #serverMenu button:hover {
-  background: #40444b;
+  background: var(--bg-elevated);
 }
 
 #serverMenu button.danger {
@@ -3275,7 +3284,7 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
 }
 
 .invite-item {
-  background: #2f3136;
+  background: var(--bg-tertiary);
   border: 1px solid #444;
   border-radius: 6px;
   padding: 12px;
@@ -4967,4 +4976,197 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
   font-size: 11px;
   margin-left: 4px;
   color: var(--text-muted);
+}
+
+/* ===============================
+   PROFILE MODAL — Server role badge
+   =============================== */
+.profile-server-role {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+}
+.profile-server-role-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.profile-server-role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  text-transform: capitalize;
+}
+.profile-server-role-badge.role-admin    { background: #ff4d4f; }
+.profile-server-role-badge.role-manager  { background: var(--success); }
+.profile-server-role-badge.role-sysmanager { background: var(--accent); }
+.profile-server-role-badge.role-sysadmin { background: var(--bg-deepest); border: 1px solid rgba(255,255,255,0.18); }
+.profile-server-role-badge.role-user     { background: var(--bg-elevated); color: var(--text-main); }
+
+/* ===============================
+   SETTINGS — Sidebar divider, Danger Zone tab visual
+   =============================== */
+.settings-sidebar-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--surface-border);
+}
+
+/* ===============================
+   SETTINGS — Connections cards (Discord-style)
+   =============================== */
+.connections-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.connection-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.connection-card.is-linked {
+  border-color: rgba(59,165,93,0.35);
+}
+.connection-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.connection-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.connection-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+.connection-card-handle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.connection-card-btn {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.05s;
+}
+.connection-card-btn:hover { filter: brightness(1.08); }
+.connection-card-btn:active { transform: translateY(1px); }
+.connection-card-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.connection-card-btn.connect {
+  background: var(--accent);
+  color: #fff;
+}
+.connection-card-btn.disconnect {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid var(--surface-border);
+}
+.connection-card-btn.disconnect:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.connections-loading {
+  padding: 14px;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 13px;
+}
+.connections-loading.error { color: var(--danger); }
+
+/* ===============================
+   SETTINGS — Danger Zone pane
+   =============================== */
+.settings-h3.danger-h3 { color: #ff8a8c; }
+.danger-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(237,66,69,0.35);
+  border-radius: 10px;
+  margin-top: 10px;
+}
+.danger-card-body { flex: 1; min-width: 0; }
+.danger-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.danger-card-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+.danger-btn {
+  flex-shrink: 0;
+  padding: 9px 18px;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.danger-btn:hover { filter: brightness(1.08); }
+.danger-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ===============================
+   VC — admin-locked override (server muted/deafened)
+   =============================== */
+.vc-control-btn.admin-locked {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.vc-control-btn.admin-locked::after { display: none; }
+
+@media (max-width: 700px) {
+  .danger-card { flex-direction: column; align-items: stretch; text-align: left; }
+  .connection-card { flex-wrap: wrap; }
+  .connection-card-btn { margin-left: auto; }
 }

@@ -401,6 +401,11 @@
       <h3 id="profileDisplayName" class="profile-display-name">Username</h3>
       <p id="profileUsername" class="profile-username">@username</p>
 
+      <div id="profileServerRole" class="profile-server-role" style="display:none;">
+        <span class="profile-server-role-label">ROLE IN THIS SERVER</span>
+        <span id="profileServerRoleBadge" class="profile-server-role-badge">User</span>
+      </div>
+
       <div class="profile-about-card">
         <div class="profile-about-label">About Me</div>
         <div id="profileDescription" class="profile-description">No bio yet.</div>
@@ -409,20 +414,6 @@
       <div class="profile-action-row">
         <button id="profileCloseBtn" class="modal-btn modal-btn-secondary" style="flex: 1;">Close</button>
         <button id="profileEditBtn" class="modal-btn" style="flex: 1; display: none;">Edit Profile</button>
-        <button id="profileLogoutBtn" class="modal-btn modal-btn-danger" style="flex: 1; display: none;">Log Out</button>
-      </div>
-
-      <div id="profileAuthActions" class="profile-auth-actions" style="display: none;">
-        <div class="profile-about-card">
-          <div class="profile-about-label">Account</div>
-          <div class="profile-auth-grid">
-<button id="openAccountLinkModal" class="modal-btn" style="flex: 1;">
-  🔗 Link Social Accounts
-</button>
-            <button id="profileChangePasswordBtn" class="modal-btn modal-btn-secondary" type="button">Change Password</button>
-            <button id="profileChangeEmailBtn" class="modal-btn modal-btn-secondary" type="button">Change Email</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -540,6 +531,8 @@
       <button class="settings-tab" data-tab="notifications">Notifications</button>
       <button class="settings-tab" data-tab="voice">Voice &amp; Video</button>
       <button class="settings-tab" data-tab="connections">Connections</button>
+      <div class="settings-sidebar-divider"></div>
+      <button class="settings-tab settings-tab-danger" data-tab="danger">Danger Zone</button>
       <div class="settings-sidebar-spacer"></div>
       <button class="settings-tab settings-tab-danger" id="settingsLogoutBtn">Log Out</button>
     </aside>
@@ -719,23 +712,30 @@
       <!-- CONNECTIONS TAB -->
       <div class="settings-pane" data-pane="connections">
         <h3 class="settings-h3">Connections</h3>
-        <p class="settings-sub">Link external accounts for easier sign-in.</p>
+        <p class="settings-sub">Connect your accounts to enable additional integrations and easier sign-in.</p>
 
-        <div class="settings-connections">
-          <button id="settingsLinkGoogleBtn" class="settings-link-btn" style="background: linear-gradient(135deg, #4285f4, #34a853);">
-            <span style="margin-right: 8px;">🔵</span> Link Google Account
-          </button>
-          <button id="settingsLinkGithubBtn" class="settings-link-btn" style="background: linear-gradient(135deg, #24292e, #5865f2);">
-            <span style="margin-right: 8px;">🐙</span> Link GitHub Account
-          </button>
-          <button id="settingsLinkDiscordBtn" class="settings-link-btn" style="background: linear-gradient(135deg, #5865f2, #99aab5);">
-            <span style="margin-right: 8px;">💬</span> Link Discord Account
-          </button>
-          <button id="settingsLinkAzureBtn" class="settings-link-btn" style="background: linear-gradient(135deg, #1da1f2, #14171a);">
-            <span style="margin-right: 8px;">🐦</span> Link Microsoft Account
-          </button>
+        <div id="settingsConnectionsList" class="connections-card-list">
+          <div class="connections-loading">Loading connections…</div>
         </div>
         <div id="settingsConnectionsStatus" class="settings-msg" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- DANGER ZONE TAB -->
+      <div class="settings-pane" data-pane="danger">
+        <h3 class="settings-h3 danger-h3">Danger Zone</h3>
+        <p class="settings-sub">These actions are permanent. Please be careful.</p>
+
+        <div class="danger-card">
+          <div class="danger-card-body">
+            <div class="danger-card-title">Delete Your Account</div>
+            <div class="danger-card-sub">
+              Permanently remove your profile, server memberships, sent messages, reactions and DM history. <b>This cannot be undone.</b>
+            </div>
+          </div>
+          <button id="settingsDeleteAccountBtn" class="danger-btn">Delete Account</button>
+        </div>
+
+        <div id="settingsDeleteAccountStatus" class="settings-msg" style="margin-top: 12px;"></div>
       </div>
 
     </section>
