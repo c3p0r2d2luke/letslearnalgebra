@@ -3903,3 +3903,158 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.voice-channel {
+  color: #43b581;
+}
+
+.voice-channel:hover {
+  background-color: rgba(67, 181, 129, 0.1);
+}
+
+.voice-participant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 80px;
+  position: relative;
+  transition: transform 0.2s;
+}
+
+.voice-participant-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.voice-participant-avatar.speaking {
+  box-shadow: 0 0 0 4px var(--accent), 0 0 20px var(--accent-strong);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 4px var(--accent), 0 0 20px var(--accent-strong); }
+  50% { box-shadow: 0 0 0 8px var(--accent), 0 0 30px var(--accent-strong); }
+  100% { box-shadow: 0 0 0 4px var(--accent), 0 0 20px var(--accent-strong); }
+}
+
+.voice-participant-name {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ===============================
+   VOICE PARTICIPANT GRID (NEW)
+   =============================== */
+
+#voiceParticipantGrid {
+  display: none; /* Hidden by default */
+  position: absolute;
+  inset: 0; /* Fill the chat area */
+  top: 60px; /* Offset for header */
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(30, 31, 34, 0.95); /* Dark semi-transparent bg */
+  backdrop-filter: blur(12px);
+  padding: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow-y: auto;
+  justify-content: center;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Responsive Grid */
+@media (min-width: 768px) {
+  #voiceParticipantGrid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  #voiceParticipantGrid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    padding: 10px;
+  }
+}
+
+.voice-participant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 200px;
+  padding: 16px;
+  background: rgba(47, 49, 54, 0.6);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 16px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.voice-participant:hover {
+  background: rgba(47, 49, 54, 0.8);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  border-color: rgba(88, 101, 242, 0.3);
+}
+
+.voice-participant-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  position: relative;
+  margin-bottom: 12px;
+  transition: box-shadow 0.2s, transform 0.2s;
+  border: 2px solid transparent;
+}
+
+/* Speaking Indicator Pulse */
+.voice-participant-avatar.speaking {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(88, 101, 242, 0.2), 0 0 20px rgba(88, 101, 242, 0.4);
+  animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0px rgba(88, 101, 242, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(88, 101, 242, 0); }
+  100% { box-shadow: 0 0 0 0px rgba(88, 101, 242, 0); }
+}
+
+.voice-participant-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  padding: 0 4px;
+}
+
+/* Optional: Add a "microphone" icon overlay if muted */
+.voice-participant.muted::after {
+  content: "🎤🚫";
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 16px;
+  background: rgba(0,0,0,0.6);
+  padding: 4px;
+  border-radius: 50%;
+}

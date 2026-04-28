@@ -3092,7 +3092,7 @@ function renderChannelList() {
       if (nowCollapsed) collapsedCategories.add(catName);
       else collapsedCategories.delete(catName);
       localStorage.setItem("collapsedCategories", JSON.stringify([...collapsedCategories]));
-      renderChannelList(); // Fast re-render
+      renderChannelList();
     };
 
     if (userPermissions.manage_roles) {
@@ -3114,17 +3114,24 @@ function renderChannelList() {
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .forEach(ch => {
         const div = document.createElement("div");
-        div.className = `channel ${ch.id === currentChannelId ? "active" : ""}`;
+        // Add a class for voice channels to style differently if needed
+        div.className = `channel ${ch.id === currentChannelId ? "active" : ""} ${ch.channel_type === 'voice' ? 'voice-channel' : ''}`;
         div.dataset.id = ch.id;
 
         const label = document.createElement("span");
         label.className = "channel-label";
-        label.textContent = "# " + ch.name;
+        
+        // --- VOICE CHANNEL ICON ---
+        if (ch.channel_type === 'voice') {
+          label.innerHTML = `🎤 ${ch.name}`; // Microphone icon
+        } else {
+          label.textContent = "# " + ch.name;
+        }
+        // --------------------------
+
         div.appendChild(label);
 
-        // Drag handle is shown for admins on every screen size. Tapping the
-        // row still selects the channel; the handle is the only thing that
-        // starts a drag.
+        // Drag handle for admins
         if (userPermissions.manage_roles) {
           const dragHandle = document.createElement("span");
           dragHandle.className = "cat-drag-handle";
@@ -3134,11 +3141,19 @@ function renderChannelList() {
           div.appendChild(dragHandle);
         }
 
+        // --- CLICK HANDLER ---
         div.onclick = () => {
           if (shouldSuppressClick(suppressChannelClickUntil)) return;
-          switchChannel(ch.id);
+          
+          if (ch.channel_type === 'voice') {
+            joinVoiceChannel(ch.id); // Call new function
+          } else {
+            switchChannel(ch.id);
+          }
           if (window.innerWidth <= 768) closeSidebar();
         };
+        // ---------------------
+
         itemsContainer.appendChild(div);
       });
 
@@ -3539,7 +3554,7 @@ function showInlineDeleteCategory(catName) {
 }
 
 // ---- Channel CRUD ----
-async function performCreateChannel(name, categoryName) {
+async function performCreateChannel(name, categoryName, type = 'text') {
   const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
   if (!trimmed) return;
 
@@ -3548,14 +3563,15 @@ async function performCreateChannel(name, categoryName) {
     return;
   }
 
-  // Find or create category
+  // ... (Category logic remains the same) ...
   let cat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase() && c.server_id === currentServerId);
   if (!cat) {
-    // Create new category
-    const sortOrder = categories
+     // ... (Create category logic) ...
+     const sortOrder = categories
       .filter(c => c.server_id === currentServerId)
       .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
-    const { data: newCat, error: catError } = await supabaseClient
+     
+     const { data: newCat, error: catError } = await supabaseClient
       .from("categories")
       .insert({
         name: categoryName.trim(),
@@ -3566,18 +3582,19 @@ async function performCreateChannel(name, categoryName) {
       .select()
       .single();
 
-    if (catError) {
-      console.error("❌ Create category:", catError.message);
-      return;
-    }
-    categories.push(newCat);
-    cat = newCat;
+      if (catError) {
+        console.error("❌ Create category:", catError.message);
+        return;
+      }
+      categories.push(newCat);
+      cat = newCat;
   }
 
   const sortOrder = channels
     .filter(c => c.server_id === currentServerId)
     .reduce((maxOrder, channel) => Math.max(maxOrder, Number(channel.sort_order) || 0), -1) + 1;
 
+  // INSERT THE NEW TYPE FIELD
   const { data, error } = await supabaseClient
     .from("channels")
     .insert({
@@ -3585,7 +3602,8 @@ async function performCreateChannel(name, categoryName) {
       created_by: username,
       sort_order: sortOrder,
       server_id: currentServerId,
-      category_id: cat.id
+      category_id: cat.id,
+      channel_type: type // <-- NEW: 'text' or 'voice'
     })
     .select()
     .single();
@@ -3597,7 +3615,14 @@ async function performCreateChannel(name, categoryName) {
 
   channels.push(data);
   renderChannelList();
-  switchChannel(data.id);
+  
+  // If it's a voice channel, maybe switch to it? Or just show it.
+  if (type === 'voice') {
+    // Optional: Auto-join voice? Or just let them click it.
+    // switchChannel(data.id); 
+  } else {
+    switchChannel(data.id);
+  }
 }
 
 async function performRenameChannel(channelId, newName) {
@@ -6924,23 +6949,27 @@ function applyMuteBlockUI() {
     modal.style.display = "none";
   }
 
-  // Event: Open Modal (CRITICAL FIX HERE)
+  // Event: Open Modal
   if (createChannelBtn) {
     createChannelBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log("Create Channel Button Clicked!"); // Debug log
+      console.log("Create Channel Button Clicked!"); 
       openCreateChannelModal();
     });
   } else {
     console.error("❌ #createChannelBtn not found in DOM!");
   }
 
-  // Event: Confirm Create
+  // Event: Confirm Create (UPDATED WITH VOICE CHANNEL SUPPORT)
   if (confirmBtn) {
     confirmBtn.addEventListener("click", async () => {
       const name = nameInput.value.trim();
       const categoryId = categorySelect.value;
+      
+      // 🔥 NEW: Get Selected Channel Type (Text or Voice)
+      const typeRadio = document.querySelector('input[name="channelType"]:checked');
+      const channelType = typeRadio ? typeRadio.value : 'text';
 
       // Validation
       if (!name) {
@@ -6960,7 +6989,7 @@ function applyMuteBlockUI() {
       errorEl.style.display = "none";
 
       try {
-        // Create Channel (NO ICON)
+        // Create Channel
         const trimmedName = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
         
         const { data, error } = await supabaseClient
@@ -6970,8 +6999,8 @@ function applyMuteBlockUI() {
             created_by: username,
             sort_order: channels.filter(c => c.server_id === currentServerId).length,
             server_id: currentServerId,
-            category_id: categoryId
-            // icon_url removed
+            category_id: categoryId,
+            channel_type: channelType // 🔥 CRITICAL: Save the type
           })
           .select()
           .single();
@@ -6983,8 +7012,10 @@ function applyMuteBlockUI() {
         renderChannelList();
         closeCreateChannelModal();
         
-        // Optional: Switch to new channel immediately
-        // switchChannel(data.id);
+        // Optional: Switch to new channel immediately (except for voice)
+        if (channelType === 'text') {
+          switchChannel(data.id);
+        }
         
       } catch (err) {
         console.error("Create channel failed:", err);
@@ -10380,3 +10411,351 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ================= END PATCH =================
+
+// --- GLOBAL VARIABLES FOR WEBRTC ---
+let currentPeerConnections = new Map(); // Map: username -> RTCPeerConnection
+let currentVoiceChannelId = null;
+let localStream = null;
+let voiceSignalingSub = null; // To track the subscription
+
+function addParticipantToGrid(username) {
+  const grid = document.getElementById('voiceParticipantGrid');
+  const el = document.createElement('div');
+  el.className = 'voice-participant';
+  el.dataset.username = username;
+  
+  const avatar = buildAvatarElement(username, 'voice-participant-avatar');
+  const name = document.createElement('div');
+  name.className = 'voice-participant-name';
+  name.textContent = displayName(username);
+  
+  el.appendChild(avatar);
+  el.appendChild(name);
+  grid.appendChild(el);
+}
+
+// --- SUBSCRIBE TO SIGNALING (FIXED ORDER) ---
+function subscribeToVoiceSignaling(channelId) {
+  if (voiceSignalingSub) {
+    try { voiceSignalingSub.unsubscribe(); } catch {}
+    voiceSignalingSub = null;
+  }
+
+  console.log(`📡 Subscribing to voice signaling for channel ${channelId}...`);
+  
+  voiceSignalingSub = supabaseClient
+    .channel(`voice-signaling-${channelId}`)
+    .on(
+      "postgres_changes",
+      { 
+        event: "INSERT", 
+        schema: "public", 
+        table: "voice_signaling",
+        filter: `channel_id=eq.${channelId}` 
+      },
+      async (payload) => {
+        const data = payload.new;
+        
+        // Only process messages intended for me
+        if (data.to_username !== username) return;
+
+        const peerConn = currentPeerConnections.get(data.from_username);
+        if (!peerConn) {
+          console.warn("⚠️ Received signal from unknown user:", data.from_username);
+          return;
+        }
+
+        try {
+          if (data.sdp) {
+            // Received SDP Offer or Answer
+            const sdpObj = JSON.parse(data.sdp);
+            console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
+            
+            await peerConn.setRemoteDescription(new RTCSessionDescription(sdpObj));
+
+            if (sdpObj.type === 'offer') {
+              // Create Answer
+              const answer = await peerConn.createAnswer();
+              await peerConn.setLocalDescription(answer);
+
+              // Send Answer back
+              await supabaseClient
+                .from("voice_signaling")
+                .insert({
+                  channel_id: channelId,
+                  from_username: username,
+                  to_username: data.from_username,
+                  sdp: JSON.stringify(answer)
+                });
+            }
+          } else if (data.ice_candidate) {
+            // Received ICE Candidate
+            console.log(`📩 Received ICE candidate from ${data.from_username}`);
+            await peerConn.addIceCandidate(new RTCIceCandidate(data.ice_candidate));
+          }
+        } catch (e) {
+          console.error("❌ Error processing signal:", e);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log(`Realtime Status: ${status}`);
+    });
+}
+
+// --- CONNECT TO EXISTING USERS ---
+async function connectToExistingUsers(channelId) {
+  // Get all other participants
+  const { data: participants, error } = await supabaseClient
+    .from("voice_room_participants")
+    .select("username")
+    .eq("channel_id", channelId)
+    .neq("username", username);
+
+  if (error) {
+    console.error("❌ Failed to fetch participants:", error);
+    return;
+  }
+
+  if (!participants || participants.length === 0) {
+    console.log("ℹ️ No other users in this voice channel yet.");
+    return;
+  }
+
+  console.log(`🔗 Connecting to ${participants.length} users...`);
+
+  for (const p of participants) {
+    // Avoid connecting to myself or duplicate connections
+    if (p.username === username || currentPeerConnections.has(p.username)) continue;
+    
+    await initiateConnection(p.username, channelId);
+  }
+}
+
+// --- INITIATE CONNECTION (SENDER SIDE) ---
+async function initiateConnection(targetUsername, channelId) {
+  console.log(`🤝 Initiating connection to ${targetUsername}...`);
+
+  const peerConn = new RTCPeerConnection({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ]
+  });
+
+  // Add local tracks
+  localStream.getTracks().forEach(track => peerConn.addTrack(track, localStream));
+
+  // Handle incoming remote stream
+  peerConn.ontrack = (event) => {
+    console.log(`🎵 Received track from ${targetUsername}`);
+    const audio = document.createElement('audio');
+    audio.srcObject = event.streams[0];
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+    
+    // Optional: Add visual indicator
+    audio.id = `audio-${targetUsername}`;
+  };
+
+  // Handle ICE candidates
+  peerConn.onicecandidate = async (event) => {
+    if (event.candidate) {
+      await supabaseClient
+        .from("voice_signaling")
+        .insert({
+          channel_id: channelId,
+          from_username: username,
+          to_username: targetUsername,
+          ice_candidate: event.candidate.toJSON()
+        });
+    }
+  };
+
+  // Create and send Offer
+  const offer = await peerConn.createOffer();
+  await peerConn.setLocalDescription(offer);
+
+  // Send Offer via DB
+  await supabaseClient
+    .from("voice_signaling")
+    .insert({
+      channel_id: channelId,
+      from_username: username,
+      to_username: targetUsername,
+      sdp: JSON.stringify(offer)
+    });
+
+  currentPeerConnections.set(targetUsername, peerConn);
+
+  peerConn.ontrack = (event) => {
+  console.log(`🎵 Received track from ${targetUsername}`);
+  const audio = document.createElement('audio');
+  audio.srcObject = event.streams[0];
+  audio.autoplay = true;
+  audio.id = `audio-${targetUsername}`;
+  document.body.appendChild(audio);
+
+  // Audio level analyzer
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const analyser = audioContext.createAnalyser();
+  const source = audioContext.createMediaElementSource(audio);
+  source.connect(analyser);
+  analyser.connect(audioContext.destination);
+  analyser.fftSize = 256;
+
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  let lastSpeaking = false;
+
+  function checkSpeaking() {
+    analyser.getByteFrequencyData(dataArray);
+    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    const isSpeaking = average > 20; // Threshold
+
+    const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+    if (participantEl) {
+      const avatar = participantEl.querySelector('.voice-participant-avatar');
+      if (isSpeaking && !lastSpeaking) {
+        avatar.classList.add('speaking');
+      } else if (!isSpeaking && lastSpeaking) {
+        avatar.classList.remove('speaking');
+      }
+    }
+    lastSpeaking = isSpeaking;
+    requestAnimationFrame(checkSpeaking);
+  }
+
+  checkSpeaking();
+};
+}
+
+// --- JOIN VOICE CHANNEL ---
+async function joinVoiceChannel(channelId) {
+  const channel = channels.find(c => c.id === channelId);
+  if (!channel || channel.channel_type !== 'voice') {
+    console.error("❌ Not a voice channel");
+    return;
+  }
+
+  try {
+    // 1. Get local audio stream
+    console.log("🎤 Requesting microphone access...");
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    console.log("✅ Microphone access granted.");
+
+    // 2. Record presence in DB
+    await supabaseClient
+      .from("voice_room_participants")
+      .insert({ channel_id: channelId, username: username });
+
+    // 3. Update UI - HIDE INPUT BAR
+    const controls = document.getElementById("controls");
+    if (controls) {
+      controls.style.display = "none"; // 🔥 Hide the whole row
+    }
+    
+    // Also disable inputs just in case
+    const input = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendButton");
+    if (input) input.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    document.getElementById("currentChannelName").textContent = `🎤 ${channel.name} (Voice)`;
+    currentVoiceChannelId = channelId;
+
+    // 4. Subscribe to Signaling Channel
+    subscribeToVoiceSignaling(channelId);
+
+    // 5. Connect to existing users
+    await connectToExistingUsers(channelId);
+
+  } catch (err) {
+    console.error("Voice connection failed:", err);
+    alert("Failed to join voice chat: " + err.message);
+    leaveVoiceChannel(); 
+  }
+  
+  // Hide text messages
+  document.getElementById('messages').style.display = 'none';
+  
+  // Show participant grid
+  const grid = document.getElementById('voiceParticipantGrid');
+  grid.style.display = 'flex';
+  grid.innerHTML = '';
+
+  // Add self
+  addParticipantToGrid(username);
+
+  // Add others
+  const { data: participants } = await supabaseClient
+    .from("voice_room_participants")
+    .select("username")
+    .eq("channel_id", channelId)
+    .neq("username", username);
+
+  if (participants) {
+    for (const p of participants) {
+      addParticipantToGrid(p.username);
+      await initiateConnection(p.username, channelId);
+    }
+  }
+}
+
+// --- LEAVE VOICE CHANNEL ---
+function leaveVoiceChannel() {
+  console.log("👋 Leaving voice channel...");
+
+  // 1. Close all peer connections
+  currentPeerConnections.forEach((conn, username) => {
+    console.log(`Closing connection to ${username}`);
+    conn.close();
+  });
+  currentPeerConnections.clear();
+
+  // 2. Unsubscribe from signaling
+  if (voiceSignalingSub) {
+    voiceSignalingSub.unsubscribe();
+    voiceSignalingSub = null;
+  }
+
+  // 3. Stop local stream
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+
+  // 4. Remove audio elements
+  document.querySelectorAll('audio').forEach(a => a.remove());
+
+  // 5. Clean up DB
+  if (currentVoiceChannelId) {
+    supabaseClient
+      .from("voice_room_participants")
+      .delete()
+      .eq("channel_id", currentVoiceChannelId)
+      .eq("username", username);
+
+      // Restore text messages
+      document.getElementById('messages').style.display = 'block';
+      document.getElementById('voiceParticipantGrid').style.display = 'none';
+      document.getElementById('voiceParticipantGrid').innerHTML = '';
+  }
+
+  // 6. Restore Input Bar & UI 🔥
+  const controls = document.getElementById("controls");
+  if (controls) {
+    controls.style.display = "flex"; // 🔥 Bring the row back
+  }
+  
+  const input = document.getElementById("messageInput");
+  const sendBtn = document.getElementById("sendButton");
+  if (input) input.disabled = false;
+  if (sendBtn) sendBtn.disabled = false;
+  
+  const channel = channels.find(c => c.id === currentVoiceChannelId);
+  if (channel) {
+    document.getElementById("currentChannelName").textContent = `# ${channel.name}`;
+  }
+  
+  currentVoiceChannelId = null;
+}

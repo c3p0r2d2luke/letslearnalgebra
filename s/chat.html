@@ -10,6 +10,7 @@
   <!-- Preconnect for faster first byte from CDN + Supabase -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
   <link rel="stylesheet" href="styles.css">
 
@@ -20,6 +21,7 @@
   </style>
 
   <!-- Defer external libs so they don't block initial paint of the loader -->
+   <script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
@@ -160,6 +162,7 @@
       </div>
 
       <ul id="messages"></ul>
+      <div id="voiceParticipantGrid" style="display:none; padding: 16px; gap: 12px; flex-wrap: wrap; justify-content: center;"></div>
 
       <button id="scrollBottomBtn" title="Jump to latest">↓</button>
 
@@ -300,6 +303,17 @@
         <button id="confirmCreateChannelBtn" class="modal-btn" style="flex: 1;">Create Channel</button>
       </div>
       
+<!-- Inside createChannelModal, before the "Create" button -->
+<label class="profile-about-label">Channel Type</label>
+<div style="display: flex; gap: 16px; margin-bottom: 12px;">
+  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+    <input type="radio" name="channelType" value="text" checked> Text
+  </label>
+  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+    <input type="radio" name="channelType" value="voice"> Voice
+  </label>
+</div>
+
       <p class="modal-error" id="createChannelError" style="display:none; margin-top: 12px;"></p>
     </div>
   </div>
