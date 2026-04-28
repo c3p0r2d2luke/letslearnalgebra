@@ -291,7 +291,11 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
           { label: "Change Name", action: () => changeName(author) },
           { label: "Promote / Demote", action: () => promote(author) },
           { label: "Give Custom Role", action: () => giveCustomRole(author) },
-          { label: "Mute User", action: () => muteUser(author) },
+          { label: "Mute User (this server)", action: () => muteUser(author) },
+          ...(currentSystemRole === "SysAdmin" ? [
+            { label: "Global Mute (sysadmin)", action: () => globalMuteUser(author) },
+            { label: "Global Unmute (sysadmin)", action: () => globalUnmuteUser(author) }
+          ] : []),
           { label: "Block User", action: () => blockUser(author) },
           { label: "Unblock User", action: () => unblockUser(author) },
           { label: "Force Logout", action: () => forceLogout(author) }
@@ -825,7 +829,7 @@ async function handleAuthRedirectIfNeeded() {
     } else {
       console.warn("⚠️ OAuth linking may have failed - user ID mismatch");
     }
-    
+
     // Clean up linking context
     localStorage.removeItem('oauth_linking');
     localStorage.removeItem('oauth_provider');
@@ -1021,8 +1025,17 @@ let serverMembershipSubscription = null;
 let dmMembershipSubscription = null;
 let dmRealtimeSubscription = null;
 let isBlocked = false;
-let mutedUntil = null;
+let mutedUntil = null;          // per-server mute (admin imposed)
+let globalMutedUntil = null;    // global sysadmin mute (users.muted_until)
+let selfMuted = (localStorage.getItem("chatSelfMuted") === "true");  // self-imposed, can self-clear
 let muteInterval = null;
+let currentNotificationPrefs = { mentions: true, replies: true, all_messages: false };
+let currentPresenceStatus = localStorage.getItem("chatPresenceStatus") || "online"; // online|idle|dnd|invisible
+let currentCustomStatus = "";
+let currentBio = "";
+let currentThemeId = null;
+let availableThemes = [];
+let cachedUserVoiceVolume = parseInt(localStorage.getItem("chatVoiceVolume") || "100", 10);
 const messageDataMap = new Map(); // id → full message object
 const NO_EMBED_PHRASE = "potatoheadman";
 const avatarUrlByUsername = new Map();
@@ -1153,11 +1166,11 @@ function updateProfileButton() {
 
   const displayLabel = getEffectiveDisplayName(username);
   const avatarUrl = getEffectiveAvatarUrl(username) || currentUserAvatarUrl || getAvatarUrl(username);
-  
+
   // Reset
   btn.innerHTML = "";
   btn.classList.remove("has-image");
-  
+
   const fallback = document.createElement("span");
   fallback.className = "avatar-fallback";
   fallback.textContent = getInitials(displayLabel);
@@ -1693,7 +1706,7 @@ function markServerMentionsRead(serverId) {
 function setServerCheckpoint(serverId, messageId = null) {
   if (!serverId) return;
   const checkpointMap = readServerCheckpointMap();
-  
+
   // Get current max ID if not provided (e.g., when scrolling)
   let currentMaxId = messageId;
   if (!currentMaxId && messagesMap.size > 0) {
@@ -1944,9 +1957,9 @@ function renderMentionSuggestions(items) {
     const buttonEl = document.createElement("button");
     buttonEl.type = "button";
     buttonEl.className = `mention-suggestion-item${index === mentionSelectedIndex ? " active" : ""}`;
-    
+
     let previewHtml = "";
-    
+
     if (item.kind === "command") {
       // Style for commands: Bold label, grey description
       buttonEl.innerHTML = `
@@ -1982,7 +1995,7 @@ function renderMentionSuggestions(items) {
         <div class="mention-suggestion-meta">${escapeHTML(item.meta || "")}</div>
       `;
     }
-    
+
     buttonEl.addEventListener("mousedown", (event) => {
       event.preventDefault();
       applyMentionSuggestion(item);
@@ -2018,7 +2031,7 @@ async function updateMentionSuggestions() {
     activeSuggestionMode = "command";
     mentionSelectedIndex = 0;
     const query = slashMatch[2].toLowerCase();
-    
+
     // Define your commands here
     const commands = [
       { label: "/gif", value: "gif", description: "Search for a GIF", insert: "/gif " },
@@ -2050,7 +2063,7 @@ async function updateMentionSuggestions() {
     activeSuggestionMode = "channel";
     const normalizedQuery = normalizeSearchValue(channelContext.query);
     const serverChannels = channels.filter(ch => ch.server_id === currentServerId);
-    
+
     const channelItems = serverChannels
       .filter(ch => !normalizedQuery || String(ch.name).toLowerCase().includes(normalizedQuery))
       .slice(0, 8)
@@ -2080,7 +2093,7 @@ async function updateMentionSuggestions() {
     activeSuggestionMode = "mention";
     const mentionCandidates = await getMentionCandidates();
     const normalizedQuery = normalizeSearchValue(context.query);
-    
+
     const baseItems = canMentionEveryone()
       ? [
           { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
@@ -2115,14 +2128,14 @@ async function updateMentionSuggestions() {
 
 function applyMentionSuggestion(itemOrValue) {
   const item = typeof itemOrValue === "object" ? itemOrValue : { kind: activeSuggestionMode || "mention", value: itemOrValue };
-  
+
   const isCommand = item.kind === "command";
   const isEmoji = item.kind === "emoji";
   const isChannel = item.kind === "channel";
-  
+
   const cursor = input.selectionStart ?? input.value.length;
   const beforeCursor = input.value.slice(0, cursor);
-  
+
   let start = cursor;
   let replacement = "";
 
@@ -2130,7 +2143,7 @@ function applyMentionSuggestion(itemOrValue) {
     // Find the start of the slash command: look for space or start of string before the slash
     // Regex: (^|\s)\/[a-zA-Z0-9_-]*$
     const match = beforeCursor.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
-    
+
     if (match) {
       // match.index is where the match started (either 0 or the space before /)
       // We want to replace starting from the '/' character, not the space.
@@ -2161,13 +2174,13 @@ function applyMentionSuggestion(itemOrValue) {
 
   const before = input.value.slice(0, start);
   const after = input.value.slice(cursor);
-  
+
   input.value = `${before}${replacement}${after}`;
-  
+
   const nextCursor = before.length + replacement.length;
   input.focus();
   input.setSelectionRange(nextCursor, nextCursor);
-  
+
   hideMentionSuggestions();
 }
 
@@ -3038,6 +3051,7 @@ async function loadChannels() {
   }
 
   channels = data;
+  await loadChannelPermissionsForServer();
   renderChannelList();
   console.log("📋 Channels loaded. Total:", channels.length);
 }
@@ -3050,7 +3064,7 @@ function renderChannelList() {
   _sortableInstances = [];
 
   const fragment = document.createDocumentFragment();
-  
+
   // Group channels by category
   const grouped = {};
   channels.forEach(ch => {
@@ -3120,7 +3134,7 @@ function renderChannelList() {
 
         const label = document.createElement("span");
         label.className = "channel-label";
-        
+
         // --- VOICE CHANNEL ICON ---
         if (ch.channel_type === 'voice') {
           label.innerHTML = `🎤 ${ch.name}`; // Microphone icon
@@ -3144,7 +3158,7 @@ function renderChannelList() {
         // --- CLICK HANDLER ---
         div.onclick = () => {
           if (shouldSuppressClick(suppressChannelClickUntil)) return;
-          
+
           if (ch.channel_type === 'voice') {
             joinVoiceChannel(ch.id); // Call new function
           } else {
@@ -3263,8 +3277,8 @@ channelList.addEventListener("contextmenu", (e) => {
     // Renaming is disabled in the inline row. 
     // If you have a modal for renaming, replace the action below:
     // { label: "Rename Channel", color: "white", action: () => openModal('renameChannelModal') }, 
-    
-    // For now, we just show Delete
+
+    { label: "Edit Permissions", color: "white", action: () => openChannelPermsModal(channelId) },
     { label: "Delete Channel", color: "#ed4245", action: () => showInlineDelete("channel", channelId, ch.name) }
   ]);
 });
@@ -3570,7 +3584,7 @@ async function performCreateChannel(name, categoryName, type = 'text') {
      const sortOrder = categories
       .filter(c => c.server_id === currentServerId)
       .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
-     
+
      const { data: newCat, error: catError } = await supabaseClient
       .from("categories")
       .insert({
@@ -3615,7 +3629,7 @@ async function performCreateChannel(name, categoryName, type = 'text') {
 
   channels.push(data);
   renderChannelList();
-  
+
   // If it's a voice channel, maybe switch to it? Or just show it.
   if (type === 'voice') {
     // Optional: Auto-join voice? Or just let them click it.
@@ -3799,6 +3813,11 @@ async function deleteChannel(channelId, channelName) {
 
 
 async function switchChannel(channelId) {
+  // 🔥 If currently in a voice channel, leave it before switching to a text channel
+  if (currentVoiceChannelId) {
+    leaveVoiceChannel();
+  }
+
   // 🔥 CRITICAL: Set this IMMEDIATELY
   currentConversationType = "channel";
   currentDmConversationId = null;
@@ -3978,13 +3997,13 @@ async function loadUser() {
     console.log("📡 Fetching user data from users table for:", username);
     const { data, error } = await supabaseClient
       .from("users")
-      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url")
+      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url, notification_preferences, profile_status, profile_description, custom_theme_id")
       .eq("username", username)
       .maybeSingle();
-    
+
     console.log("   User data:", data);
     console.log("   Error:", error);
-    
+
     if (!data) {
       console.warn("⚠️ User record not found in database! Creating one...");
       // Create user record if it doesn't exist
@@ -3999,13 +4018,25 @@ async function loadUser() {
         console.log("✅ Created user record");
       }
     }
-    
+
     // Block/mute are per-server now and loaded in switchServer() via
     // refreshOwnServerMemberStatus(); start each session unblocked.
     isBlocked = false;
     mutedUntil = null;
+    // Global mute (sysadmin imposed) — applies everywhere.
+    globalMutedUntil = data?.muted_until || null;
+    // Stash profile / preference data for the settings modal.
+    currentNotificationPrefs = Object.assign(
+      { mentions: true, replies: true, all_messages: false },
+      data?.notification_preferences || {}
+    );
+    currentCustomStatus = data?.profile_status || "";
+    currentBio = data?.profile_description || "";
+    currentThemeId = data?.custom_theme_id || null;
     setAvatarUrl(username, data?.avatar_url || "");
-    
+    // Apply saved theme if any.
+    loadThemesAndApply().catch(err => console.warn("Theme load failed:", err));
+
     if (data?.sys_admin) {
       currentSystemRole = "SysAdmin";
       console.log("👑 User is SysAdmin!");
@@ -4016,7 +4047,7 @@ async function loadUser() {
       currentSystemRole = "User";
       console.log("👤 User is regular User");
     }
-    
+
     localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
     localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
     console.log("🔐 System role set to:", currentSystemRole);
@@ -4115,16 +4146,28 @@ function containsPlainTextUrl(text) {
   return urlRegex.test(textOnly);
 }
 
+function isGlobalMuteActive() {
+  return globalMutedUntil && new Date(globalMutedUntil) > new Date();
+}
+function isServerMuteActive() {
+  return mutedUntil && new Date(mutedUntil) > new Date();
+}
+function muteReason() {
+  // Returns a human-readable string explaining why the user can't speak, or null.
+  if (selfMuted) return "self";
+  if (isGlobalMuteActive()) return "global";
+  if (currentConversationType === "channel" && isBlocked) return "blocked";
+  if (currentConversationType === "channel" && isServerMuteActive()) return "server";
+  return null;
+}
 function isUserBlockedOrMutedSync() {
+  // Self-mute and global (sysadmin) mute apply everywhere, including DMs.
+  if (selfMuted) return true;
+  if (isGlobalMuteActive()) return true;
   // Per-server block/mute is only enforced inside a server channel.
-  // DMs and other contexts are not gated by server-scoped restrictions.
   if (currentConversationType !== "channel") return false;
   if (isBlocked) return true;
-
-  if (mutedUntil) {
-    return new Date(mutedUntil) > new Date();
-  }
-
+  if (isServerMuteActive()) return true;
   return false;
 }
 
@@ -4132,6 +4175,13 @@ async function sendMessage(options = {}) {
   if (currentConversationType === "channel" && !userPermissions.send_messages) {
     alert("❌ You don't have permission to send messages.");
     return;
+  }
+  if (currentConversationType === "channel" && currentChannelId && !userPermissions.manage_roles) {
+    const eff = getEffectiveChannelPermission(currentChannelId);
+    if (eff && eff.can_send === false) {
+      alert("❌ You don't have permission to send messages in this channel.");
+      return;
+    }
   }
 
   const rawContent = (typeof options.overrideContent === "string")
@@ -4151,7 +4201,7 @@ async function sendMessage(options = {}) {
   // --- NEW: GIF PERMISSION CHECK ---
   // Check if the content is a direct GIF URL or a /gif command result
   const isGifContent = content.startsWith("http") && (content.includes("tenor.com") || content.includes("giphy.com") || content.endsWith(".gif") || content.endsWith(".webp") || content.endsWith(".mp4"));
-  
+
   // If the user is trying to send a GIF and is NOT Manager/Admin/SysManager/SysAdmin
   if (isGifContent && !["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)) {
     alert("❌ Only Managers and above can send GIFs.");
@@ -4190,7 +4240,7 @@ async function sendMessage(options = {}) {
 
    // --- FIXED: NON-BLOCKING IP LOGGING ---
   let ip = "unknown";
-  
+
   // 1. Try to fetch IP asynchronously WITHOUT blocking the message send
   fetch("https://api.ipify.org?format=json", { 
     signal: AbortSignal.timeout(2000) // Hard 2-second timeout
@@ -4226,7 +4276,7 @@ async function sendMessage(options = {}) {
       is_pinned: false,
       ip: ip // Include IP in the message object if your schema allows, or rely on the user table update above
     };
-    
+
     if (replyingTo) {
       messageData.reply_to = replyingTo;
     }
@@ -4354,7 +4404,7 @@ async function buildLinkPreview(url) {
 function renderMessage(msg) {
   const li = createMessageElement(msg);
   const existingLi = messagesMap.get(msg.id);
-  
+
   if (existingLi) {
     existingLi.replaceWith(li);
   } else if (msg.reply_to) {
@@ -4367,11 +4417,11 @@ function renderMessage(msg) {
   } else {
     messagesList.appendChild(li);
   }
-    
+
   messagesMap.set(msg.id, li);
   messageDataMap.set(msg.id, msg);
   applyMessageSearchFilter();
-  
+
   // Only auto-scroll if user is already near bottom
   const isNearBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight < 150;
   if (isNearBottom) scrollToBottom();
@@ -4382,23 +4432,23 @@ function createMessageElement(msg) {
   const li = document.createElement("li");
   li.dataset.id = msg.id;
   li.dataset.user = msg.username;
-  
+
   const row = document.createElement("div");
   row.className = "message-row";
-  
+
   const avatarEl = buildAvatarElement(msg.username, "message-avatar");
   row.appendChild(avatarEl);
-  
+
   const body = document.createElement("div");
   body.className = "message-body";
-  
+
   // Role classes for styling
   const roleLower = (msg.role || "").toLowerCase();
   if (roleLower === "admin") li.classList.add("admin");
   else if (roleLower === "manager") li.classList.add("manager");
   else if (roleLower === "sysmanager") li.classList.add("sysmanager");
   else if (roleLower === "sysadmin") li.classList.add("sysadmin");
-  
+
   if (msg.is_pinned) li.dataset.pinned = "true";
   if (msg.reply_to) li.classList.add("is-reply");
 
@@ -4441,9 +4491,9 @@ function createMessageElement(msg) {
   // --- CONTENT ROW ---
   const contentDiv = document.createElement("div");
   contentDiv.className = "content";
-  
+
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
-  
+
   if (fileMatch) {
     // Handle File Uploads
     const url = fileMatch[2].trim();
@@ -4463,7 +4513,7 @@ function createMessageElement(msg) {
   } else {
     // --- TEXT MESSAGE HANDLING ---
     let formatted = formatMessageContent(cleanContent, msg.role);
-    
+
     // --- CRITICAL: FORCE @ MENTION STYLING (BLUE) ---
     // This regex finds @username patterns and wraps them in the styled span
     // It runs AFTER formatMessageContent to ensure we catch raw text mentions
@@ -4478,7 +4528,7 @@ function createMessageElement(msg) {
     if (!formatted.startsWith("<pre class=\"code-block\">")) {
       formatted = replaceCustomEmojiShortcodes(formatted);
     }
-    
+
     contentDiv.innerHTML = formatted;
 
     // Emoji-only message styling
@@ -4544,9 +4594,9 @@ function createMessageElement(msg) {
       }
     }
   }
-  
+
   body.appendChild(contentDiv);
-  
+
   // Scripts (Admin only)
   if (msg.role === "Admin") {
     executeScripts(contentDiv);
@@ -4554,14 +4604,14 @@ function createMessageElement(msg) {
 
   row.appendChild(body);
   li.appendChild(row);
-  
+
   if (currentConversationType === "channel") {
     renderReactions(msg.id, li);
   }
-  
+
   attachMessageLongPress(li);
   attachHoverControls(li, msg);
-  
+
   return li;
 }
 
@@ -4574,7 +4624,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
     await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
-    
+
     // Update the checkpoint immediately so we don't count this message as unread later
     // We pass the new message ID so the "read" state moves forward
     if (currentServerId) {
@@ -5933,7 +5983,7 @@ async function transferOwnership() {
       .maybeSingle();
 
     if (memberError) throw memberError;
-    
+
     if (!memberData) {
       // Add the new owner as a server member
       const { error: addMemberError } = await supabaseClient
@@ -5958,9 +6008,9 @@ async function transferOwnership() {
 
     // Update local server data
     server.owner_username = trimmedOwner;
-    
+
     alert(`Ownership of "${server.name}" has been transferred to "${trimmedOwner}".`);
-    
+
     // Refresh server data
     await loadServers();
   } catch (err) {
@@ -6676,7 +6726,7 @@ function formatMessageContent(content, role) {
 
   // If user → escape everything first
   let escaped = escapeHTML(content);
-  
+
   // Now replace #channel patterns in the escaped string
   // The pattern looks for # followed by alphanumeric/underscore/hyphen
   // We need to be careful not to match inside HTML entities if we had any, but escapeHTML handles that.
@@ -6864,12 +6914,26 @@ function applyMuteBlockUI() {
   const sendBtn = document.getElementById("sendButton");
   if (!input) return;
 
-  const muted = mutedUntil && new Date(mutedUntil) > new Date();
-  // Per-server status only applies inside a channel. In DMs the input stays
-  // enabled regardless of any server-scoped block/mute.
-  const inChannel = currentConversationType === "channel";
+  const reason = muteReason();
+  // Update the small mute pill on the user panel any time the UI refreshes.
+  updateSelfMuteBadge();
 
-  if (inChannel && isBlocked) {
+  if (reason === "self") {
+    input.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+    input.placeholder = "🔇 You muted yourself — tap the mic icon to unmute";
+    stopMuteCountdownUI();
+    return;
+  }
+
+  if (reason === "global") {
+    input.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+    startGlobalMuteCountdownUI();
+    return;
+  }
+
+  if (reason === "blocked") {
     input.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
     input.placeholder = "🚫 You are blocked in this server";
@@ -6877,7 +6941,7 @@ function applyMuteBlockUI() {
     return;
   }
 
-  if (inChannel && muted) {
+  if (reason === "server") {
     input.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
     startMuteCountdownUI();
@@ -6888,6 +6952,45 @@ function applyMuteBlockUI() {
   if (sendBtn) sendBtn.disabled = false;
   input.placeholder = "Type a message...";
   stopMuteCountdownUI();
+}
+
+function startGlobalMuteCountdownUI() {
+  const input = document.getElementById("messageInput");
+  if (muteInterval) return;
+  muteInterval = setInterval(() => {
+    if (!isGlobalMuteActive()) {
+      clearInterval(muteInterval);
+      muteInterval = null;
+      globalMutedUntil = null;
+      applyMuteBlockUI();
+      return;
+    }
+    const seconds = Math.ceil((new Date(globalMutedUntil) - new Date()) / 1000);
+    input.placeholder = `🔇 Globally muted by an administrator (${seconds}s)`;
+  }, 1000);
+  // Run once immediately so placeholder updates without 1s delay.
+  const seconds = Math.ceil((new Date(globalMutedUntil) - new Date()) / 1000);
+  input.placeholder = `🔇 Globally muted by an administrator (${seconds}s)`;
+}
+
+// Self-mute toggle (saved in localStorage; user can clear it any time).
+function toggleSelfMute() {
+  selfMuted = !selfMuted;
+  localStorage.setItem("chatSelfMuted", selfMuted ? "true" : "false");
+  applyMuteBlockUI();
+  // Also push the voice mic mute state if user is in voice.
+  try {
+    if (typeof updateVoiceMuteFromSelf === "function") updateVoiceMuteFromSelf();
+  } catch {}
+}
+
+function updateSelfMuteBadge() {
+  const btn = document.getElementById("selfMuteBtn");
+  if (!btn) return;
+  btn.classList.toggle("active", !!selfMuted);
+  btn.title = selfMuted ? "Unmute yourself" : "Mute yourself";
+  btn.setAttribute("aria-pressed", selfMuted ? "true" : "false");
+  btn.textContent = selfMuted ? "🔇" : "🎤";
 }
 
 // ======================== CREATE CHANNEL MODAL LOGIC (FIXED) ========================
@@ -6904,12 +7007,12 @@ function applyMuteBlockUI() {
   // Helper: Populate Category Dropdown
   function populateCategories() {
     if (!categorySelect || !currentServerId) return;
-    
+
     // Clear existing options except the first placeholder
     categorySelect.innerHTML = '<option value="">Select a category...</option>';
-    
+
     const serverCats = categories.filter(c => c.server_id === currentServerId);
-    
+
     if (serverCats.length === 0) {
       const opt = document.createElement("option");
       opt.textContent = "No categories available (Create one first)";
@@ -6932,14 +7035,14 @@ function applyMuteBlockUI() {
       alert("You don't have permission to create channels.");
       return;
     }
-    
+
     populateCategories();
-    
+
     // Reset Form
     nameInput.value = "";
     errorEl.style.display = "none";
     errorEl.textContent = "";
-    
+
     modal.style.display = "flex";
     setTimeout(() => nameInput.focus(), 100);
   }
@@ -6966,7 +7069,7 @@ function applyMuteBlockUI() {
     confirmBtn.addEventListener("click", async () => {
       const name = nameInput.value.trim();
       const categoryId = categorySelect.value;
-      
+
       // 🔥 NEW: Get Selected Channel Type (Text or Voice)
       const typeRadio = document.querySelector('input[name="channelType"]:checked');
       const channelType = typeRadio ? typeRadio.value : 'text';
@@ -6991,7 +7094,7 @@ function applyMuteBlockUI() {
       try {
         // Create Channel
         const trimmedName = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-        
+
         const { data, error } = await supabaseClient
           .from("channels")
           .insert({
@@ -7011,12 +7114,12 @@ function applyMuteBlockUI() {
         channels.push(data);
         renderChannelList();
         closeCreateChannelModal();
-        
+
         // Optional: Switch to new channel immediately (except for voice)
         if (channelType === 'text') {
           switchChannel(data.id);
         }
-        
+
       } catch (err) {
         console.error("Create channel failed:", err);
         errorEl.textContent = "❌ " + (err.message || "Failed to create channel");
@@ -7031,7 +7134,7 @@ function applyMuteBlockUI() {
   // Event: Cancel / Close
   if (cancelBtn) cancelBtn.addEventListener("click", closeCreateChannelModal);
   if (closeBtn) closeBtn.addEventListener("click", closeCreateChannelModal);
-  
+
   // Close on backdrop click
   if (modal) {
     modal.addEventListener("click", (e) => {
@@ -7150,6 +7253,7 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
   const { data, error } = await q;
   if (error) return;
   channels = data;
+  await loadChannelPermissionsForServer();
   renderChannelList();
   renderMemberList();
 
@@ -7307,7 +7411,7 @@ async function loadServers() {
         .from("servers")
         .select("*")
         .order("created_at", { ascending: true });
-      
+
       if (!error) servers = data || [];
     } else if (isSysManager) {
       // SysManagers see all servers they're members of + all servers
@@ -7315,7 +7419,7 @@ async function loadServers() {
         .from("servers")
         .select("*")
         .order("created_at", { ascending: true });
-      
+
       if (!allError) {
         servers = allServers || [];
       }
@@ -7347,7 +7451,7 @@ async function loadServers() {
   } catch (err) {
     console.error("❌ loadServers error:", err);
   }
-  
+
   applyStoredServerOrder();
   renderServerList();
 
@@ -7446,7 +7550,7 @@ async function switchServer(serverId, updateUrl = true) {
     memberPresence = [];
     renderMemberList();
   }
-  
+
   console.log("✅ switchServer complete!");
 }
 
@@ -7490,7 +7594,7 @@ function renderServerList() {
       switchServer(server.id);
       if (window.innerWidth <= 768) closeServerSidebar();
     };
-    
+
     serverList.appendChild(icon);
   });
 
@@ -7538,7 +7642,7 @@ function showNoServerScreen() {
     screen.id = "noServerScreen";
     chatApp.appendChild(screen);
   }
-  
+
   let debugInfo = "";
   if (currentSystemRole === "SysAdmin") {
     debugInfo = `<p style="color:#ff6b6b;font-size:12px;margin-top:20px;">
@@ -7550,7 +7654,7 @@ function showNoServerScreen() {
       <button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#5865f2;color:white;border:none;cursor:pointer;border-radius:4px;">Refresh Page</button>
     </p>`;
   }
-  
+
   screen.innerHTML = `
     <h3>You're not in any server</h3>
     <p>Create a new server or join one with an invite link.</p>
@@ -7572,15 +7676,15 @@ async function loadServerMembers() {
     setMemberListVisibility();
     return;
   }
-  
+
   if (!currentServerId) {
     console.warn("❌ No currentServerId, aborting loadServerMembers");
     return;
   }
-  
+
   const content = document.getElementById("memberListContent");
   if (content) content.innerHTML = "<div style='padding:10px;color:#999;font-size:12px;'>Loading members...</div>";
-  
+
   try {
     // Always fetch fresh member data (paged so we don't hit row caps)
     console.log("📡 Fetching server_members for server:", currentServerId);
@@ -7635,7 +7739,7 @@ async function loadServerMembers() {
       }
       return; 
     }
-    
+
     const memberIds = (members || []).map(m => m.id).filter(Boolean);
     const [{ data: roleLinks, error: roleLinksError }, { data: roles, error: rolesError }] = await Promise.all([
       memberIds.length
@@ -7717,7 +7821,7 @@ function renderMemberList() {
     content.innerHTML = "";
     return;
   }
-  
+
   if (!serverMembers || serverMembers.length === 0) {
     content.innerHTML = `<div style='padding: 10px; color: #999; font-size: 12px;'>No members found.</div>`;
     return;
@@ -7729,7 +7833,7 @@ function renderMemberList() {
   const memberSearch = normalizeSearchValue(memberSearchTerm);
   const now = Date.now();
   const ONLINE_THRESHOLD = 5 * 60 * 1000;
-  
+
   const online = [];
   const offline = [];
 
@@ -7745,7 +7849,7 @@ function renderMemberList() {
 
   const renderGroup = (label, members) => {
     if (members.length === 0) return;
-    
+
     const groupLabel = document.createElement("div");
     groupLabel.className = "member-group-label";
     groupLabel.textContent = `${label} — ${members.length}`;
@@ -7758,7 +7862,7 @@ function renderMemberList() {
       const roleStr = String(m.role || "User").toLowerCase();
       const isSpecialRole = ["manager", "admin", "sysmanager", "sysadmin"].includes(roleStr);
       const avatarHtml = buildAvatarElement(m.username, "member-avatar").outerHTML;
-      
+
       item.innerHTML = `
         ${avatarHtml}
         <div class="member-info">
@@ -7942,7 +8046,7 @@ item.addEventListener("click", async () => {
 
   renderGroup("Online", online);
   renderGroup("Offline", offline);
-  
+
   content.innerHTML = "";
   content.appendChild(fragment);
 }
@@ -8123,7 +8227,7 @@ async function createServer(name, slug) {
   if (currentSystemRole !== "SysAdmin") {
     return "❌ Only SysAdmins can create servers.";
   }
-  
+
   const iconInput = document.getElementById("newServerIcon");
   const trimName = name.trim();
   const trimSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -8204,7 +8308,7 @@ const addBtn = document.getElementById("addServerBtn");
 if (addBtn) {
   // Only show for SysAdmins
   addBtn.style.display = currentSystemRole === "SysAdmin" ? "flex" : "none";
-  
+
   addBtn.addEventListener("click", () => {
     if (currentSystemRole !== "SysAdmin") {
       alert("❌ Only SysAdmins can create servers.");
@@ -8411,7 +8515,7 @@ function updateRoleUI() {
 // Ensure sysadmin is added as admin to a server
 async function ensureSysAdminInServer(serverId) {
   if (!serverId || !username) return;
-  
+
   try {
     // Check if already a member
     const { data: existingMember } = await supabaseClient
@@ -8428,7 +8532,7 @@ async function ensureSysAdminInServer(serverId) {
           .from("server_members")
           .update({ role: "Admin" })
           .eq("id", existingMember.id);
-        
+
         if (updateError) throw updateError;
         console.log(`Updated sysadmin role to Admin in server ${serverId}`);
       }
@@ -8442,7 +8546,7 @@ async function ensureSysAdminInServer(serverId) {
           role: "Admin",
           joined_at: new Date().toISOString()
         });
-      
+
       if (insertError) throw insertError;
       console.log(`Added sysadmin as Admin to server ${serverId}`);
     }
@@ -8454,7 +8558,7 @@ async function ensureSysAdminInServer(serverId) {
 // Ensure sysmanager is added as member to a server
 async function ensureSysManagerInServer(serverId) {
   if (!serverId || !username) return;
-  
+
   try {
     // Check if already a member
     const { data: existingMember } = await supabaseClient
@@ -8474,7 +8578,7 @@ async function ensureSysManagerInServer(serverId) {
           role: "User",
           joined_at: new Date().toISOString()
         });
-      
+
       if (insertError) throw insertError;
       console.log(`Added sysmanager as member to server ${serverId}`);
     }
@@ -8486,23 +8590,23 @@ async function ensureSysManagerInServer(serverId) {
 // Ensure system user is added to all servers
 async function ensureSystemUserInAllServers(isSysAdmin, isSysManager) {
   if (!username || (!isSysAdmin && !isSysManager)) return;
-  
+
   try {
     // Get all servers
     const { data: allServers, error: serversError } = await supabaseClient
       .from("servers")
       .select("id, name");
-    
+
     if (serversError) throw serversError;
     if (!allServers || allServers.length === 0) return;
 
     console.log(`Ensuring system user access to ${allServers.length} servers...`);
-    
+
     // Process servers in batches to avoid overwhelming the database
     const batchSize = 10;
     for (let i = 0; i < allServers.length; i += batchSize) {
       const batch = allServers.slice(i, i + batchSize);
-      
+
       await Promise.all(batch.map(async (server) => {
         if (isSysAdmin) {
           await ensureSysAdminInServer(server.id);
@@ -8510,13 +8614,13 @@ async function ensureSystemUserInAllServers(isSysAdmin, isSysManager) {
           await ensureSysManagerInServer(server.id);
         }
       }));
-      
+
       // Small delay between batches to avoid rate limiting
       if (i + batchSize < allServers.length) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
-    
+
     console.log(`System user access ensured for all servers`);
   } catch (error) {
     console.error("Failed to ensure system user in all servers:", error);
@@ -8711,7 +8815,7 @@ const createCategoryBtn = document.getElementById("createCategoryBtn");
 if (createChannelBtn) {
   // Option 1: Hide the button entirely if you only use Right-Click
   createChannelBtn.style.display = "none";
-  
+
   // Option 2: If you want to keep the button but link it to a NEW modal, 
   // uncomment the line below and replace 'YOUR_NEW_MODAL_ID' with your actual modal ID
   // createChannelBtn.addEventListener("click", () => openModal('YOUR_NEW_MODAL_ID'));
@@ -8757,7 +8861,7 @@ function showServerContextMenu(x, y, serverId) {
     addOption("Edit Server Slug", () => editServerSetting(serverId, "slug"));
     addOption("Change Icon", () => editServerIcon(serverId));
     addOption("Server Options", () => manageServerOptions(serverId));
-    
+
     // --- NEW: Invite Management ---
     addOption("Generate Invite", () => {
        // Reuse existing generateInvite logic but ensure it targets currentServerId
@@ -8767,7 +8871,7 @@ function showServerContextMenu(x, y, serverId) {
        generateInvite();
        currentServerId = prevServerId;
     });
-    
+
     addOption("Manage Invites", () => {
        openManageInvitesModal(serverId);
     });
@@ -8938,7 +9042,7 @@ document.addEventListener("DOMContentLoaded", () => {
     serverList.addEventListener("contextmenu", (e) => {
       const icon = e.target.closest(".server-icon[data-server-id]");
       if (!icon) return;
-      
+
       e.preventDefault();
       const serverId = icon.dataset.serverId;
       showServerContextMenu(e.clientX, e.clientY, serverId);
@@ -8976,7 +9080,7 @@ async function editServerSetting(serverId, field) {
 
   try {
     const updateData = field === "name" ? { name: trimmed } : { slug: trimmed };
-    
+
     const { error } = await supabaseClient
       .from("servers")
       .update(updateData)
@@ -8990,7 +9094,7 @@ async function editServerSetting(serverId, field) {
       document.getElementById("serverNameDisplay").textContent = trimmed;
     }
     renderServerList(); // Re-render to update tooltip/title
-    
+
     alert(`✅ Server ${field} updated.`);
   } catch (err) {
     console.error("Update failed:", err);
@@ -9006,7 +9110,7 @@ async function editServerIcon(serverId) {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
-  
+
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -9082,7 +9186,7 @@ async function deleteServer(serverId) {
 
     // Update local state
     servers = servers.filter(s => s.id !== serverId);
-    
+
     // If we were in this server, switch away
     if (currentServerId === serverId) {
       currentServerId = null;
@@ -9135,7 +9239,7 @@ async function leaveServer(serverId) {
 // Close server menu when clicking outside
 document.addEventListener("click", (e) => {
   const serverMenu = document.getElementById("serverMenu");
-  
+
   // Only act if the menu is currently visible
   if (serverMenu && serverMenu.style.display === "block") {
     // If the click target is NOT the menu itself and NOT inside the menu
@@ -9168,7 +9272,7 @@ async function changeName(targetUser) {
 
   // 3. Prompt for new name
   const newName = prompt(`Change display name for ${targetUser}:\n(Current: ${currentName})`, currentName);
-  
+
   if (newName === null) return; // User cancelled
   if (!newName.trim()) {
     alert("❌ Name cannot be empty.");
@@ -9219,13 +9323,13 @@ async function openManageInvitesModal(serverId) {
   const modal = document.getElementById("manageInvitesModal");
   const listContainer = document.getElementById("inviteListContent");
   const serverNameDisplay = document.getElementById("inviteServerName");
-  
+
   const server = servers.find(s => s.id === serverId);
   if (!server) return;
 
   serverNameDisplay.textContent = server.name;
   listContainer.innerHTML = '<div style="padding:20px;text-align:center;">Loading invites...</div>';
-  
+
   openModal("manageInvitesModal");
 
   try {
@@ -9244,11 +9348,11 @@ async function openManageInvitesModal(serverId) {
     }
 
     const fragment = document.createDocumentFragment();
-    
+
     invites.forEach(invite => {
       const isExpired = invite.expires_at && new Date(invite.expires_at) < new Date();
       const isMaxed = invite.max_uses && invite.use_count >= invite.max_uses;
-      
+
       const item = document.createElement("div");
       item.className = "invite-item";
       item.innerHTML = `
@@ -9299,7 +9403,7 @@ async function editInvite(inviteId) {
 
   const newMax = prompt("Max uses (leave blank for unlimited):", invite.max_uses || "");
   if (newMax === null) return;
-  
+
   const newExp = prompt("Expiration date (YYYY-MM-DD HH:MM or leave blank for never):", 
     invite.expires_at ? new Date(invite.expires_at).toISOString().slice(0, 16) : "");
   if (newExp === null) return;
@@ -9336,7 +9440,7 @@ async function editInvite(inviteId) {
 
 async function deleteInvite(inviteId) {
   if (!confirm("Delete this invite?")) return;
-  
+
   const { error } = await supabaseClient
     .from("server_invites")
     .delete()
@@ -9359,7 +9463,7 @@ document.addEventListener("click", (e) => {
 
   // Find the channel in the current server
   const targetChannel = channels.find(c => c.name.toLowerCase() === channelName.toLowerCase());
-  
+
   if (targetChannel) {
     e.preventDefault();
     e.stopPropagation();
@@ -9394,7 +9498,7 @@ document.addEventListener("click", (e) => {
 
   // Find the channel in the current server
   const targetChannel = channels.find(c => c.name.toLowerCase() === channelName.toLowerCase());
-  
+
   if (targetChannel) {
     e.preventDefault();
     e.stopPropagation();
@@ -9432,7 +9536,7 @@ async function fetchUserProfile(usernameVal, serverId = null) {
       .eq("server_id", serverId)
       .eq("username", usernameVal)
       .maybeSingle();
-    
+
     if (error) {
       console.warn("Profile fetch error:", error);
       return getProfileData(usernameVal, serverId);
@@ -9455,47 +9559,47 @@ async function fetchUserProfile(usernameVal, serverId = null) {
 async function openUserProfile(usernameVal, serverId = null) {
   if (!username) return;
   if (!usernameVal) return;
-  
+
   currentProfileUsername = usernameVal;
   currentProfileServerId = serverId;
-  
+
   const modal = document.getElementById("userProfileModal");
   if (!modal) return;
 
   // Show loading state
   document.getElementById("profileDisplayName").textContent = "Loading...";
   document.getElementById("profileDescription").textContent = "";
-  
+
   // Fetch data
   const profile = await fetchUserProfile(usernameVal, serverId);
-  
+
 await updateProfileAuthButtons(); // <--- Add this
 
   // Update UI
   document.getElementById("profileDisplayName").textContent = profile.display_name;
   document.getElementById("profileUsername").textContent = `@${usernameVal}`;
-  
+
   // Handle Bio
   const descEl = document.getElementById("profileDescription");
   descEl.textContent = profile.description || "No bio yet.";
   descEl.style.cursor = "pointer";
   descEl.title = "Click to edit bio";
-  
+
   // Add click listener to bio for editing (only if it's the current user)
   if (usernameVal === username && serverId === currentServerId) {
     descEl.onclick = () => enableBioEdit(profile.description || "");
   } else {
     descEl.onclick = null;
   }
-  
+
   // Update Avatar
   const avatarImg = document.getElementById("profileAvatarImage");
   const avatarFallback = document.getElementById("profileAvatarFallback");
   const avatarContainer = document.getElementById("profileAvatarContainer");
-  
+
   avatarImg.style.display = "none";
   avatarFallback.style.display = "flex";
-  
+
   if (profile.avatar_url) {
     avatarImg.src = profile.avatar_url;
     avatarImg.style.display = "block";
@@ -9559,7 +9663,7 @@ async function linkGithubAccount() {
 
 async function linkOAuthIdentity(provider) {
   console.log(`🔄 Attempting to link ${provider}...`);
-  
+
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (!session?.user) {
     showLinkStatus(`❌ You must be logged in to link accounts.`, "error");
@@ -9571,7 +9675,7 @@ async function linkOAuthIdentity(provider) {
   localStorage.setItem('oauth_user_id', session.user.id);
 
   const redirectTo = getAuthRedirectUrl();
-  
+
   // 🔥 CRITICAL FIX: Define required scopes for Spotify
   const scopes = {
     //spotify: ['user-read-email'], // These are required for Supabase to get the profile
@@ -9614,12 +9718,12 @@ async function linkOAuthIdentity(provider) {
 function showLinkStatus(message, type = "success") {
   const statusEl = document.getElementById("accountLinkStatus");
   if (!statusEl) return;
-  
+
   statusEl.textContent = message;
   statusEl.style.display = "block";
   statusEl.style.color = type === "error" ? "#ed4245" : "#3ba55d";
   statusEl.style.background = type === "error" ? "rgba(237, 66, 69, 0.1)" : "rgba(59, 165, 93, 0.1)";
-  
+
   setTimeout(() => {
     statusEl.style.display = "none";
   }, 5000);
@@ -9686,7 +9790,7 @@ const profileModal = document.getElementById("userProfileModal");
 if (profileModal) {
   // Close on X or Close button
   document.getElementById("profileCloseBtn").addEventListener("click", closeUserProfile);
-  
+
   // Close on clicking outside
   profileModal.addEventListener("click", (e) => {
     if (e.target === profileModal) closeUserProfile();
@@ -9696,7 +9800,7 @@ if (profileModal) {
   document.getElementById("profileAvatarContainer").addEventListener("click", async () => {
     // Only allow upload if it's the current user
     if (currentProfileUsername !== username) return;
-    
+
     // Trigger the existing avatar upload logic
     const fileInput = document.getElementById("avatarInput");
     if (fileInput) {
@@ -9707,7 +9811,7 @@ if (profileModal) {
   // Edit Button Click
   document.getElementById("profileEditBtn").addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
-    
+
     // Reuse existing edit profile logic
     await editMyServerProfile();
     // Refresh modal data after edit
@@ -9719,7 +9823,7 @@ if (profileModal) {
     await performLogout();
   });
 
-  
+
   document.getElementById("profileChangePasswordBtn").addEventListener("click", async () => {
     if (currentProfileUsername !== username) return;
     await changeAccountPassword();
@@ -9779,12 +9883,12 @@ function enableBioEdit(currentBio) {
   textarea.className = "bio-edit-area";
   textarea.value = currentBio;
   textarea.placeholder = "Write your bio...";
-  
+
   // Create buttons
   const saveBtn = document.createElement("button");
   saveBtn.className = "bio-save-btn";
   saveBtn.textContent = "Save Bio";
-  
+
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "bio-cancel-btn";
   cancelBtn.textContent = "Cancel";
@@ -9794,7 +9898,7 @@ function enableBioEdit(currentBio) {
   descEl.appendChild(textarea);
   descEl.appendChild(saveBtn);
   descEl.appendChild(cancelBtn);
-  
+
   textarea.focus();
 
   // Save Handler
@@ -9828,7 +9932,7 @@ function enableBioEdit(currentBio) {
   cancelBtn.onclick = () => {
     openUserProfile(username, currentServerId);
   };
-  
+
   // Save on Ctrl+Enter
   textarea.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "Enter") {
@@ -9843,7 +9947,7 @@ async function checkLinkedIdentities() {
 
   // Supabase stores linked identities in user.identities
   const identities = user.identities || [];
-  
+
   return {
     google: identities.some(id => id.provider === 'google'),
     github: identities.some(id => id.provider === 'github'),
@@ -9854,7 +9958,7 @@ async function checkLinkedIdentities() {
 
 async function unlinkOAuthIdentity(provider) {
   console.log(`🔄 Attempting to unlink ${provider}...`);
-  
+
   // 1. Check if user is logged in
   const { data: { user } } = await supabaseClient.auth.getUser();
   if (!user) {
@@ -9880,14 +9984,14 @@ async function unlinkOAuthIdentity(provider) {
 
   console.log(`✅ Successfully unlinked ${provider}`);
   showLinkStatus(`✅ ${provider} account unlinked successfully!`, "success");
-  
+
   // 4. Update the button states
   await updateAccountLinkButtons();
 }
 
 async function updateAccountLinkButtons() {
   const linked = await checkLinkedIdentities();
-  
+
   const buttons = {
     google: document.getElementById("linkGoogleBtn"),
     github: document.getElementById("linkGithubBtn"),
@@ -9928,7 +10032,7 @@ async function updateAccountLinkButtons() {
     } else {
       // Account is not linked - show link option
       button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> Link ${providerNames[provider]} Account`;
-      
+
       // Restore original gradient colors
       const originalGradients = {
         google: "linear-gradient(135deg, #4285f4, #34a853)",
@@ -9947,7 +10051,7 @@ async function updateProfileAuthButtons() {
   if (!isOwnProfile) return;
 
   const linked = await checkLinkedIdentities();
-  
+
   const googleBtn = document.getElementById("profileLinkGoogleBtn");
   const githubBtn = document.getElementById("profileLinkGithubBtn");
 
@@ -9984,7 +10088,7 @@ function setupAccountLinkListeners() {
   const openBtn = document.getElementById("openAccountLinkModal");
   const closeBtn = document.getElementById("closeAccountLinkModal");
   const modal = document.getElementById("accountLinkModal");
-  
+
   // 1. Check if elements exist
   if (!openBtn || !closeBtn || !modal) {
     console.error("❌ Account Link Modal elements not found! Retrying in 100ms...");
@@ -10001,13 +10105,13 @@ function setupAccountLinkListeners() {
       alert("You can only link accounts for your own profile.");
       return;
     }
-    
+
     // Debug log
     console.log("🔓 Opening Account Link Modal for:", currentProfileUsername);
-    
+
     // Update button states before showing modal
     await updateAccountLinkButtons();
-    
+
     modal.style.display = "flex";
   });
 
@@ -10043,7 +10147,7 @@ function forceAttachAccountLinkListeners() {
 
   console.log("🔧 Forcing account link listeners...");
 
-  
+
   // Close on backdrop click
   if (modal) {
     modal.onclick = (e) => {
@@ -10091,7 +10195,7 @@ if (!openBtn || !closeBtn || !modal) {
 
   const inputEl = document.getElementById("messageInput");
   const controlsEl = document.getElementById("controls");
-  
+
   if (!inputEl) {
     console.warn("[gif-picker] Input element missing.");
     return;
@@ -10101,7 +10205,7 @@ if (!openBtn || !closeBtn || !modal) {
   const picker = document.createElement("div");
   picker.id = "gifPicker";
   picker.className = "hidden";
-  
+
   // FORCE STYLES IN-JS TO OVERRIDE CSS
   picker.style.position = "fixed"; 
   picker.style.zIndex = "9999999"; // Higher than everything
@@ -10121,7 +10225,7 @@ if (!openBtn || !closeBtn || !modal) {
 
   // Prevent focus loss
   picker.addEventListener("mousedown", (e) => e.preventDefault());
-  
+
   // Inject into BODY, not controlsEl
   document.body.appendChild(picker);
 
@@ -10130,19 +10234,19 @@ if (!openBtn || !closeBtn || !modal) {
   let searchSeq = 0;
 
   const isOpen = () => picker.style.display !== "none";
-  
+
   const open = (targetRect) => {
     picker.style.display = "grid"; // Force grid layout
-    
+
     // Position it right above the input
     if (targetRect) {
       const bottom = window.innerHeight - targetRect.bottom;
       const left = targetRect.left;
-      
+
       // Ensure it fits on screen
       const pickerHeight = 360;
       const spaceAbove = targetRect.top;
-      
+
       if (spaceAbove > pickerHeight) {
         // Show above input
         picker.style.bottom = `${bottom + targetRect.height + 8}px`;
@@ -10176,7 +10280,7 @@ if (!openBtn || !closeBtn || !modal) {
       setState(`No results for "${query}".`);
       return;
     }
-    
+
     // Clear header
     const header = document.createElement("div");
     header.style.gridColumn = "1/-1";
@@ -10196,7 +10300,7 @@ if (!openBtn || !closeBtn || !modal) {
       const thumb = m.tinygif?.url || m.nanogif?.url || m.gif?.url;
       const full  = m.gif?.url || m.tinygif?.url;
       if (!thumb || !full) return;
-      
+
       const item = document.createElement("div");
       item.className = "gif-item";
       item.style.cursor = "pointer";
@@ -10207,7 +10311,7 @@ if (!openBtn || !closeBtn || !modal) {
       item.style.background = "#202225";
       item.style.border = "2px solid transparent";
       item.style.transition = "border-color 0.12s, transform 0.12s";
-      
+
       item.onmouseover = () => {
         item.style.borderColor = "#5865f2";
         item.style.transform = "translateY(-2px)";
@@ -10223,7 +10327,7 @@ if (!openBtn || !closeBtn || !modal) {
       img.style.height = "100%";
       img.style.objectFit = "cover";
       img.style.display = "block";
-      
+
       item.appendChild(img);
       item.addEventListener("click", () => sendGif(full));
       picker.appendChild(item);
@@ -10235,7 +10339,7 @@ if (!openBtn || !closeBtn || !modal) {
     const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(query)}`
       + `&key=${TENOR_API_KEY}&limit=${TENOR_LIMIT}`
       + `&media_filter=minimal&contentfilter=high`;
-    
+
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Tenor HTTP ${res.status}`);
@@ -10263,7 +10367,7 @@ if (!openBtn || !closeBtn || !modal) {
   function handleInput() {
     const value = inputEl.value.trim();
   const match = value.match(/^\/gif(?:\s+(.*))?$/i);
-  
+
   if (!match) {
     if (isOpen()) close();
     return;
@@ -10289,7 +10393,7 @@ if (!openBtn || !closeBtn || !modal) {
 
     setState("Searching...");
     const seq = ++searchSeq;
-    
+
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(async () => {
       if (seq !== searchSeq) return;
@@ -10325,7 +10429,7 @@ if (!openBtn || !closeBtn || !modal) {
   }, true);
 
   inputEl.addEventListener("input", handleInput);
-  
+
   inputEl.addEventListener("blur", () => {
     setTimeout(() => {
       if (document.activeElement !== inputEl && !picker.contains(document.activeElement)) {
@@ -10346,7 +10450,7 @@ if (!openBtn || !closeBtn || !modal) {
 // Add this helper near your other helper functions
 async function markCurrentChannelAsRead() {
   if (!currentServerId || !currentChannelId) return;
-  
+
   // If we have messages loaded, take the highest ID
   if (messagesMap.size > 0) {
     const maxId = Math.max(...Array.from(messagesMap.keys()));
@@ -10418,20 +10522,85 @@ let currentVoiceChannelId = null;
 let localStream = null;
 let voiceSignalingSub = null; // To track the subscription
 
-function addParticipantToGrid(username) {
+// --- Voice participant state map: username -> {is_muted, is_deafened, is_admin_muted, is_admin_deafened}
+let voiceParticipantState = new Map();
+let voiceRoomSub = null; // realtime sub for voice_room_participants
+let voiceOutputVolume = 1.0; // 0..1 — applied to all incoming audio elements
+
+function getVoiceParticipantBadges(state) {
+  const badges = [];
+  if (state.is_admin_muted) badges.push({ icon: '🔇', danger: true, title: 'Server Muted' });
+  else if (state.is_muted) badges.push({ icon: '🎤', danger: false, title: 'Muted' });
+  if (state.is_admin_deafened) badges.push({ icon: '🛑', danger: true, title: 'Server Deafened' });
+  else if (state.is_deafened) badges.push({ icon: '🎧', danger: false, title: 'Deafened' });
+  return badges;
+}
+
+function renderVoiceParticipant(usernameVal, state) {
   const grid = document.getElementById('voiceParticipantGrid');
-  const el = document.createElement('div');
-  el.className = 'voice-participant';
-  el.dataset.username = username;
-  
-  const avatar = buildAvatarElement(username, 'voice-participant-avatar');
-  const name = document.createElement('div');
-  name.className = 'voice-participant-name';
-  name.textContent = displayName(username);
-  
-  el.appendChild(avatar);
-  el.appendChild(name);
-  grid.appendChild(el);
+  if (!grid) return;
+  let el = grid.querySelector(`.voice-participant[data-username="${usernameVal}"]`);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'voice-participant';
+    el.dataset.username = usernameVal;
+    if (usernameVal === username) el.classList.add('is-self');
+
+    const avatar = buildAvatarElement(usernameVal, 'voice-participant-avatar');
+    const name = document.createElement('div');
+    name.className = 'voice-participant-name';
+    name.textContent = displayName(usernameVal);
+
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'voice-participant-badges';
+
+    el.appendChild(avatar);
+    el.appendChild(name);
+    el.appendChild(badgeRow);
+    grid.appendChild(el);
+
+    // Right-click / long-press for admin actions
+    el.addEventListener('contextmenu', (e) => {
+      if (usernameVal === username) return; // can't admin-act on self via context menu
+      e.preventDefault();
+      openVoiceParticipantMenu(usernameVal, e.clientX, e.clientY);
+    });
+    let touchTimer = null;
+    el.addEventListener('touchstart', (e) => {
+      if (usernameVal === username) return;
+      const touch = e.touches[0];
+      touchTimer = setTimeout(() => {
+        openVoiceParticipantMenu(usernameVal, touch.clientX, touch.clientY);
+      }, 600);
+    });
+    el.addEventListener('touchend', () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } });
+    el.addEventListener('touchmove', () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } });
+  }
+
+  // Refresh badges
+  const badgeRow = el.querySelector('.voice-participant-badges');
+  badgeRow.innerHTML = '';
+  for (const b of getVoiceParticipantBadges(state || {})) {
+    const span = document.createElement('span');
+    span.className = 'vp-badge' + (b.danger ? ' danger' : '');
+    span.textContent = b.icon;
+    span.title = b.title;
+    badgeRow.appendChild(span);
+  }
+}
+
+function removeVoiceParticipant(usernameVal) {
+  const grid = document.getElementById('voiceParticipantGrid');
+  if (!grid) return;
+  const el = grid.querySelector(`.voice-participant[data-username="${usernameVal}"]`);
+  if (el) el.remove();
+  voiceParticipantState.delete(usernameVal);
+}
+
+// Backwards-compatible alias used elsewhere in the file
+function addParticipantToGrid(usernameVal) {
+  const state = voiceParticipantState.get(usernameVal) || {};
+  renderVoiceParticipant(usernameVal, state);
 }
 
 // --- SUBSCRIBE TO SIGNALING (FIXED ORDER) ---
@@ -10442,7 +10611,7 @@ function subscribeToVoiceSignaling(channelId) {
   }
 
   console.log(`📡 Subscribing to voice signaling for channel ${channelId}...`);
-  
+
   voiceSignalingSub = supabaseClient
     .channel(`voice-signaling-${channelId}`)
     .on(
@@ -10455,7 +10624,7 @@ function subscribeToVoiceSignaling(channelId) {
       },
       async (payload) => {
         const data = payload.new;
-        
+
         // Only process messages intended for me
         if (data.to_username !== username) return;
 
@@ -10470,7 +10639,7 @@ function subscribeToVoiceSignaling(channelId) {
             // Received SDP Offer or Answer
             const sdpObj = JSON.parse(data.sdp);
             console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
-            
+
             await peerConn.setRemoteDescription(new RTCSessionDescription(sdpObj));
 
             if (sdpObj.type === 'offer') {
@@ -10503,6 +10672,104 @@ function subscribeToVoiceSignaling(channelId) {
     });
 }
 
+// --- SUBSCRIBE TO VOICE ROOM PARTICIPANT CHANGES ---
+function subscribeToVoiceRoom(channelId) {
+  if (voiceRoomSub) {
+    try { voiceRoomSub.unsubscribe(); } catch {}
+    voiceRoomSub = null;
+  }
+
+  console.log(`📡 Subscribing to voice room participants for channel ${channelId}...`);
+
+  voiceRoomSub = supabaseClient
+    .channel(`voice-room-${channelId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "voice_room_participants",
+        filter: `channel_id=eq.${channelId}`
+      },
+      async (payload) => {
+        const p = payload.new;
+        if (!p || !p.username) return;
+        console.log(`🔊 voice room INSERT: ${p.username}`);
+        voiceParticipantState.set(p.username, {
+          is_muted: !!p.is_muted,
+          is_deafened: !!p.is_deafened,
+          is_admin_muted: !!p.is_admin_muted,
+          is_admin_deafened: !!p.is_admin_deafened
+        });
+        renderVoiceParticipant(p.username, voiceParticipantState.get(p.username));
+
+        // If a new user joined and we're already in the room, open a peer connection to them.
+        if (p.username !== username && currentVoiceChannelId === channelId && !currentPeerConnections.has(p.username)) {
+          try { await initiateConnection(p.username, channelId); }
+          catch (e) { console.warn("⚠️ initiateConnection failed for", p.username, e); }
+        }
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "voice_room_participants",
+        filter: `channel_id=eq.${channelId}`
+      },
+      (payload) => {
+        const p = payload.new;
+        if (!p || !p.username) return;
+        const next = {
+          is_muted: !!p.is_muted,
+          is_deafened: !!p.is_deafened,
+          is_admin_muted: !!p.is_admin_muted,
+          is_admin_deafened: !!p.is_admin_deafened
+        };
+        voiceParticipantState.set(p.username, next);
+        renderVoiceParticipant(p.username, next);
+
+        // If admin-muted my own mic, force-mute locally
+        if (p.username === username && typeof applyLocalMicState === "function") {
+          try { applyLocalMicState(); } catch {}
+        }
+        if (p.username === username && typeof applyLocalDeafenState === "function") {
+          try { applyLocalDeafenState(); } catch {}
+        }
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "voice_room_participants",
+        filter: `channel_id=eq.${channelId}`
+      },
+      (payload) => {
+        const p = payload.old || {};
+        if (!p.username) return;
+        console.log(`👋 voice room DELETE: ${p.username}`);
+        // Close peer connection if any
+        const conn = currentPeerConnections.get(p.username);
+        if (conn) {
+          try { conn.close(); } catch {}
+          currentPeerConnections.delete(p.username);
+        }
+        // Remove audio element
+        const audioEl = document.getElementById(`audio-${p.username}`);
+        if (audioEl) audioEl.remove();
+        // Remove tile
+        if (typeof removeVoiceParticipant === "function") removeVoiceParticipant(p.username);
+        else voiceParticipantState.delete(p.username);
+      }
+    )
+    .subscribe((status) => {
+      console.log(`Voice Room Realtime Status: ${status}`);
+    });
+}
+
 // --- CONNECT TO EXISTING USERS ---
 async function connectToExistingUsers(channelId) {
   // Get all other participants
@@ -10527,7 +10794,7 @@ async function connectToExistingUsers(channelId) {
   for (const p of participants) {
     // Avoid connecting to myself or duplicate connections
     if (p.username === username || currentPeerConnections.has(p.username)) continue;
-    
+
     await initiateConnection(p.username, channelId);
   }
 }
@@ -10553,7 +10820,7 @@ async function initiateConnection(targetUsername, channelId) {
     audio.srcObject = event.streams[0];
     audio.autoplay = true;
     document.body.appendChild(audio);
-    
+
     // Optional: Add visual indicator
     audio.id = `audio-${targetUsername}`;
   };
@@ -10637,23 +10904,42 @@ async function joinVoiceChannel(channelId) {
     return;
   }
 
+  // 🔥 If already in a different voice channel, leave it first
+  if (currentVoiceChannelId && currentVoiceChannelId !== channelId) {
+    leaveVoiceChannel();
+  }
+
   try {
     // 1. Get local audio stream
     console.log("🎤 Requesting microphone access...");
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log("✅ Microphone access granted.");
 
-    // 2. Record presence in DB
+    // 2. Record presence in DB (upsert in case a stale row exists)
     await supabaseClient
       .from("voice_room_participants")
-      .insert({ channel_id: channelId, username: username });
+      .delete()
+      .eq("channel_id", channelId)
+      .eq("username", username);
+    await supabaseClient
+      .from("voice_room_participants")
+      .insert({
+        channel_id: channelId,
+        username: username,
+        is_muted: false,
+        is_deafened: false,
+        is_admin_muted: false,
+        is_admin_deafened: false
+      });
 
-    // 3. Update UI - HIDE INPUT BAR
+    // 3. Update UI - HIDE INPUT BAR, SHOW VOICE CONTROL BAR
     const controls = document.getElementById("controls");
-    if (controls) {
-      controls.style.display = "none"; // 🔥 Hide the whole row
-    }
-    
+    if (controls) controls.style.display = "none";
+    const voiceBar = document.getElementById("voiceControlBar");
+    if (voiceBar) voiceBar.style.display = "flex";
+    const vcChan = document.getElementById("vcStatusChannel");
+    if (vcChan) vcChan.textContent = channel.name;
+
     // Also disable inputs just in case
     const input = document.getElementById("messageInput");
     const sendBtn = document.getElementById("sendButton");
@@ -10663,8 +10949,9 @@ async function joinVoiceChannel(channelId) {
     document.getElementById("currentChannelName").textContent = `🎤 ${channel.name} (Voice)`;
     currentVoiceChannelId = channelId;
 
-    // 4. Subscribe to Signaling Channel
+    // 4. Subscribe to Signaling Channel + voice room participant updates
     subscribeToVoiceSignaling(channelId);
+    subscribeToVoiceRoom(channelId);
 
     // 5. Connect to existing users
     await connectToExistingUsers(channelId);
@@ -10672,33 +10959,47 @@ async function joinVoiceChannel(channelId) {
   } catch (err) {
     console.error("Voice connection failed:", err);
     alert("Failed to join voice chat: " + err.message);
-    leaveVoiceChannel(); 
+    leaveVoiceChannel();
+    return;
   }
-  
+
   // Hide text messages
   document.getElementById('messages').style.display = 'none';
-  
+
   // Show participant grid
   const grid = document.getElementById('voiceParticipantGrid');
   grid.style.display = 'flex';
   grid.innerHTML = '';
+  voiceParticipantState.clear();
 
-  // Add self
-  addParticipantToGrid(username);
-
-  // Add others
+  // Load fresh full participant list (with state)
   const { data: participants } = await supabaseClient
     .from("voice_room_participants")
-    .select("username")
-    .eq("channel_id", channelId)
-    .neq("username", username);
+    .select("username, is_muted, is_deafened, is_admin_muted, is_admin_deafened")
+    .eq("channel_id", channelId);
 
   if (participants) {
     for (const p of participants) {
-      addParticipantToGrid(p.username);
-      await initiateConnection(p.username, channelId);
+      voiceParticipantState.set(p.username, {
+        is_muted: !!p.is_muted,
+        is_deafened: !!p.is_deafened,
+        is_admin_muted: !!p.is_admin_muted,
+        is_admin_deafened: !!p.is_admin_deafened
+      });
+      renderVoiceParticipant(p.username, voiceParticipantState.get(p.username));
+      if (p.username !== username && !currentPeerConnections.has(p.username)) {
+        await initiateConnection(p.username, channelId);
+      }
     }
+  } else {
+    // Fallback: at least render self
+    voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
+    renderVoiceParticipant(username, voiceParticipantState.get(username));
   }
+
+  applyLocalMicState();
+  applyLocalDeafenState();
+  refreshVoiceControlButtons();
 }
 
 // --- LEAVE VOICE CHANNEL ---
@@ -10712,11 +11013,20 @@ function leaveVoiceChannel() {
   });
   currentPeerConnections.clear();
 
-  // 2. Unsubscribe from signaling
+  // 2. Unsubscribe from signaling and voice room state
   if (voiceSignalingSub) {
-    voiceSignalingSub.unsubscribe();
+    try { voiceSignalingSub.unsubscribe(); } catch {}
     voiceSignalingSub = null;
   }
+  if (voiceRoomSub) {
+    try { voiceRoomSub.unsubscribe(); } catch {}
+    voiceRoomSub = null;
+  }
+  voiceParticipantState.clear();
+
+  // Hide voice control bar
+  const voiceBar = document.getElementById("voiceControlBar");
+  if (voiceBar) voiceBar.style.display = "none";
 
   // 3. Stop local stream
   if (localStream) {
@@ -10746,16 +11056,907 @@ function leaveVoiceChannel() {
   if (controls) {
     controls.style.display = "flex"; // 🔥 Bring the row back
   }
-  
+
   const input = document.getElementById("messageInput");
   const sendBtn = document.getElementById("sendButton");
   if (input) input.disabled = false;
   if (sendBtn) sendBtn.disabled = false;
-  
+
   const channel = channels.find(c => c.id === currentVoiceChannelId);
   if (channel) {
     document.getElementById("currentChannelName").textContent = `# ${channel.name}`;
   }
-  
+
   currentVoiceChannelId = null;
 }
+
+/* ======================================================================
+   GLOBAL MUTE (SysAdmin only) — uses users.muted_until
+   ====================================================================== */
+async function globalMuteUser(user) {
+  if (currentSystemRole !== "SysAdmin") {
+    alert("❌ Only SysAdmins can apply a global mute.");
+    return;
+  }
+  const minutes = parseInt(prompt(`Globally mute ${user} for how many minutes? (applies everywhere)`), 10);
+  if (!minutes || minutes <= 0) return;
+  const until = new Date(Date.now() + minutes * 60000).toISOString();
+  const { error } = await supabaseClient
+    .from("users")
+    .update({ muted_until: until })
+    .eq("username", user);
+  if (error) { alert("❌ Global mute failed: " + error.message); return; }
+  alert(`🔇 ${user} has been globally muted for ${minutes} minutes.`);
+}
+
+async function globalUnmuteUser(user) {
+  if (currentSystemRole !== "SysAdmin") {
+    alert("❌ Only SysAdmins can clear a global mute.");
+    return;
+  }
+  if (!confirm(`Clear the global mute on ${user}?`)) return;
+  const { error } = await supabaseClient
+    .from("users")
+    .update({ muted_until: null })
+    .eq("username", user);
+  if (error) { alert("❌ Global unmute failed: " + error.message); return; }
+  alert(`🔊 ${user}'s global mute has been cleared.`);
+}
+
+/* ======================================================================
+   THEMES — load from `themes` table, apply CSS vars, persist choice
+   ====================================================================== */
+const BUILTIN_THEMES = [
+  {
+    id: "__builtin_dark",
+    name: "default-dark",
+    display_name: "Discord Dark (Default)",
+    is_default: true,
+    css_variables: {
+      "--bg-main": "#2b2d31",
+      "--bg-secondary": "#1e1f22",
+      "--bg-tertiary": "#313338",
+      "--bg-hover": "#35373c",
+      "--bg-elevated": "#3a3d44",
+      "--text-main": "#dbdee1",
+      "--text-muted": "#949ba4",
+      "--text-link": "#00a8fc",
+      "--accent": "#5865f2",
+      "--accent-strong": "#7c88ff",
+      "--danger": "#ed4245",
+      "--success": "#3ba55d"
+    }
+  }
+];
+
+async function loadThemesAndApply() {
+  // Load from DB; merge with built-ins. Built-in dark theme is always available even if table is empty.
+  let dbThemes = [];
+  try {
+    const { data, error } = await supabaseClient
+      .from("themes")
+      .select("id, name, display_name, css_variables, is_default")
+      .order("is_default", { ascending: false })
+      .order("display_name", { ascending: true });
+    if (!error && Array.isArray(data)) dbThemes = data;
+  } catch (err) { console.warn("Themes table unavailable:", err.message); }
+
+  availableThemes = [...BUILTIN_THEMES, ...dbThemes];
+
+  // Decide which theme to apply: user's saved choice → default flag → first.
+  let chosen = null;
+  if (currentThemeId) chosen = availableThemes.find(t => t.id === currentThemeId);
+  if (!chosen) chosen = availableThemes.find(t => t.is_default);
+  if (!chosen) chosen = availableThemes[0];
+  if (chosen) applyThemeVariables(chosen);
+
+  // If the settings modal is currently open on the appearance tab, refresh it.
+  if (document.getElementById("userSettingsModal")?.style.display === "flex") {
+    renderThemeList();
+  }
+}
+
+function applyThemeVariables(theme) {
+  if (!theme || !theme.css_variables) return;
+  const root = document.documentElement;
+  Object.entries(theme.css_variables).forEach(([k, v]) => {
+    if (typeof v === "string") root.style.setProperty(k, v);
+  });
+  // Cache locally for instant apply on next load (before DB returns).
+  try { localStorage.setItem("chatThemeVars", JSON.stringify(theme.css_variables)); } catch {}
+}
+
+// Restore last theme variables ASAP so first paint isn't a flash.
+(function applyCachedTheme() {
+  try {
+    const cached = localStorage.getItem("chatThemeVars");
+    if (cached) {
+      const vars = JSON.parse(cached);
+      const root = document.documentElement;
+      Object.entries(vars).forEach(([k, v]) => {
+        if (typeof v === "string") root.style.setProperty(k, v);
+      });
+    }
+  } catch {}
+})();
+
+async function selectTheme(themeId) {
+  const theme = availableThemes.find(t => t.id === themeId);
+  if (!theme) return;
+  applyThemeVariables(theme);
+  currentThemeId = themeId;
+  // Built-in theme has a synthetic id that the DB doesn't know — store null in that case.
+  const dbValue = themeId.startsWith("__builtin_") ? null : themeId;
+  try {
+    await supabaseClient.from("users").update({ custom_theme_id: dbValue }).eq("username", username);
+  } catch (err) { console.warn("Save theme failed:", err.message); }
+  renderThemeList();
+}
+
+function renderThemeList() {
+  const list = document.getElementById("settingsThemeList");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!availableThemes.length) {
+    list.innerHTML = '<div class="settings-theme-loading">No themes available.</div>';
+    return;
+  }
+  availableThemes.forEach(theme => {
+    const card = document.createElement("div");
+    card.className = "settings-theme-card";
+    if (theme.id === currentThemeId || (!currentThemeId && theme.is_default)) {
+      card.classList.add("selected");
+    }
+    const v = theme.css_variables || {};
+    const p1 = v["--accent"] || "#5865f2";
+    const p2 = v["--accent-strong"] || v["--text-link"] || "#00a8fc";
+    const bg = v["--bg-main"] || "#2b2d31";
+    const text = v["--text-main"] || "#dbdee1";
+    card.innerHTML = `
+      <div class="settings-theme-preview" style="background:linear-gradient(135deg, ${p1}, ${p2});">
+        <div style="position:relative;height:100%;">
+          <div style="position:absolute;inset:8px;background:${bg};border-radius:6px;display:flex;align-items:center;padding:0 8px;">
+            <div style="width:14px;height:14px;border-radius:50%;background:${p1};margin-right:6px;"></div>
+            <div style="height:6px;flex:1;background:${text};opacity:0.5;border-radius:3px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-theme-name">${escapeHTML(theme.display_name || theme.name)}</div>
+    `;
+    card.addEventListener("click", () => selectTheme(theme.id));
+    list.appendChild(card);
+  });
+}
+
+/* ======================================================================
+   USER SETTINGS MODAL — open/close, tabs, panes
+   ====================================================================== */
+function openUserSettings(initialTab = "account") {
+  if (!username) return;
+  const modal = document.getElementById("userSettingsModal");
+  if (!modal) return;
+
+  // Populate fields with current data
+  populateSettingsAccountTab();
+  populateSettingsProfileTab();
+  populateSettingsNotificationsTab();
+  populateSettingsVoiceTab();
+  populateSettingsStatusTab();
+  renderThemeList();
+  refreshSettingsConnections();
+
+  switchSettingsTab(initialTab);
+  modal.style.display = "flex";
+}
+
+function closeUserSettings() {
+  const modal = document.getElementById("userSettingsModal");
+  if (modal) modal.style.display = "none";
+}
+
+function switchSettingsTab(name) {
+  document.querySelectorAll("#userSettingsModal .settings-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === name);
+  });
+  document.querySelectorAll("#userSettingsModal .settings-pane").forEach(p => {
+    p.classList.toggle("active", p.dataset.pane === name);
+  });
+}
+
+function populateSettingsAccountTab() {
+  document.getElementById("settingsDisplayName").textContent = getEffectiveDisplayName(username) || username;
+  document.getElementById("settingsUsername").textContent = `@${username}`;
+  // Email
+  supabaseClient.auth.getUser().then(({ data }) => {
+    const email = data?.user?.email || "—";
+    const el = document.getElementById("settingsEmailValue");
+    if (el) el.textContent = email;
+  });
+  // Avatar
+  const avatar = getEffectiveAvatarUrl(username) || currentUserAvatarUrl || "";
+  const img = document.getElementById("settingsAvatarImage");
+  const fallback = document.getElementById("settingsAvatarFallback");
+  if (avatar) {
+    img.src = avatar;
+    img.style.display = "block";
+    fallback.style.display = "none";
+  } else {
+    img.style.display = "none";
+    fallback.style.display = "flex";
+    fallback.textContent = getInitials(username);
+  }
+}
+
+function populateSettingsProfileTab() {
+  const bioEl = document.getElementById("settingsBio");
+  const statusEl = document.getElementById("settingsStatus");
+  if (bioEl) bioEl.value = currentBio || "";
+  if (statusEl) statusEl.value = currentCustomStatus || "";
+}
+
+function populateSettingsNotificationsTab() {
+  const m = document.getElementById("settingsNotifyMentions");
+  const r = document.getElementById("settingsNotifyReplies");
+  const a = document.getElementById("settingsNotifyAll");
+  if (m) m.checked = currentNotificationPrefs.mentions !== false;
+  if (r) r.checked = currentNotificationPrefs.replies !== false;
+  if (a) a.checked = !!currentNotificationPrefs.all_messages;
+}
+
+function populateSettingsVoiceTab() {
+  const vol = document.getElementById("settingsVoiceVolume");
+  const valEl = document.getElementById("settingsVoiceVolumeValue");
+  if (vol) vol.value = cachedUserVoiceVolume;
+  if (valEl) valEl.textContent = cachedUserVoiceVolume;
+  const sm = document.getElementById("settingsSelfMuteToggle");
+  if (sm) sm.checked = !!selfMuted;
+}
+
+function populateSettingsStatusTab() {
+  document.querySelectorAll("#userSettingsModal .status-option").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.status === currentPresenceStatus);
+  });
+}
+
+async function saveProfileChanges() {
+  const bio = (document.getElementById("settingsBio")?.value || "").trim();
+  const status = (document.getElementById("settingsStatus")?.value || "").trim();
+  const msg = document.getElementById("settingsProfileMsg");
+  try {
+    const { error } = await supabaseClient.from("users").update({
+      profile_description: bio,
+      profile_status: status
+    }).eq("username", username);
+    if (error) throw error;
+    currentBio = bio;
+    currentCustomStatus = status;
+    if (msg) { msg.textContent = "✅ Saved"; msg.classList.remove("error"); }
+    setTimeout(() => { if (msg) msg.textContent = ""; }, 2200);
+  } catch (err) {
+    if (msg) { msg.textContent = "❌ " + err.message; msg.classList.add("error"); }
+  }
+}
+
+async function saveNotificationChanges() {
+  const prefs = {
+    mentions: document.getElementById("settingsNotifyMentions").checked,
+    replies: document.getElementById("settingsNotifyReplies").checked,
+    all_messages: document.getElementById("settingsNotifyAll").checked
+  };
+  const msg = document.getElementById("settingsNotifyMsg");
+  try {
+    const { error } = await supabaseClient.from("users").update({
+      notification_preferences: prefs
+    }).eq("username", username);
+    if (error) throw error;
+    currentNotificationPrefs = prefs;
+    if (msg) { msg.textContent = "✅ Saved"; msg.classList.remove("error"); }
+    setTimeout(() => { if (msg) msg.textContent = ""; }, 2200);
+  } catch (err) {
+    if (msg) { msg.textContent = "❌ " + err.message; msg.classList.add("error"); }
+  }
+}
+
+function setPresenceStatus(status) {
+  if (!["online", "idle", "dnd", "invisible"].includes(status)) return;
+  currentPresenceStatus = status;
+  localStorage.setItem("chatPresenceStatus", status);
+  populateSettingsStatusTab();
+  updatePresenceDot();
+}
+
+function updatePresenceDot() {
+  const dot = document.getElementById("profileBtnPresenceDot");
+  if (!dot) return;
+  dot.dataset.status = currentPresenceStatus;
+  dot.title = "Status: " + currentPresenceStatus;
+}
+
+async function refreshSettingsConnections() {
+  const status = document.getElementById("settingsConnectionsStatus");
+  if (!status) return;
+  try {
+    const linked = await checkLinkedIdentities();
+    const labels = Object.entries(linked).filter(([, v]) => v).map(([k]) => k);
+    status.textContent = labels.length
+      ? "✅ Linked accounts: " + labels.join(", ")
+      : "No external accounts linked yet.";
+    status.classList.remove("error");
+  } catch (err) {
+    status.textContent = "❌ Could not check linked accounts.";
+    status.classList.add("error");
+  }
+}
+
+/* ======================================================================
+   USER SETTINGS — wire up button events (run after DOM ready)
+   ====================================================================== */
+(function wireUserSettingsModal() {
+  function init() {
+    const modal = document.getElementById("userSettingsModal");
+    if (!modal) return;
+
+    // Close handlers
+    const closeBtn = document.getElementById("closeUserSettingsModal");
+    if (closeBtn) closeBtn.addEventListener("click", closeUserSettings);
+    modal.addEventListener("click", (e) => { if (e.target === modal) closeUserSettings(); });
+
+    // Tab switching
+    modal.querySelectorAll(".settings-tab").forEach(tab => {
+      const name = tab.dataset.tab;
+      if (!name) return;
+      tab.addEventListener("click", () => switchSettingsTab(name));
+    });
+
+    // Logout
+    const logout = document.getElementById("settingsLogoutBtn");
+    if (logout) logout.addEventListener("click", () => performLogout());
+
+    // Account: Edit / Change Email / Change Password
+    const editProfile = document.getElementById("settingsEditProfileBtn");
+    if (editProfile) editProfile.addEventListener("click", () => {
+      closeUserSettings();
+      openUserProfile(username, currentServerId);
+    });
+    const chgEmail = document.getElementById("settingsChangeEmailBtn");
+    if (chgEmail) chgEmail.addEventListener("click", () => changeAccountEmail());
+    const chgPwd = document.getElementById("settingsChangePasswordBtn");
+    if (chgPwd) chgPwd.addEventListener("click", () => changeAccountPassword());
+
+    // Avatar change → reuse the existing file input
+    const avatarBox = document.getElementById("settingsAvatarContainer");
+    if (avatarBox) avatarBox.addEventListener("click", () => {
+      const inp = document.getElementById("avatarInput");
+      if (inp) inp.click();
+    });
+
+    // Profile tab save
+    const saveProfile = document.getElementById("settingsSaveProfileBtn");
+    if (saveProfile) saveProfile.addEventListener("click", saveProfileChanges);
+
+    // Notifications save
+    const saveNotif = document.getElementById("settingsSaveNotifyBtn");
+    if (saveNotif) saveNotif.addEventListener("click", saveNotificationChanges);
+
+    // Voice volume slider
+    const vol = document.getElementById("settingsVoiceVolume");
+    const volVal = document.getElementById("settingsVoiceVolumeValue");
+    if (vol) vol.addEventListener("input", () => {
+      cachedUserVoiceVolume = parseInt(vol.value, 10) || 100;
+      if (volVal) volVal.textContent = cachedUserVoiceVolume;
+      localStorage.setItem("chatVoiceVolume", String(cachedUserVoiceVolume));
+      // Apply to all currently-playing remote audios.
+      document.querySelectorAll("audio.remote-voice").forEach(a => { a.volume = cachedUserVoiceVolume / 100; });
+    });
+
+    // Self-mute toggle inside voice tab
+    const selfMuteToggle = document.getElementById("settingsSelfMuteToggle");
+    if (selfMuteToggle) selfMuteToggle.addEventListener("change", () => {
+      if (selfMuteToggle.checked !== selfMuted) toggleSelfMute();
+    });
+
+    // Status options (Online / Idle / DND / Invisible)
+    modal.querySelectorAll(".status-option").forEach(btn => {
+      btn.addEventListener("click", () => setPresenceStatus(btn.dataset.status));
+    });
+
+    // Connections — reuse existing OAuth link helpers
+    const lnkG = document.getElementById("settingsLinkGoogleBtn");
+    if (lnkG) lnkG.addEventListener("click", () => linkGoogleAccount());
+    const lnkH = document.getElementById("settingsLinkGithubBtn");
+    if (lnkH) lnkH.addEventListener("click", () => linkGithubAccount());
+    const lnkD = document.getElementById("settingsLinkDiscordBtn");
+    if (lnkD) lnkD.addEventListener("click", () => linkOAuthIdentity("discord"));
+    const lnkA = document.getElementById("settingsLinkAzureBtn");
+    if (lnkA) lnkA.addEventListener("click", () => linkOAuthIdentity("azure"));
+
+    // Self-mute mic button on user panel
+    const muteBtn = document.getElementById("selfMuteBtn");
+    if (muteBtn) {
+      muteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSelfMute();
+      });
+    }
+    // Gear icon → open settings
+    const gear = document.getElementById("openSettingsBtn");
+    if (gear) {
+      gear.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openUserSettings("account");
+      });
+    }
+
+    updateSelfMuteBadge();
+    updatePresenceDot();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+
+/* ============================================================
+ *  CHANNEL PERMISSIONS  (channel_permissions table)
+ *  Discord-style per-channel role/member overrides:
+ *    - can_view, can_send, can_manage
+ *    - row keyed by (channel_id, role_id|username, NULLs allowed)
+ *    - resolution order: @everyone (no role/no user)
+ *                      → role overrides (any of the user's role ids)
+ *                      → user override (by username)
+ *                      → DENY beats ALLOW within the same tier
+ * ============================================================ */
+
+let channelPermissionsCache = new Map(); // channel_id -> [rows]
+let currentUserRoleIds = new Set();      // role ids the logged-in user holds in current server
+let allServerRolesCache = [];            // for the modal Roles tab
+
+async function loadChannelPermissionsForServer() {
+  channelPermissionsCache = new Map();
+  currentUserRoleIds = new Set();
+  if (!currentServerId || !channels || !channels.length) return;
+
+  const channelIds = channels.map(c => c.id);
+  try {
+    const [permsRes, rolesRes, myMemberRes] = await Promise.all([
+      supabaseClient.from("channel_permissions").select("*").in("channel_id", channelIds),
+      supabaseClient.from("server_roles").select("id, role, name, color").eq("server_id", currentServerId),
+      // member id of current user in this server (needed for role-link lookup)
+      username
+        ? supabaseClient.from("server_members").select("id, primary_role_id").eq("server_id", currentServerId).eq("username", username).maybeSingle()
+        : Promise.resolve({ data: null })
+    ]);
+
+    allServerRolesCache = rolesRes?.data || [];
+
+    // Now that we have member id, fetch real role links
+    if (myMemberRes?.data?.id) {
+      const myMemberId = myMemberRes.data.id;
+      const { data: links } = await supabaseClient
+        .from("server_member_roles")
+        .select("role_id")
+        .eq("server_id", currentServerId)
+        .eq("member_id", myMemberId);
+      (links || []).forEach(l => l.role_id && currentUserRoleIds.add(l.role_id));
+      if (myMemberRes.data.primary_role_id) currentUserRoleIds.add(myMemberRes.data.primary_role_id);
+    }
+
+    (permsRes?.data || []).forEach(row => {
+      if (!channelPermissionsCache.has(row.channel_id)) channelPermissionsCache.set(row.channel_id, []);
+      channelPermissionsCache.get(row.channel_id).push(row);
+    });
+  } catch (err) {
+    console.warn("⚠️ loadChannelPermissionsForServer failed:", err?.message || err);
+  }
+}
+
+// Resolve effective {can_view, can_send, can_manage} for the CURRENT user in a given channel.
+// Returns null if there are no overrides at all (caller treats null as "use defaults").
+function getEffectiveChannelPermission(channelId) {
+  const rows = channelPermissionsCache.get(channelId);
+  if (!rows || !rows.length) return null;
+
+  const result = { can_view: true, can_send: true, can_manage: false, _hasMatch: false };
+
+  // Tier 1: @everyone (role_id null AND username null)
+  rows.filter(r => !r.role_id && !r.username).forEach(r => {
+    applyOverride(result, r);
+    result._hasMatch = true;
+  });
+
+  // Tier 2: role-based (any of the user's roles) — DENY wins over ALLOW within same key
+  const myRoleRows = rows.filter(r => r.role_id && currentUserRoleIds.has(r.role_id));
+  ["can_view", "can_send", "can_manage"].forEach(key => {
+    let allow = null;
+    myRoleRows.forEach(r => {
+      if (r[key] === false) allow = false;
+      else if (r[key] === true && allow !== false) allow = true;
+    });
+    if (allow !== null) { result[key] = allow; result._hasMatch = true; }
+  });
+
+  // Tier 3: user override (highest priority)
+  const userRow = rows.find(r => !r.role_id && r.username && r.username === username);
+  if (userRow) {
+    applyOverride(result, userRow);
+    result._hasMatch = true;
+  }
+
+  return result._hasMatch ? result : null;
+}
+
+function applyOverride(target, row) {
+  if (row.can_view !== null && row.can_view !== undefined) target.can_view = !!row.can_view;
+  if (row.can_send !== null && row.can_send !== undefined) target.can_send = !!row.can_send;
+  if (row.can_manage !== null && row.can_manage !== undefined) target.can_manage = !!row.can_manage;
+}
+
+// Hook channel filtering into the existing renderChannelList by hiding/dimming after render.
+// We do it as a post-pass so we don't have to rewrite the existing function.
+(function installChannelVisibilityFilter() {
+  const original = (typeof renderChannelList === "function") ? renderChannelList : null;
+  if (!original) return;
+  window.renderChannelList = function patchedRenderChannelList(...args) {
+    const r = original.apply(this, args);
+    try { applyChannelVisibilityFilter(); } catch (e) { console.warn(e); }
+    return r;
+  };
+})();
+
+function applyChannelVisibilityFilter() {
+  const isAdmin = !!(userPermissions && userPermissions.manage_roles);
+  document.querySelectorAll("#channelList .channel").forEach(el => {
+    const chId = parseInt(el.dataset.id, 10);
+    if (!chId) return;
+    const eff = getEffectiveChannelPermission(chId);
+    el.classList.remove("cp-hidden-but-admin");
+    if (eff && eff.can_view === false) {
+      if (isAdmin) {
+        el.style.display = "";
+        el.classList.add("cp-hidden-but-admin");
+        el.title = "Hidden from non-admins by channel permissions";
+      } else {
+        el.style.display = "none";
+      }
+    } else {
+      el.style.display = "";
+      el.title = "";
+    }
+  });
+}
+
+/* ============================================================
+ *  CHANNEL PERMISSIONS MODAL
+ * ============================================================ */
+let _cpModalState = {
+  channelId: null,
+  // Map "role:<id>" or "user:<username>" -> { can_view, can_send, can_manage, _isNew, _toDelete, _id }
+  rows: new Map(),
+  initialSnapshot: ""
+};
+
+function openChannelPermsModal(channelId) {
+  if (!channelId) return;
+  if (!userPermissions || !userPermissions.manage_roles) {
+    alert("❌ You don't have permission to edit channel permissions.");
+    return;
+  }
+  const ch = channels.find(c => c.id === channelId);
+  if (!ch) return;
+
+  _cpModalState = { channelId, rows: new Map(), initialSnapshot: "" };
+
+  document.getElementById("channelPermsTitle").textContent = "# " + ch.name;
+
+  // Seed rows from cache
+  const rows = channelPermissionsCache.get(channelId) || [];
+  rows.forEach(r => {
+    const key = r.role_id ? "role:" + r.role_id : (r.username ? "user:" + r.username : "everyone");
+    _cpModalState.rows.set(key, {
+      _id: r.id,
+      role_id: r.role_id || null,
+      username: r.username || null,
+      can_view: (r.can_view === null || r.can_view === undefined) ? null : !!r.can_view,
+      can_send: (r.can_send === null || r.can_send === undefined) ? null : !!r.can_send,
+      can_manage: (r.can_manage === null || r.can_manage === undefined) ? null : !!r.can_manage,
+      _isNew: false,
+      _toDelete: false
+    });
+  });
+  _cpModalState.initialSnapshot = JSON.stringify([..._cpModalState.rows.entries()]);
+
+  // Populate the role / member add-selects
+  populateCpAddSelects();
+
+  // Switch to Roles tab
+  cpSwitchTab("roles");
+
+  renderCpRows();
+
+  document.getElementById("channelPermsModal").style.display = "flex";
+}
+
+function closeChannelPermsModal() {
+  document.getElementById("channelPermsModal").style.display = "none";
+  _cpModalState = { channelId: null, rows: new Map(), initialSnapshot: "" };
+}
+
+function populateCpAddSelects() {
+  const roleSel = document.getElementById("cpAddRoleSelect");
+  const memSel = document.getElementById("cpAddMemberSelect");
+  if (!roleSel || !memSel) return;
+
+  // Roles already overridden
+  const usedRoleIds = new Set();
+  const usedUsernames = new Set();
+  _cpModalState.rows.forEach(v => {
+    if (v.role_id) usedRoleIds.add(v.role_id);
+    if (v.username) usedUsernames.add(v.username);
+  });
+
+  roleSel.innerHTML = '<option value="">+ Add role override…</option>';
+  // Always allow @everyone as a synthetic role
+  if (!_cpModalState.rows.has("everyone")) {
+    const opt = document.createElement("option");
+    opt.value = "__everyone__";
+    opt.textContent = "@everyone";
+    roleSel.appendChild(opt);
+  }
+  (allServerRolesCache || []).forEach(r => {
+    if (usedRoleIds.has(r.id)) return;
+    const opt = document.createElement("option");
+    opt.value = r.id;
+    opt.textContent = "@" + (r.name || r.role || "Role");
+    opt.dataset.color = r.color || "";
+    roleSel.appendChild(opt);
+  });
+
+  memSel.innerHTML = '<option value="">+ Add member override…</option>';
+  (serverMembers || [])
+    .slice()
+    .sort((a, b) => String(a.username || "").localeCompare(String(b.username || "")))
+    .forEach(m => {
+      if (!m.username || usedUsernames.has(m.username)) return;
+      const opt = document.createElement("option");
+      opt.value = m.username;
+      const display = m.profile_display_name || m.username;
+      opt.textContent = display + (display !== m.username ? " (" + m.username + ")" : "");
+      memSel.appendChild(opt);
+    });
+}
+
+function cpSwitchTab(name) {
+  document.querySelectorAll(".cp-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.cpTab === name);
+  });
+  document.querySelectorAll(".channel-perms-pane").forEach(p => {
+    p.style.display = (p.dataset.cpPane === name) ? "" : "none";
+  });
+}
+
+function renderCpRows() {
+  const rolesContainer = document.getElementById("cpRolesList");
+  const membersContainer = document.getElementById("cpMembersList");
+  if (!rolesContainer || !membersContainer) return;
+  rolesContainer.innerHTML = "";
+  membersContainer.innerHTML = "";
+
+  const roleEntries = [];
+  const memberEntries = [];
+
+  _cpModalState.rows.forEach((row, key) => {
+    if (row._toDelete) return;
+    if (key.startsWith("role:") || key === "everyone") roleEntries.push([key, row]);
+    else memberEntries.push([key, row]);
+  });
+
+  if (!roleEntries.length) {
+    rolesContainer.innerHTML = '<div class="cp-empty">No role overrides yet. Use the dropdown above to add one.</div>';
+  } else {
+    roleEntries.forEach(([key, row]) => rolesContainer.appendChild(buildCpRowEl(key, row, "role")));
+  }
+  if (!memberEntries.length) {
+    membersContainer.innerHTML = '<div class="cp-empty">No member overrides yet. Use the dropdown above to add one.</div>';
+  } else {
+    memberEntries.forEach(([key, row]) => membersContainer.appendChild(buildCpRowEl(key, row, "member")));
+  }
+}
+
+function buildCpRowEl(key, row, kind) {
+  const el = document.createElement("div");
+  el.className = "cp-row";
+  el.dataset.cpKey = key;
+
+  let label = "";
+  let dotColor = "#99aab5";
+  if (key === "everyone") {
+    label = "@everyone";
+  } else if (kind === "role") {
+    const r = (allServerRolesCache || []).find(x => x.id === row.role_id);
+    label = "@" + (r?.name || r?.role || "Unknown role");
+    dotColor = r?.color || "#99aab5";
+  } else {
+    const m = (serverMembers || []).find(x => x.username === row.username);
+    const display = m?.profile_display_name || row.username;
+    label = display + (display !== row.username ? " (" + row.username + ")" : "");
+  }
+
+  el.innerHTML = `
+    <div class="cp-row-label">
+      <span class="cp-role-dot" style="background:${escapeHTML(dotColor)};"></span>
+      <span class="cp-name">${escapeHTML(label)}</span>
+    </div>
+    ${triStateHTML("View", "can_view", row.can_view)}
+    ${triStateHTML("Send", "can_send", row.can_send)}
+    ${triStateHTML("Manage", "can_manage", row.can_manage)}
+    <button class="cp-row-remove" type="button" title="Remove override">×</button>
+  `;
+
+  // Wire tri-state buttons
+  el.querySelectorAll(".cp-tri-state").forEach(group => {
+    const field = group.dataset.field;
+    group.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const v = btn.dataset.value;
+        const cur = _cpModalState.rows.get(key);
+        if (!cur) return;
+        cur[field] = (v === "allow") ? true : (v === "deny") ? false : null;
+        group.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+      });
+    });
+  });
+
+  el.querySelector(".cp-row-remove").addEventListener("click", () => {
+    const cur = _cpModalState.rows.get(key);
+    if (!cur) return;
+    if (cur._isNew) _cpModalState.rows.delete(key);
+    else cur._toDelete = true;
+    renderCpRows();
+    populateCpAddSelects();
+  });
+
+  return el;
+}
+
+function triStateHTML(label, field, value) {
+  const allowActive = value === true ? "active" : "";
+  const denyActive = value === false ? "active" : "";
+  const defActive = (value === null || value === undefined) ? "active" : "";
+  return `
+    <div class="cp-perm-control">
+      <label>${label}</label>
+      <div class="cp-tri-state" data-field="${field}">
+        <button type="button" class="cp-deny ${denyActive}" data-value="deny" title="Deny">✕</button>
+        <button type="button" class="cp-default ${defActive}" data-value="default" title="Default">/</button>
+        <button type="button" class="cp-allow ${allowActive}" data-value="allow" title="Allow">✓</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveChannelPermsModal() {
+  const channelId = _cpModalState.channelId;
+  if (!channelId) return;
+  const saveBtn = document.getElementById("channelPermsSave");
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
+
+  try {
+    const inserts = [];
+    const updates = [];
+    const deleteIds = [];
+
+    _cpModalState.rows.forEach(row => {
+      if (row._toDelete) {
+        if (row._id) deleteIds.push(row._id);
+        return;
+      }
+      const payload = {
+        channel_id: channelId,
+        role_id: row.role_id || null,
+        username: row.username || null,
+        can_view: row.can_view,
+        can_send: row.can_send,
+        can_manage: row.can_manage
+      };
+      if (row._id) updates.push({ id: row._id, ...payload });
+      else inserts.push(payload);
+    });
+
+    const ops = [];
+    if (deleteIds.length) ops.push(supabaseClient.from("channel_permissions").delete().in("id", deleteIds));
+    updates.forEach(u => {
+      const { id, ...rest } = u;
+      ops.push(supabaseClient.from("channel_permissions").update(rest).eq("id", id));
+    });
+    if (inserts.length) ops.push(supabaseClient.from("channel_permissions").insert(inserts));
+
+    const results = await Promise.all(ops);
+    const firstErr = results.find(r => r.error);
+    if (firstErr?.error) throw firstErr.error;
+
+    await loadChannelPermissionsForServer();
+    renderChannelList();
+    closeChannelPermsModal();
+    if (typeof showToast === "function") showToast("✅ Channel permissions saved.");
+  } catch (err) {
+    console.error("❌ saveChannelPermsModal:", err);
+    alert("❌ Failed to save: " + (err.message || err));
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Save Changes"; }
+  }
+}
+
+// Wire UI once on load
+(function wireChannelPermsModal() {
+  function init() {
+    const closeBtn = document.getElementById("channelPermsClose");
+    const cancelBtn = document.getElementById("channelPermsCancel");
+    const saveBtn = document.getElementById("channelPermsSave");
+    const overlay = document.getElementById("channelPermsModal");
+    const addRoleBtn = document.getElementById("cpAddRoleBtn");
+    const addMemBtn = document.getElementById("cpAddMemberBtn");
+
+    if (!overlay) return;
+
+    if (closeBtn) closeBtn.addEventListener("click", closeChannelPermsModal);
+    if (cancelBtn) cancelBtn.addEventListener("click", closeChannelPermsModal);
+    if (saveBtn) saveBtn.addEventListener("click", saveChannelPermsModal);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeChannelPermsModal(); });
+
+    document.querySelectorAll(".cp-tab").forEach(t => {
+      t.addEventListener("click", () => cpSwitchTab(t.dataset.cpTab));
+    });
+
+    if (addRoleBtn) addRoleBtn.addEventListener("click", () => {
+      const sel = document.getElementById("cpAddRoleSelect");
+      const v = sel.value;
+      if (!v) return;
+      const key = v === "__everyone__" ? "everyone" : "role:" + v;
+      if (_cpModalState.rows.has(key)) {
+        const existing = _cpModalState.rows.get(key);
+        if (existing._toDelete) existing._toDelete = false;
+      } else {
+        _cpModalState.rows.set(key, {
+          _id: null,
+          role_id: v === "__everyone__" ? null : v,
+          username: null,
+          can_view: null, can_send: null, can_manage: null,
+          _isNew: true, _toDelete: false
+        });
+      }
+      sel.value = "";
+      populateCpAddSelects();
+      renderCpRows();
+    });
+
+    if (addMemBtn) addMemBtn.addEventListener("click", () => {
+      const sel = document.getElementById("cpAddMemberSelect");
+      const v = sel.value;
+      if (!v) return;
+      const key = "user:" + v;
+      if (_cpModalState.rows.has(key)) {
+        const existing = _cpModalState.rows.get(key);
+        if (existing._toDelete) existing._toDelete = false;
+      } else {
+        _cpModalState.rows.set(key, {
+          _id: null,
+          role_id: null,
+          username: v,
+          can_view: null, can_send: null, can_manage: null,
+          _isNew: true, _toDelete: false
+        });
+      }
+      sel.value = "";
+      populateCpAddSelects();
+      renderCpRows();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
+})();
