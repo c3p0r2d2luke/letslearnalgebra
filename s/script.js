@@ -2252,7 +2252,7 @@ let currentSystemRole = localStorage.getItem("chatSysAdmin") === "true"
     : "User";
 let userPermissions = {};
 
-function loadUserPermissions(roleName) {
+function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
   switch (name) {
     case "sysadmin":
@@ -2260,14 +2260,20 @@ function loadUserPermissions(roleName) {
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: true, create_channels: true, manage_roles: true,
-        mute_users: true, manage_messages: true, manage_reports: true
+        mute_users: true, manage_messages: true, manage_reports: true,
+        send_gifs: true, send_links: true, send_attachments: true,
+        mention_everyone: true, bypass_word_filter: true,
+        create_invites: true, use_custom_emojis: true
       };
       break;
     case "sysmanager":
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: true, create_channels: true, manage_roles: true,
-        mute_users: true, manage_messages: true, manage_reports: true
+        mute_users: true, manage_messages: true, manage_reports: true,
+        send_gifs: true, send_links: true, send_attachments: true,
+        mention_everyone: true, bypass_word_filter: true,
+        create_invites: true, use_custom_emojis: true
       };
       break;
     case "teacher":
@@ -2277,15 +2283,29 @@ function loadUserPermissions(roleName) {
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: false, create_channels: false, manage_roles: false,
-        mute_users: true, manage_messages: true, manage_reports: true
+        mute_users: true, manage_messages: true, manage_reports: true,
+        send_gifs: true, send_links: true, send_attachments: true,
+        mention_everyone: false, bypass_word_filter: false,
+        create_invites: true, use_custom_emojis: true
       };
       break;
     default:
       userPermissions = {
         read_messages: true, send_messages: true, delete_messages: false,
         rename_channels: false, create_channels: false, manage_roles: false,
-        mute_users: false, manage_messages: false, manage_reports: false
+        mute_users: false, manage_messages: false, manage_reports: false,
+        send_gifs: false, send_links: false, send_attachments: true,
+        mention_everyone: false, bypass_word_filter: false,
+        create_invites: false, use_custom_emojis: true
       };
+  }
+
+  // Merge in custom permissions from server_roles.permissions (any "true" key wins).
+  if (customPerms && typeof customPerms === "object") {
+    Object.entries(customPerms).forEach(([k, v]) => {
+      if (v === true || v === false) userPermissions[k] = v || userPermissions[k];
+      // booleans: only let true OR existing-true win — never remove a built-in baseline.
+    });
   }
 }
 const messagesMap = new Map();
@@ -4195,7 +4215,11 @@ async function sendMessage(options = {}) {
     ? options.overrideContent
     : input.value;
   let content = rawContent.trim();
-  if (currentConversationType === "channel" && currentServerSettings.bad_word_filter_enabled) {
+  if (
+    currentConversationType === "channel"
+    && currentServerSettings.bad_word_filter_enabled
+    && !userPermissions.bypass_word_filter
+  ) {
     content = censorContent(content);
   }
   if (!content || !username) return;
@@ -4205,29 +4229,34 @@ async function sendMessage(options = {}) {
     return;
   }
 
-  // --- NEW: GIF PERMISSION CHECK ---
-  // Check if the content is a direct GIF URL or a /gif command result
+  // --- GIF PERMISSION CHECK ---
+  // Direct GIF/image/video URLs require the "Send GIFs" role permission.
   const isGifContent = content.startsWith("http") && (content.includes("tenor.com") || content.includes("giphy.com") || content.endsWith(".gif") || content.endsWith(".webp") || content.endsWith(".mp4"));
-
-  // If the user is trying to send a GIF and is NOT Manager/Admin/SysManager/SysAdmin
-  if (isGifContent && !["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)) {
-    alert("❌ Only Managers and above can send GIFs.");
-    return;
-  }
-  // ----------------------------------
-
-  if (!options.bypassLinkCheck && currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
-    alert("❌ Only admins are allowed to send links.");
+  const _legacyGifAllowed = ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole);
+  if (isGifContent && !(userPermissions.send_gifs || _legacyGifAllowed)) {
+    alert("❌ You don't have permission to send GIFs in this server.");
     return;
   }
 
-  if (!options.bypassLinkCheck && currentConversationType === "channel" && !currentServerSettings.allow_plaintext_links && !userPermissions.manage_roles && containsPlainTextUrl(content)) {
-    alert("❌ Only admins are allowed to send links.");
+  if (
+    !options.bypassLinkCheck
+    && currentConversationType === "channel"
+    && !currentServerSettings.allow_plaintext_links
+    && !userPermissions.send_links
+    && !userPermissions.manage_roles
+    && containsPlainTextUrl(content)
+  ) {
+    alert("❌ You don't have permission to send links in this server.");
     return;
   }
 
-  if (currentConversationType === "channel" && !canMentionEveryone() && /@(everyone|here)\b/i.test(content)) {
-    alert("❌ Only server admins and sysadmins can use @everyone or @here.");
+  if (
+    currentConversationType === "channel"
+    && !canMentionEveryone()
+    && !userPermissions.mention_everyone
+    && /@(everyone|here)\b/i.test(content)
+  ) {
+    alert("❌ You don't have permission to use @everyone or @here.");
     return;
   }
 
@@ -8473,13 +8502,15 @@ async function refreshServerRole() {
       .eq("username", username)
       .maybeSingle();
     let resolvedRole = normalizeServerRole(memberData?.role || "User");
+    let customRolePerms = null;
     if (memberData?.primary_role_id) {
       const { data: primaryRole } = await supabaseClient
         .from("server_roles")
-        .select("name, role")
+        .select("name, role, permissions")
         .eq("id", memberData.primary_role_id)
         .maybeSingle();
       resolvedRole = normalizeServerRole(primaryRole?.name || primaryRole?.role || resolvedRole);
+      customRolePerms = primaryRole?.permissions || null;
     } else if (memberData?.id) {
       const { data: memberRoleLink } = await supabaseClient
         .from("server_member_roles")
@@ -8491,10 +8522,11 @@ async function refreshServerRole() {
         if (memberRoleLink?.role_id) {
           const { data: linkedRole } = await supabaseClient
             .from("server_roles")
-            .select("name, role")
+            .select("name, role, permissions")
             .eq("id", memberRoleLink.role_id)
             .maybeSingle();
         resolvedRole = normalizeServerRole(linkedRole?.name || linkedRole?.role || resolvedRole);
+        customRolePerms = linkedRole?.permissions || null;
         }
       }
     setServerProfileData(currentServerId, username, {
@@ -8503,7 +8535,7 @@ async function refreshServerRole() {
       role: resolvedRole
     });
     currentRole = resolvedRole;
-    loadUserPermissions(resolvedRole);
+    loadUserPermissions(resolvedRole, customRolePerms);
   }
 
   localStorage.setItem("chatRole", currentRole);
@@ -9275,18 +9307,40 @@ async function changeName(targetUser) {
 
   // 2. Get current name for the prompt
   const member = serverMembers.find(m => m.username === targetUser);
-  const currentName = member?.profile_display_name || targetUser;
+  const currentDisplayName = member?.profile_display_name || "";
+  const actualName = targetUser;
 
-  // 3. Prompt for new name
-  const newName = prompt(`Change display name for ${targetUser}:\n(Current: ${currentName})`, currentName);
+  // 3. Ask which name to use — actual username or a custom display name.
+  //    OK  → set a custom display name (nickname)
+  //    Cancel → revert to actual username (clears any nickname)
+  const useCustom = confirm(
+    `Change name for "${actualName}"\n\n` +
+    `Actual name: ${actualName}\n` +
+    `Current display name: ${currentDisplayName || "(none — using actual name)"}\n\n` +
+    `Click OK to set a custom display name (nickname).\n` +
+    `Click Cancel to use their actual name (${actualName}) instead.`
+  );
 
-  if (newName === null) return; // User cancelled
-  if (!newName.trim()) {
-    alert("❌ Name cannot be empty.");
-    return;
+  let trimmedName = null; // null means "use actual name (clear nickname)"
+
+  if (useCustom) {
+    const newName = prompt(
+      `Custom display name for ${actualName}:`,
+      currentDisplayName || actualName
+    );
+    if (newName === null) return; // user backed out
+    const cleaned = newName.trim();
+    if (!cleaned) {
+      alert("❌ Name cannot be empty. (Pick Cancel on the first dialog to use the actual name.)");
+      return;
+    }
+    if (cleaned === actualName) {
+      // Same as actual — treat as a clear so we don't store redundant data.
+      trimmedName = null;
+    } else {
+      trimmedName = cleaned;
+    }
   }
-
-  const trimmedName = newName.trim();
 
   // 4. Update Database
   try {
@@ -9300,22 +9354,24 @@ async function changeName(targetUser) {
 
     // 5. Update Local State
     if (member) {
-      member.profile_display_name = trimmedName;
-      // Update the cached profile data
+      member.profile_display_name = trimmedName || "";
       setServerProfileData(currentServerId, targetUser, {
         ...getServerProfileData(currentServerId, targetUser),
-        display_name: trimmedName
+        display_name: trimmedName || ""
       });
     }
 
     // 6. Re-render UI
     renderMemberList();
     if (currentConversationType === "channel") {
-      // Re-render messages to update display names in chat
-      await loadMessages(); 
+      await loadMessages();
     }
 
-    alert(`✅ Display name for ${targetUser} updated to "${trimmedName}".`);
+    if (trimmedName) {
+      alert(`✅ ${actualName} will now be shown as "${trimmedName}".`);
+    } else {
+      alert(`✅ ${actualName} will now be shown by their actual name.`);
+    }
 
   } catch (err) {
     console.error("Change name failed:", err);
@@ -9535,31 +9591,42 @@ function getProfileData(usernameVal, serverId = null) {
 }
 
 async function fetchUserProfile(usernameVal, serverId = null) {
+  // Always fetch the global profile so we can fall back when the per-server
+  // bio/avatar are empty. (The bio "About Me" used to be blank for anyone who
+  // only set it on their global profile.)
+  const globalReq = supabaseClient
+    .from("users")
+    .select("profile_description, avatar_url")
+    .eq("username", usernameVal)
+    .maybeSingle();
+
   if (serverId) {
-    // Fetch server member profile
-    const { data, error } = await supabaseClient
+    const memberReq = supabaseClient
       .from("server_members")
       .select("profile_display_name, profile_avatar_url, profile_description, role")
       .eq("server_id", serverId)
       .eq("username", usernameVal)
       .maybeSingle();
 
-    if (error) {
-      console.warn("Profile fetch error:", error);
+    const [{ data: memberData, error: memberErr }, { data: globalData }] =
+      await Promise.all([memberReq, globalReq]);
+
+    if (memberErr) {
+      console.warn("Profile fetch error:", memberErr);
       return getProfileData(usernameVal, serverId);
     }
     return {
-      display_name: data?.profile_display_name || usernameVal,
-      avatar_url: data?.profile_avatar_url || getAvatarUrl(usernameVal),
-      description: data?.profile_description || "",
-      role: data?.role || null
+      display_name: memberData?.profile_display_name || usernameVal,
+      avatar_url: memberData?.profile_avatar_url || globalData?.avatar_url || getAvatarUrl(usernameVal),
+      description: memberData?.profile_description || globalData?.profile_description || "",
+      role: memberData?.role || null
     };
   } else {
-    // Fallback for global (optional)
+    const { data: globalData } = await globalReq;
     return {
       display_name: usernameVal,
-      avatar_url: getAvatarUrl(usernameVal),
-      description: ""
+      avatar_url: globalData?.avatar_url || getAvatarUrl(usernameVal),
+      description: globalData?.profile_description || ""
     };
   }
 }
@@ -9914,7 +9981,241 @@ if (serverOptionsModal) {
   serverOptionsModal.addEventListener("click", (event) => {
     if (event.target === serverOptionsModal) closeServerOptionsModal();
   });
+  const openRolesBtn = document.getElementById("openServerRolesBtn");
+  if (openRolesBtn) openRolesBtn.addEventListener("click", () => openServerRolesModal(currentServerOptionsTargetId));
 }
+
+/* ======================================================================
+   SERVER ROLES MANAGER — create/edit roles + per-role permission toggles.
+   ====================================================================== */
+
+const ROLE_PERMISSION_DEFS = [
+  { key: "manage_roles",        title: "Manage Roles",            desc: "Edit other roles, channels, server settings, and member roles." },
+  { key: "manage_messages",     title: "Manage Messages",         desc: "Delete or pin any message in this server." },
+  { key: "mute_users",          title: "Mute / Block Members",    desc: "Mute or block other members in this server." },
+  { key: "send_gifs",           title: "Send GIFs",               desc: "Use /gif and post GIF / image / video URLs." },
+  { key: "send_links",          title: "Send Links",              desc: "Bypass the server's plain-text link restriction." },
+  { key: "send_attachments",    title: "Send Attachments",        desc: "Upload files in text channels." },
+  { key: "mention_everyone",    title: "Mention @everyone / @here", desc: "Use @everyone and @here regardless of server setting." },
+  { key: "bypass_word_filter",  title: "Bypass Bad-Word Filter",  desc: "Send messages without the bad-word filter censoring them." },
+  { key: "create_invites",      title: "Create Invites",          desc: "Create new invite links for this server." },
+  { key: "use_custom_emojis",   title: "Use Custom Emojis",       desc: "Use server custom emojis even when restricted to admins." }
+];
+
+let serverRolesCache = [];
+let editingRoleId = null;
+let _isCreatingNewRole = false;
+
+async function openServerRolesModal(serverId) {
+  if (!serverId) return;
+  if (!canManageServerOptions(serverId)) {
+    alert("❌ You don't have permission to manage roles.");
+    return;
+  }
+  const modal = document.getElementById("serverRolesModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  document.getElementById("serverRolesEditor").style.display = "none";
+  setServerRolesError("");
+  await loadServerRolesForEditor(serverId);
+}
+
+function closeServerRolesModal() {
+  const modal = document.getElementById("serverRolesModal");
+  if (modal) modal.style.display = "none";
+  editingRoleId = null;
+  _isCreatingNewRole = false;
+  setServerRolesError("");
+}
+
+function setServerRolesError(msg) {
+  const el = document.getElementById("serverRolesError");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.style.display = msg ? "block" : "none";
+}
+
+async function loadServerRolesForEditor(serverId) {
+  const list = document.getElementById("serverRolesList");
+  if (!list) return;
+  list.innerHTML = '<div class="server-roles-empty">Loading roles…</div>';
+  const { data, error } = await supabaseClient
+    .from("server_roles")
+    .select("id, server_id, role, name, color, permissions, description")
+    .eq("server_id", serverId)
+    .order("name", { ascending: true });
+  if (error) {
+    list.innerHTML = `<div class="server-roles-empty">Failed to load roles: ${escapeHTML(error.message)}</div>`;
+    return;
+  }
+  serverRolesCache = data || [];
+  renderServerRolesList();
+}
+
+function renderServerRolesList() {
+  const list = document.getElementById("serverRolesList");
+  if (!list) return;
+  if (!serverRolesCache.length) {
+    list.innerHTML = '<div class="server-roles-empty">No roles yet. Click "+ New Role" to create one.</div>';
+    return;
+  }
+  list.innerHTML = "";
+  serverRolesCache.forEach((role) => {
+    const row = document.createElement("div");
+    row.className = "server-role-row" + (role.id === editingRoleId ? " selected" : "");
+    const name = role.name || role.role || "Role";
+    row.innerHTML = `
+      <span class="server-role-swatch" style="background:${escapeHTML(role.color || "#5865f2")};"></span>
+      <span class="server-role-row-name">${escapeHTML(name)}</span>
+    `;
+    row.addEventListener("click", () => openRoleEditor(role.id));
+    list.appendChild(row);
+  });
+}
+
+function openRoleEditor(roleId) {
+  const role = serverRolesCache.find((r) => r.id === roleId);
+  if (!role) return;
+  editingRoleId = roleId;
+  _isCreatingNewRole = false;
+  setServerRolesError("");
+  const editor = document.getElementById("serverRolesEditor");
+  editor.style.display = "flex";
+  document.getElementById("serverRoleNameInput").value = role.name || role.role || "";
+  document.getElementById("serverRoleColorInput").value = normalizeHexColor(role.color) || "#5865f2";
+  renderRolePermissionToggles(role.permissions || {});
+  document.getElementById("deleteServerRoleBtn").style.display = "inline-block";
+  renderServerRolesList();
+}
+
+function startNewRole() {
+  editingRoleId = null;
+  _isCreatingNewRole = true;
+  setServerRolesError("");
+  const editor = document.getElementById("serverRolesEditor");
+  editor.style.display = "flex";
+  document.getElementById("serverRoleNameInput").value = "";
+  document.getElementById("serverRoleColorInput").value = "#5865f2";
+  renderRolePermissionToggles({});
+  document.getElementById("deleteServerRoleBtn").style.display = "none";
+  renderServerRolesList();
+}
+
+function renderRolePermissionToggles(perms) {
+  const container = document.getElementById("serverRolePermissionsList");
+  if (!container) return;
+  container.innerHTML = "";
+  ROLE_PERMISSION_DEFS.forEach((def) => {
+    const row = document.createElement("label");
+    row.className = "server-role-permission-row";
+    row.innerHTML = `
+      <span class="server-role-permission-info">
+        <span class="server-role-permission-title">${escapeHTML(def.title)}</span>
+        <span class="server-role-permission-desc">${escapeHTML(def.desc)}</span>
+      </span>
+      <span class="server-role-permission-toggle">
+        <input type="checkbox" data-perm-key="${escapeHTML(def.key)}" ${perms[def.key] ? "checked" : ""} />
+      </span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function collectRolePermissionsFromUI() {
+  const out = {};
+  document.querySelectorAll("#serverRolePermissionsList input[data-perm-key]").forEach((inp) => {
+    out[inp.dataset.permKey] = !!inp.checked;
+  });
+  return out;
+}
+
+function normalizeHexColor(c) {
+  if (typeof c !== "string") return "";
+  const m = c.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  return m ? "#" + m[1].toLowerCase() : "";
+}
+
+async function saveCurrentRole() {
+  const serverId = currentServerOptionsTargetId;
+  if (!serverId) { setServerRolesError("No server selected."); return; }
+  const name = document.getElementById("serverRoleNameInput").value.trim();
+  const color = normalizeHexColor(document.getElementById("serverRoleColorInput").value) || "#5865f2";
+  const permissions = collectRolePermissionsFromUI();
+  if (!name) { setServerRolesError("Role name can't be empty."); return; }
+
+  try {
+    if (_isCreatingNewRole || !editingRoleId) {
+      const { data, error } = await supabaseClient
+        .from("server_roles")
+        .insert({ server_id: serverId, role: name, name, color, permissions })
+        .select("id, server_id, role, name, color, permissions")
+        .single();
+      if (error) throw error;
+      serverRolesCache.push(data);
+      editingRoleId = data.id;
+      _isCreatingNewRole = false;
+    } else {
+      const { error } = await supabaseClient
+        .from("server_roles")
+        .update({ name, role: name, color, permissions })
+        .eq("id", editingRoleId);
+      if (error) throw error;
+      const cached = serverRolesCache.find((r) => r.id === editingRoleId);
+      if (cached) { cached.name = name; cached.role = name; cached.color = color; cached.permissions = permissions; }
+    }
+    renderServerRolesList();
+    setServerRolesError("");
+    if (typeof showToast === "function") showToast("✅ Role saved.");
+    else alert("✅ Role saved.");
+    // Refresh the current user's permissions in case their own role changed.
+    if (serverId === currentServerId) await refreshServerRole();
+  } catch (err) {
+    console.error("saveCurrentRole failed", err);
+    setServerRolesError("Save failed: " + err.message);
+  }
+}
+
+async function deleteCurrentRole() {
+  if (!editingRoleId) return;
+  const role = serverRolesCache.find((r) => r.id === editingRoleId);
+  if (!role) return;
+  if (!confirm(`Delete the role "${role.name || role.role}"? Members with this role will fall back to "User".`)) return;
+  try {
+    // Drop role assignments first so we don't leave dangling FK references.
+    await supabaseClient
+      .from("server_member_roles")
+      .delete()
+      .eq("role_id", editingRoleId);
+    await supabaseClient
+      .from("server_members")
+      .update({ primary_role_id: null, role: "User" })
+      .eq("primary_role_id", editingRoleId);
+    const { error } = await supabaseClient
+      .from("server_roles")
+      .delete()
+      .eq("id", editingRoleId);
+    if (error) throw error;
+    serverRolesCache = serverRolesCache.filter((r) => r.id !== editingRoleId);
+    editingRoleId = null;
+    document.getElementById("serverRolesEditor").style.display = "none";
+    renderServerRolesList();
+    if (typeof showToast === "function") showToast("🗑️ Role deleted.");
+    if (currentServerOptionsTargetId === currentServerId) await refreshServerRole();
+  } catch (err) {
+    console.error("deleteCurrentRole failed", err);
+    setServerRolesError("Delete failed: " + err.message);
+  }
+}
+
+(function wireServerRolesModal() {
+  const modal = document.getElementById("serverRolesModal");
+  if (!modal) return;
+  document.getElementById("closeServerRolesModal").addEventListener("click", closeServerRolesModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeServerRolesModal(); });
+  document.getElementById("createServerRoleBtn").addEventListener("click", startNewRole);
+  document.getElementById("saveServerRoleBtn").addEventListener("click", saveCurrentRole);
+  document.getElementById("deleteServerRoleBtn").addEventListener("click", deleteCurrentRole);
+})();
 
 // --- Click Handlers for Usernames ---
 // Add this to your existing click handlers for usernames in messages/member list
@@ -10044,14 +10345,29 @@ async function unlinkOAuthIdentity(provider) {
     return;
   }
 
-  // 3. Unlink the identity using Supabase admin API
-  const { error } = await supabaseClient.auth.admin.unlinkIdentity(user.id, identity.id);
+  // 3. Unlink the identity using the user-facing Supabase API.
+  //    (The previous `auth.admin.unlinkIdentity` requires a service role key
+  //    and silently fails from a browser, which is why unlinking never worked.)
+  let unlinkError = null;
+  try {
+    if (typeof supabaseClient.auth.unlinkIdentity === "function") {
+      const { error } = await supabaseClient.auth.unlinkIdentity(identity);
+      unlinkError = error || null;
+    } else {
+      unlinkError = new Error("Your Supabase client is too old to support unlinkIdentity. Please update it.");
+    }
+  } catch (err) {
+    unlinkError = err;
+  }
 
-  if (error) {
-    console.error("❌ Unlink Error:", error);
-    showLinkStatus(`❌ Failed to unlink ${provider}: ${error.message}`, "error");
+  if (unlinkError) {
+    console.error("❌ Unlink Error:", unlinkError);
+    showLinkStatus(`❌ Failed to unlink ${provider}: ${unlinkError.message || unlinkError}`, "error");
     return;
   }
+
+  // Refresh the auth user so user.identities reflects the new state.
+  try { await supabaseClient.auth.refreshSession(); } catch {}
 
   console.log(`✅ Successfully unlinked ${provider}`);
   showLinkStatus(`✅ ${provider} account unlinked successfully!`, "success");
@@ -10433,13 +10749,11 @@ if (openBtn && closeBtn && modal) {
     return;
   }
 
-  // --- NEW: Restrict /gif command usage ---
-  if (!["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)) {
-    // If they type /gif but aren't allowed, close the picker and alert
+  // --- /gif permission gate (honors per-server "Send GIFs" role permission) ---
+  const _legacyGifAllowed = ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole);
+  if (!(userPermissions.send_gifs || _legacyGifAllowed)) {
     if (isOpen()) close();
-    // Optional: Alert them immediately or just silently ignore
-    // alert("❌ Only Managers and above can use /gif."); 
-    return; 
+    return;
   }
   // -----------------------------------------
 
@@ -11415,7 +11729,9 @@ const BUILTIN_THEMES = [
       "--accent": "#5865f2",
       "--accent-strong": "#7c88ff",
       "--danger": "#ed4245",
-      "--success": "#3ba55d"
+      "--success": "#3ba55d",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   },
   {
@@ -11443,7 +11759,9 @@ const BUILTIN_THEMES = [
       "--accent": "#5865f2",
       "--accent-strong": "#4752c4",
       "--danger": "#d83c3e",
-      "--success": "#248045"
+      "--success": "#248045",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   },
   {
@@ -11471,7 +11789,9 @@ const BUILTIN_THEMES = [
       "--accent": "#5865f2",
       "--accent-strong": "#7c88ff",
       "--danger": "#ff5364",
-      "--success": "#43d17a"
+      "--success": "#43d17a",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   },
   {
@@ -11499,7 +11819,9 @@ const BUILTIN_THEMES = [
       "--accent": "#7c88ff",
       "--accent-strong": "#9aa3ff",
       "--danger": "#ff5b6e",
-      "--success": "#3ddc97"
+      "--success": "#3ddc97",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   },
   {
@@ -11527,7 +11849,9 @@ const BUILTIN_THEMES = [
       "--accent": "#3ba55d",
       "--accent-strong": "#56c47b",
       "--danger": "#ed4245",
-      "--success": "#3ba55d"
+      "--success": "#3ba55d",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   },
   {
@@ -11555,7 +11879,9 @@ const BUILTIN_THEMES = [
       "--accent": "#e25b8a",
       "--accent-strong": "#ff7aa6",
       "--danger": "#ed4245",
-      "--success": "#3ba55d"
+      "--success": "#3ba55d",
+      "--warning": "#faa61a",
+      "--text-on-accent": "#ffffff"
     }
   }
 ];
@@ -11587,27 +11913,146 @@ async function loadThemesAndApply() {
   }
 }
 
+// Coerce a theme's css_variables (which may come back from Postgres as a JSON
+// string instead of a parsed object) into a plain object.
+function _normalizeThemeVars(raw) {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw); }
+    catch (err) { console.warn("Bad theme JSON, ignoring:", err.message, raw); return null; }
+  }
+  if (typeof raw === "object") return raw;
+  return null;
+}
+
+// Many themes only define a small core palette (--bg-main, --bg-secondary,
+// --bg-tertiary, --text-main, --accent, etc.). The CSS, however, references
+// a wider set of variables (--bg-modal, --bg-input, --bg-deepest,
+// --surface-border, --warning, --text-on-accent, --body-bg-from/to, ...).
+// If we don't fill those in, the missing vars stay at their dark-Discord
+// defaults and the theme appears to "barely do anything." This expander
+// derives sensible values for every var the CSS uses from whatever the
+// theme actually provides.
+function _expandThemeVariables(vars) {
+  const out = { ...vars };
+  const get = (k) => (typeof out[k] === "string" && out[k]) ? out[k] : null;
+
+  // --- Background ladder (deepest -> elevated) ---
+  const bgMain      = get("--bg-main")      || "#2b2d31";
+  const bgSecondary = get("--bg-secondary") || _shadeColor(bgMain, -10);
+  const bgTertiary  = get("--bg-tertiary")  || _shadeColor(bgMain,  +6);
+  const bgHover     = get("--bg-hover")     || _shadeColor(bgMain, +10);
+  const bgElevated  = get("--bg-elevated")  || _shadeColor(bgMain, +16);
+  const bgDeepest   = get("--bg-deepest")   || _shadeColor(bgSecondary, -20);
+  const bgModal     = get("--bg-modal")     || bgTertiary;
+  const bgInput     = get("--bg-input")     || bgSecondary;
+
+  out["--bg-main"]      = bgMain;
+  out["--bg-secondary"] = bgSecondary;
+  out["--bg-tertiary"]  = bgTertiary;
+  out["--bg-hover"]     = bgHover;
+  out["--bg-elevated"]  = bgElevated;
+  out["--bg-deepest"]   = bgDeepest;
+  out["--bg-modal"]     = bgModal;
+  out["--bg-input"]     = bgInput;
+
+  // --- Body gradient backdrop ---
+  out["--body-bg-from"] = get("--body-bg-from") || _shadeColor(bgMain, -4);
+  out["--body-bg-to"]   = get("--body-bg-to")   || _shadeColor(bgMain, -16);
+
+  // --- Text colors ---
+  const textMain  = get("--text-main")  || "#dbdee1";
+  const textMuted = get("--text-muted") || _mix(textMain, bgMain, 0.45);
+  out["--text-main"]      = textMain;
+  out["--text-muted"]     = textMuted;
+  out["--text-link"]      = get("--text-link")      || get("--accent") || "#00a8fc";
+  out["--text-on-accent"] = get("--text-on-accent") || _bestContrast(get("--accent") || "#5865f2");
+
+  // --- Accent / status colors ---
+  const accent = get("--accent") || "#5865f2";
+  out["--accent"]         = accent;
+  out["--accent-strong"] = get("--accent-strong") || _shadeColor(accent, +12);
+  out["--danger"]         = get("--danger")  || "#ed4245";
+  out["--success"]        = get("--success") || "#3ba55d";
+  out["--warning"]        = get("--warning") || "#faa61a";
+
+  // --- Borders ---
+  // Use a luminance-aware translucent overlay so borders are visible on both
+  // very-dark and light themes.
+  out["--surface-border"] = get("--surface-border")
+    || (_isLight(bgMain) ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.10)");
+
+  return out;
+}
+
+// --- Tiny color helpers (no deps) -------------------------------------
+function _hexToRgb(hex) {
+  if (typeof hex !== "string") return null;
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+}
+function _rgbToHex(r,g,b) {
+  const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return "#" + c(r) + c(g) + c(b);
+}
+function _shadeColor(hex, percent) {
+  const rgb = _hexToRgb(hex);
+  if (!rgb) return hex;
+  const amt = Math.round(2.55 * percent);
+  return _rgbToHex(rgb.r + amt, rgb.g + amt, rgb.b + amt);
+}
+function _mix(hexA, hexB, ratio) {
+  const a = _hexToRgb(hexA), b = _hexToRgb(hexB);
+  if (!a || !b) return hexA;
+  return _rgbToHex(a.r*(1-ratio)+b.r*ratio, a.g*(1-ratio)+b.g*ratio, a.b*(1-ratio)+b.b*ratio);
+}
+function _luminance(hex) {
+  const rgb = _hexToRgb(hex);
+  if (!rgb) return 0.5;
+  const f = (c) => { c /= 255; return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); };
+  return 0.2126*f(rgb.r) + 0.7152*f(rgb.g) + 0.0722*f(rgb.b);
+}
+function _isLight(hex) { return _luminance(hex) > 0.5; }
+function _bestContrast(hex) { return _isLight(hex) ? "#1a1a1a" : "#ffffff"; }
+
 function applyThemeVariables(theme) {
-  if (!theme || !theme.css_variables) return;
+  if (!theme) return;
+  const raw = _normalizeThemeVars(theme.css_variables);
+  if (!raw) return;
+  const vars = _expandThemeVariables(raw);
   const root = document.documentElement;
-  Object.entries(theme.css_variables).forEach(([k, v]) => {
+
+  // Reset any previously-set inline overrides so vars from the *previous*
+  // theme don't bleed through when the new theme omits them.
+  if (root._lastThemeVarKeys && Array.isArray(root._lastThemeVarKeys)) {
+    root._lastThemeVarKeys.forEach((k) => root.style.removeProperty(k));
+  }
+
+  Object.entries(vars).forEach(([k, v]) => {
     if (typeof v === "string") root.style.setProperty(k, v);
   });
-  // Cache locally for instant apply on next load (before DB returns).
-  try { localStorage.setItem("chatThemeVars", JSON.stringify(theme.css_variables)); } catch {}
+  root._lastThemeVarKeys = Object.keys(vars);
+
+  // Cache the parsed (raw) object locally for instant apply on next load —
+  // we re-expand on read so logic changes here apply immediately.
+  try { localStorage.setItem("chatThemeVars", JSON.stringify(raw)); } catch {}
 }
 
 // Restore last theme variables ASAP so first paint isn't a flash.
 (function applyCachedTheme() {
   try {
     const cached = localStorage.getItem("chatThemeVars");
-    if (cached) {
-      const vars = JSON.parse(cached);
-      const root = document.documentElement;
-      Object.entries(vars).forEach(([k, v]) => {
-        if (typeof v === "string") root.style.setProperty(k, v);
-      });
-    }
+    if (!cached) return;
+    const raw = JSON.parse(cached);
+    if (!raw || typeof raw !== "object") return;
+    const vars = (typeof _expandThemeVariables === "function") ? _expandThemeVariables(raw) : raw;
+    const root = document.documentElement;
+    Object.entries(vars).forEach(([k, v]) => {
+      if (typeof v === "string") root.style.setProperty(k, v);
+    });
+    root._lastThemeVarKeys = Object.keys(vars);
   } catch {}
 })();
 
@@ -11638,7 +12083,7 @@ function renderThemeList() {
     if (theme.id === currentThemeId || (!currentThemeId && theme.is_default)) {
       card.classList.add("selected");
     }
-    const v = theme.css_variables || {};
+    const v = _normalizeThemeVars(theme.css_variables) || {};
     const p1 = v["--accent"] || "#5865f2";
     const p2 = v["--accent-strong"] || v["--text-link"] || "#00a8fc";
     const bg = v["--bg-main"] || "#2b2d31";

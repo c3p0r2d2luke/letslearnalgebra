@@ -32,7 +32,7 @@
      style="
        position: fixed;
        inset: 0;
-       background: #1e1f22;
+       background: var(--bg-secondary);
        display: flex;
        flex-direction: column;
        align-items: center;
@@ -200,7 +200,7 @@
             <span class="avatar-fallback" style="font-size: 14px;">?</span>
             <span id="profileBtnPresenceDot" class="presence-dot" data-status="online" title="Status: online"></span>
           </button>
-          <button id="selfMuteBtn" class="user-panel-icon" type="button" title="Mute yourself" aria-label="Mute yourself" aria-pressed="false">🎤</button>
+          <button id="selfMuteBtn" class="user-panel-icon" type="button" title="Mute yourself" aria-label="Mute yourself" aria-pressed="false" style="display:none;">🎤</button>
           <button id="openSettingsBtn" class="user-panel-icon" type="button" title="User Settings" aria-label="User Settings">⚙️</button>
         </div>
         <input type="file" id="avatarInput" style="display:none;" accept="image/*" />
@@ -347,13 +347,13 @@
 </div>
 
 <!-- MESSAGE RIGHT-CLICK CONTEXT MENU -->
-<div id="adminMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:200px;"></div>
+<div id="adminMenu" style="display:none; position:fixed; background:var(--bg-tertiary); border:1px solid var(--bg-elevated); padding:4px; z-index:9999; min-width:200px;"></div>
 
 <!-- CHANNEL RIGHT-CLICK CONTEXT MENU (admin only) -->
-<div id="channelMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:160px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
+<div id="channelMenu" style="display:none; position:fixed; background:var(--bg-tertiary); border:1px solid var(--bg-elevated); padding:4px; z-index:9999; min-width:160px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
 
 <!-- MEMBER RIGHT-CLICK CONTEXT MENU -->
-<div id="memberMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:200px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
+<div id="memberMenu" style="display:none; position:fixed; background:var(--bg-tertiary); border:1px solid var(--bg-elevated); padding:4px; z-index:9999; min-width:200px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
 
 <!-- EMOJI PICKER (built dynamically by script.js) -->
 <div id="emojiPicker" style="display:none;"></div>
@@ -361,8 +361,8 @@
 <div id="categoryMenu" style="
   display:none;
   position:fixed;
-  background:#2f3136;
-  border:1px solid #444;
+  background:var(--bg-tertiary);
+  border:1px solid var(--bg-elevated);
   padding:6px;
   z-index:9999;
   border-radius:6px;
@@ -370,7 +370,7 @@
 "></div>
 
 <!-- SERVER RIGHT-CLICK CONTEXT MENU -->
-<div id="serverMenu" style="display:none; position:fixed; background:#2f3136; border:1px solid #444; padding:4px; z-index:9999; min-width:180px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
+<div id="serverMenu" style="display:none; position:fixed; background:var(--bg-tertiary); border:1px solid var(--bg-elevated); padding:4px; z-index:9999; min-width:180px; border-radius:4px; box-shadow:0 8px 24px rgba(0,0,0,0.8);"></div>
 
 <!-- Manage Invites Modal -->
 <div id="manageInvitesModal" class="modal-overlay" style="display:none;">
@@ -426,6 +426,16 @@
     <h3>Server Options</h3>
     <p class="modal-sub" id="serverOptionsSubtitle">Manage feature toggles for this server.</p>
 
+    <div class="server-roles-header" style="margin-bottom:12px;">
+      <div>
+        <div class="server-option-title">Roles &amp; Permissions</div>
+        <div class="server-option-description">Create custom roles and pick what each one can do.</div>
+      </div>
+      <button id="openServerRolesBtn" class="modal-btn" type="button">Manage Roles</button>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--surface-border);margin:0 0 16px;">
+
     <div class="server-options-list">
       <label class="server-option-row">
         <div class="server-option-copy">
@@ -475,11 +485,48 @@
     <label class="modal-label" for="serverOptionWordList">Filtered Words</label>
     <textarea id="serverOptionWordList" class="modal-input server-options-textarea" placeholder="comma, separated, words"></textarea>
     <p class="modal-sub server-options-hint">Comma-separated words. The filter also catches common obfuscations like symbols, dropped vowels, and simple misspellings.</p>
+
     <p class="modal-error" id="serverOptionsError" style="display:none;"></p>
 
     <div class="profile-action-row">
       <button id="saveServerOptionsBtn" class="modal-btn">Save Changes</button>
       <button id="cancelServerOptionsBtn" class="modal-btn modal-btn-secondary">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SERVER ROLES MODAL -->
+<div id="serverRolesModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box server-roles-modal-box">
+    <button class="modal-close" id="closeServerRolesModal">✕</button>
+    <h3>Server Roles</h3>
+    <p class="modal-sub" id="serverRolesSubtitle">Pick a role on the left to edit it, or create a new one.</p>
+
+    <div class="server-roles-layout">
+      <div class="server-roles-sidebar">
+        <button id="createServerRoleBtn" class="modal-btn" type="button">+ New Role</button>
+        <div id="serverRolesList" class="server-roles-list">
+          <div class="server-roles-empty">Loading roles…</div>
+        </div>
+      </div>
+
+      <div class="server-roles-editor" id="serverRolesEditor" style="display:none;">
+        <label class="modal-label" for="serverRoleNameInput">Role Name</label>
+        <input id="serverRoleNameInput" class="modal-input" type="text" placeholder="e.g. Trusted Member" />
+
+        <label class="modal-label" for="serverRoleColorInput">Color</label>
+        <input id="serverRoleColorInput" class="modal-input server-role-color-input" type="color" value="#5865f2" />
+
+        <div class="modal-label" style="margin-top:14px;">Permissions</div>
+        <div id="serverRolePermissionsList" class="server-role-permissions-list"></div>
+
+        <p class="modal-error" id="serverRolesError" style="display:none;"></p>
+
+        <div class="profile-action-row" style="margin-top:14px;">
+          <button id="saveServerRoleBtn" class="modal-btn" type="button">Save Role</button>
+          <button id="deleteServerRoleBtn" class="modal-btn modal-btn-danger" type="button">Delete Role</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
