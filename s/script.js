@@ -4004,15 +4004,10 @@ async function waitForImagesBeforeScroll(container = messagesList, timeoutMs = 2
 async function loadUser() {
   console.log("🚀 loadUser() STARTED");
 
-  // 1. Get username from LocalStorage (Set by handleAuthSuccess or Session Restore)
   const storedName = localStorage.getItem("chatUsername");
 
   if (!storedName) {
-    // This should ONLY happen if the user is NOT logged in (no session)
-    // But if we are here, it means the session check passed but localStorage is missing.
-    // This implies a bug in handleAuthSuccess or the session restore.
     console.error("⚠️ No username found in localStorage despite being authenticated.");
-    // Force logout to be safe
     await supabaseClient.auth.signOut();
     location.reload();
     return;
@@ -4021,24 +4016,24 @@ async function loadUser() {
   username = storedName;
   console.log("📝 Loaded username:", username);
 
-  // 2. Set up UI for logged-in user
   nameInput.value = username;
-  // HIDE the name prompt if it exists (it shouldn't be visible anyway)
   if (namePrompt) namePrompt.style.display = "none";
 
   const controls = document.getElementById("controls");
   if (controls) controls.classList.add("visible");
 
-  input.disabled = false;
-  button.disabled = false;
+  const input = document.getElementById("messageInput");
+  const button = document.getElementById("sendButton");
+  if (input) input.disabled = false;
+  if (button) button.disabled = false;
   updateProfileButton();
 
-  // 3. Fetch sys role, blocked, and muted status from DB (new schema uses boolean flags)
   try {
     console.log("📡 Fetching user data from users table for:", username);
+    // SCHEMA MATCH: Select 'system_role', 'sys_admin', 'sys_manager', 'muted_until'
     const { data, error } = await supabaseClient
       .from("users")
-      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url, notification_preferences, profile_status, profile_description, custom_theme_id")
+      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url, notification_preferences, profile_status, profile_description, custom_theme_id, system_role")
       .eq("username", username)
       .maybeSingle();
 
@@ -4047,12 +4042,12 @@ async function loadUser() {
 
     if (!data) {
       console.warn("⚠️ User record not found in database! Creating one...");
-      // Create user record if it doesn't exist
       const authId = (await supabaseClient.auth.getUser())?.data?.user?.id;
       if (authId) {
         await supabaseClient.from("users").insert({
           username,
           auth_id: authId,
+          system_role: "User",
           sys_admin: false,
           sys_manager: false
         });
@@ -4060,13 +4055,12 @@ async function loadUser() {
       }
     }
 
-    // Block/mute are per-server now and loaded in switchServer() via
-    // refreshOwnServerMemberStatus(); start each session unblocked.
-    isBlocked = false;
+    isBlocked = false; // Reset per-server block state
     mutedUntil = null;
-    // Global mute (sysadmin imposed) — applies everywhere.
+    
+    // SCHEMA MATCH: Read 'muted_until' (global mute)
     globalMutedUntil = data?.muted_until || null;
-    // Stash profile / preference data for the settings modal.
+    
     currentNotificationPrefs = Object.assign(
       { mentions: true, replies: true, all_messages: false },
       data?.notification_preferences || {}
@@ -4075,9 +4069,10 @@ async function loadUser() {
     currentBio = data?.profile_description || "";
     currentThemeId = data?.custom_theme_id || null;
     setAvatarUrl(username, data?.avatar_url || "");
-    // Apply saved theme if any.
+    
     loadThemesAndApply().catch(err => console.warn("Theme load failed:", err));
 
+    // SCHEMA MATCH: Determine System Role from Booleans
     if (data?.sys_admin) {
       currentSystemRole = "SysAdmin";
       console.log("👑 User is SysAdmin!");
@@ -4089,30 +4084,33 @@ async function loadUser() {
       console.log("👤 User is regular User");
     }
 
+    // SCHEMA MATCH: Determine Server Role from 'system_role' text
+    currentRole = normalizeServerRole(data?.system_role || "User");
+
     localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
     localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
+    localStorage.setItem("chatRole", currentRole);
+    
     console.log("🔐 System role set to:", currentSystemRole);
+    console.log("🔐 Server role set to:", currentRole);
+
   } catch (err) {
     console.error("❌ Error fetching user data:", err);
   }
 
-  // 4. Default per-server permissions until refreshServerRole() runs after switchServer
-  currentRole = "User";
-  loadUserPermissions("user");
+  // Default per-server permissions until refreshServerRole() runs
+  loadUserPermissions(currentRole);
 
-  // 6. Initialize Realtime & Typing
   initRealtime();
   subscribeToTyping();
   subscribeToServerMemberships();
   subscribeToDirectMessages();
 
-  // 7. Load Servers (This triggers switchServer -> refreshServerRole -> loadChannels)
   initServerModals();
   await loadDirectConversations();
   await loadServers();
   await checkInviteOnLoad();
 
-  // 8. Initialize Other Listeners
   watchForceLogout(username);
   subscribeToUserStatus();
   applyMuteBlockUI();
@@ -4130,9 +4128,10 @@ async function saveName() {
   localStorage.setItem("chatUsername", name);
 
   try {
+    // 1. Check if user exists
     const { data: existingUser, error: checkError } = await supabaseClient
       .from("users")
-      .select("role")
+      .select("system_role, sys_admin, sys_manager")
       .eq("username", name)
       .maybeSingle();
 
@@ -4140,35 +4139,60 @@ async function saveName() {
       console.error("Check error:", checkError);
     }
 
+    // 2. Upsert user (create if missing)
+    // SCHEMA MATCH: Use 'system_role' (text) and 'sys_admin'/'sys_manager' (bool)
     const { data, error } = await supabaseClient
       .from("users")
       .upsert({
-        username: name
+        username: name,
+        // Preserve existing roles if they exist, otherwise default to 'User'
+        system_role: existingUser?.system_role || "User",
+        sys_admin: existingUser?.sys_admin || false,
+        sys_manager: existingUser?.sys_manager || false
       }, {
         onConflict: ["username"]
       })
-      .select("system_role");
+      .select("system_role, sys_admin, sys_manager");
 
     if (error) {
       console.error("Failed to save user:", error);
       currentRole = "User";
+      currentSystemRole = "User";
     } else {
+      // SCHEMA MATCH: Read 'system_role' for currentRole
       currentRole = normalizeServerRole(data?.[0]?.system_role || "User");
+      
+      // SCHEMA MATCH: Read booleans for currentSystemRole
+      if (data?.[0]?.sys_admin) {
+        currentSystemRole = "SysAdmin";
+      } else if (data?.[0]?.sys_manager) {
+        currentSystemRole = "SysManager";
+      } else {
+        currentSystemRole = "User";
+      }
     }
 
     localStorage.setItem("chatRole", currentRole);
+    localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
+    localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
 
   } catch (err) {
     console.error("Exception saving user:", err);
     currentRole = "User";
+    currentSystemRole = "User";
     localStorage.setItem("chatRole", "User");
+    localStorage.setItem("chatSysAdmin", "false");
+    localStorage.setItem("chatSysManager", "false");
   }
 
   namePrompt.style.display = "none";
   const controls = document.getElementById("controls");
-  controls.classList.add("visible");
-  input.disabled = false;
-  button.disabled = false;
+  if (controls) controls.classList.add("visible");
+  
+  const input = document.getElementById("messageInput");
+  const button = document.getElementById("sendButton");
+  if (input) input.disabled = false;
+  if (button) button.disabled = false;
 
   loadMessages();
   initRealtime();
@@ -8962,11 +8986,14 @@ function showServerContextMenu(x, y, serverId) {
 }
 
 async function updateServerSettingValues(serverId, values = {}) {
+  // SCHEMA MATCH: Update 'server_settings' table
   const { error } = await supabaseClient
     .from("server_settings")
     .upsert({ server_id: serverId, ...values }, { onConflict: "server_id" });
+    
   if (error) throw error;
 
+  // Update local cache
   serverSettingsCache.set(serverId, {
     ...getEffectiveServerSettings(serverId),
     ...values
@@ -9307,7 +9334,6 @@ async function changeName(targetUser) {
   }
 
   // 1. Permission Check
-  // Only SysAdmins, Server Owners, or Users with manage_roles can change names
   const isOwner = isServerOwner();
   const isAdmin = currentSystemRole === "SysAdmin" || currentSystemRole === "SysManager";
   const hasManageRoles = userPermissions.manage_roles;
@@ -9322,9 +9348,7 @@ async function changeName(targetUser) {
   const currentDisplayName = member?.profile_display_name || "";
   const actualName = targetUser;
 
-  // 3. Ask which name to use — actual username or a custom display name.
-  //    OK  → set a custom display name (nickname)
-  //    Cancel → revert to actual username (clears any nickname)
+  // 3. Ask which name to use
   const useCustom = confirm(
     `Change name for "${actualName}"\n\n` +
     `Actual name: ${actualName}\n` +
@@ -9333,43 +9357,114 @@ async function changeName(targetUser) {
     `Click Cancel to use their actual name (${actualName}) instead.`
   );
 
-  let trimmedName = null; // null means "use actual name (clear nickname)"
+  let trimmedName = null; 
+  let isNicknameChange = false;
 
   if (useCustom) {
-    const newName = prompt(
+    const newNameInput = prompt(
       `Custom display name for ${actualName}:`,
       currentDisplayName || actualName
     );
-    if (newName === null) return; // user backed out
-    const cleaned = newName.trim();
+    
+    if (newNameInput === null) return; 
+    
+    const cleaned = newNameInput.trim();
+    
     if (!cleaned) {
       alert("❌ Name cannot be empty. (Pick Cancel on the first dialog to use the actual name.)");
       return;
     }
+    
     if (cleaned === actualName) {
-      // Same as actual — treat as a clear so we don't store redundant data.
       trimmedName = null;
     } else {
       trimmedName = cleaned;
+      isNicknameChange = true; // Flag: This is just a nickname change
     }
   }
 
   // 4. Update Database
   try {
-    const { error } = await supabase
-  .from("users")
-  .update({
-    display_name: newName
-  })
-  .eq("auth_id", currentUser.id);
+    // A. Update the Server Member Profile (Nickname)
+    // This ALWAYS happens if a nickname is set
+    if (trimmedName !== null) {
+      const { error: profileError } = await supabaseClient
+        .from("server_members")
+        .update({ 
+          profile_display_name: trimmedName 
+        })
+        .eq("server_id", currentServerId)
+        .eq("username", targetUser);
 
-if (error) {
-  console.error(error);
-  alert("Failed to update display name.");
-}
+      if (profileError) {
+        console.error("Profile Update Error:", profileError);
+        throw profileError;
+      }
+    }
 
-    // 5. Update Local State
+    // B. 🚀 CRITICAL: Update Messages ONLY if we are changing the REAL USERNAME
+    // If it's just a nickname, we DO NOT update the 'username' column in messages
+    // because the FK constraint requires the username to exist in the 'users' table.
+    if (!isNicknameChange && trimmedName !== null) {
+      // This path implies we are changing the ACTUAL username (e.g., "OldName" -> "NewName")
+      // 1. First, update the 'users' table to ensure the new name exists
+      const { error: userUpdateError } = await supabaseClient
+        .from("users")
+        .update({ username: trimmedName })
+        .eq("username", targetUser);
+
+      if (userUpdateError) {
+        console.error("User Table Update Error:", userUpdateError);
+        throw userUpdateError;
+      }
+
+      // 2. Now update the messages
+      const serverChannelIds = channels
+        .filter(ch => ch.server_id === currentServerId)
+        .map(ch => ch.id);
+
+      if (serverChannelIds.length > 0) {
+        const { error: messageError } = await supabaseClient
+          .from("messages")
+          .update({ username: trimmedName })
+          .in("channel_id", serverChannelIds)
+          .eq("username", targetUser);
+
+        if (messageError) {
+          console.error("Message Update Error:", messageError);
+          throw messageError;
+        }
+      }
+
+      // 3. Update DMs
+      const { data: dmMemberships, error: dmError } = await supabaseClient
+        .from("direct_conversation_members")
+        .select("conversation_id")
+        .eq("username", targetUser);
+
+      if (!dmError && dmMemberships && dmMemberships.length > 0) {
+        const conversationIds = dmMemberships.map(m => m.conversation_id);
+        const { error: dmMessageError } = await supabaseClient
+          .from("dm_messages")
+          .update({ username: trimmedName })
+          .in("conversation_id", conversationIds)
+          .eq("username", targetUser);
+
+        if (dmMessageError) {
+          console.error("DM Message Update Error:", dmMessageError);
+          // Non-fatal, but log it
+        }
+      }
+      
+      // 4. Update the targetUser variable for the rest of the function
+      // (Now that the username has changed, we refer to the new name)
+      // Note: In a real app, you might need to reload the user object here.
+    }
+
+    // 5. Update Local State (Frontend Cache)
     if (member) {
+      // If it's a nickname, update the display name
+      // If it's a real name change, the 'username' in the member object might need updating too
       member.profile_display_name = trimmedName || "";
       setServerProfileData(currentServerId, targetUser, {
         ...getServerProfileData(currentServerId, targetUser),
@@ -9384,14 +9479,18 @@ if (error) {
     }
 
     if (trimmedName) {
-      alert(`✅ ${actualName} will now be shown as "${trimmedName}".`);
+      if (isNicknameChange) {
+        alert(`✅ Nickname set to "${trimmedName}".\n(Note: Old messages still show the real username, but the UI will show the nickname.)`);
+      } else {
+        alert(`✅ Username changed to "${trimmedName}".\n🔄 Old messages updated in database.`);
+      }
     } else {
-      alert(`✅ ${actualName} will now be shown by their actual name.`);
+      alert(`✅ Name reset to actual username.`);
     }
 
   } catch (err) {
     console.error("Change name failed:", err);
-    alert("❌ Failed to update name: " + err.message);
+    alert("❌ Failed to update name: " + (err.message || "Unknown error"));
   }
 }
 
