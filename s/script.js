@@ -1118,7 +1118,7 @@ async function loadAvatarMapForUsernames(usernames) {
 
   const { data, error } = await supabaseClient
     .from("users")
-    .select("username, avatar_url")
+    .select("username, display_name, avatar_url")
     .in("username", missing);
   if (error) {
     console.warn("⚠️ Failed to load avatars:", error.message);
@@ -1439,7 +1439,7 @@ async function getMentionCandidates() {
     return serverMembers
       .filter(member => member?.username)
       .map(member => ({
-        username: member.username,
+        username: getDisplayName(member),
         role: member.role || "Member"
       }));
   }
@@ -1458,7 +1458,7 @@ async function getMentionCandidates() {
   return (data || [])
     .filter(member => member?.username)
     .map(member => ({
-      username: member.username,
+      username: getDisplayName(member),
       role: member.role || "Member"
     }));
 }
@@ -1826,7 +1826,7 @@ function subscribeToGlobalMentions() {
       { event: "INSERT", schema: "public", table: "messages" },
       async (payload) => {
         const message = payload.new;
-        if (!message || message.username === username) return;
+        if (!message || getDisplayName(message) === username) return;
         if (!messageMentionsUser(message.content, username)) return;
 
         let serverId = channelServerMap.get(Number(message.channel_id));
@@ -2252,6 +2252,19 @@ let currentSystemRole = localStorage.getItem("chatSysAdmin") === "true"
     : "User";
 let userPermissions = {};
 
+function getDisplayName(user) {
+  if (!user) return "Unknown User";
+  return (
+    user.display_name ||
+    user.profile_display_name ||
+    user.users?.display_name ||
+    getDisplayName(user) ||
+    "Unknown User"
+  );
+}
+
+
+
 function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
   switch (name) {
@@ -2675,7 +2688,7 @@ async function loadDirectConversations() {
     (members || []).forEach((member) => {
       const key = member.conversation_id;
       if (!membersByConversation.has(key)) membersByConversation.set(key, []);
-      membersByConversation.get(key).push(member.username);
+      membersByConversation.get(key).push(getDisplayName(member));
     });
 
     const lastMessageByConversation = new Map();
@@ -3384,7 +3397,6 @@ async function setMemberServerRole(targetMember, nextRole) {
     .maybeSingle();
 
   const updateData = {
-    role: cleanedRole,
     primary_role_id: roleRow?.id || null
   };
 
@@ -5951,7 +5963,7 @@ async function promote(author) {
 
     const { error: updateError } = await supabaseClient
       .from("server_members")
-      .update({ role: trimmedRole })
+      .update({})
       .eq("server_id", currentServerId)
       .eq("username", author);
 
@@ -7360,7 +7372,7 @@ async function giveCustomRole(targetUser) {
 
   const { error } = await supabaseClient
     .from("server_members")
-    .update({ role: roleName })
+    .update({ primary_role_id: roleRow?.id || null })
     .eq("server_id", currentServerId)
     .eq("username", targetUser);
 
@@ -7730,7 +7742,7 @@ async function loadServerMembers() {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const { data: page, error: pageError } = await supabaseClient
         .from("server_members")
-        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
+        .select("id, server_id, username, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
         .eq("server_id", currentServerId)
         .order("sort_order", { ascending: true })
         .order("username", { ascending: true })
@@ -7748,7 +7760,7 @@ async function loadServerMembers() {
     if (!membersError && members.length === 0) {
       const { data: fallbackMembers, error: fallbackError } = await supabaseClient
         .from("server_members")
-        .select("id, server_id, username, role, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
+        .select("id, server_id, username, joined_at, sort_order, primary_role_id, profile_display_name, profile_avatar_url")
         .eq("server_id", currentServerId);
       if (fallbackError) {
         membersError = fallbackError;
@@ -7816,7 +7828,7 @@ async function loadServerMembers() {
         role_color: effectiveRoleId ? roleColorById.get(effectiveRoleId) : null
       };
     });
-    await loadAvatarMapForUsernames(serverMembers.map(member => member.username));
+    await loadAvatarMapForUsernames(serverMembers.map(member => getDisplayName(member)));
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
     await loadMemberPresence();
@@ -8202,7 +8214,6 @@ async function joinServer(codeOrUrl) {
     const { error: joinErr } = await supabaseClient.from("server_members").insert({
       server_id: invite.server_id,
       username,
-      role: "User",
       primary_role_id: null
     });
     if (joinErr) return "❌ Failed to join: " + joinErr.message;
@@ -8318,13 +8329,12 @@ async function createServer(name, slug) {
   if (existingMember?.id) {
     await supabaseClient
       .from("server_members")
-      .update({ role: "Admin", primary_role_id: null })
+      .update({ primary_role_id: null })
       .eq("id", existingMember.id);
   } else {
     await supabaseClient.from("server_members").insert({
       server_id: newServer.id,
       username,
-      role: "Admin",
       primary_role_id: null
     });
   }
@@ -8569,7 +8579,7 @@ async function ensureSysAdminInServer(serverId) {
       if (existingMember.role !== "Admin") {
         const { error: updateError } = await supabaseClient
           .from("server_members")
-          .update({ role: "Admin" })
+          .update({})
           .eq("id", existingMember.id);
 
         if (updateError) throw updateError;
@@ -9344,13 +9354,17 @@ async function changeName(targetUser) {
 
   // 4. Update Database
   try {
-    const { error } = await supabaseClient
-      .from("server_members")
-      .update({ profile_display_name: trimmedName })
-      .eq("server_id", currentServerId)
-      .eq("username", targetUser);
+    const { error } = await supabase
+  .from("users")
+  .update({
+    display_name: newName
+  })
+  .eq("auth_id", currentUser.id);
 
-    if (error) throw error;
+if (error) {
+  console.error(error);
+  alert("Failed to update display name.");
+}
 
     // 5. Update Local State
     if (member) {
@@ -10188,7 +10202,7 @@ async function deleteCurrentRole() {
       .eq("role_id", editingRoleId);
     await supabaseClient
       .from("server_members")
-      .update({ primary_role_id: null, role: "User" })
+      .update({ primary_role_id: null })
       .eq("primary_role_id", editingRoleId);
     const { error } = await supabaseClient
       .from("server_roles")
@@ -12889,3 +12903,35 @@ async function saveChannelPermsModal() {
     init();
   }
 })();
+
+async function getMemberPermissions(serverId, memberId) {
+  const { data: roleLinks, error } = await supabase
+    .from("server_member_roles")
+    .select(`
+      role_id,
+      server_roles (
+        permissions
+      )
+    `)
+    .eq("server_id", serverId)
+    .eq("member_id", memberId);
+
+  if (error) {
+    console.error(error);
+    return {};
+  }
+
+  const finalPerms = {};
+
+  for (const link of roleLinks || []) {
+    const perms = link.server_roles?.permissions || {};
+
+    for (const key in perms) {
+      if (perms[key] === true) {
+        finalPerms[key] = true;
+      }
+    }
+  }
+
+  return finalPerms;
+}
