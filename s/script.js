@@ -39,7 +39,7 @@
  * as bootstrapAuth() (or any failure path) calls hideLoader(), it fades out.
  */
 
-/*-------------Debugging trick to make console logs into alerts*/
+/*-------------Debugging trick to make console logs into alerts
 async function catchConsoleLogsAsAlerts() {
   const methods = ["log", "warn", "error", "info", "debug"];
 
@@ -65,7 +65,7 @@ async function catchConsoleLogsAsAlerts() {
   });
 }
 
-catchConsoleLogsAsAlerts();
+catchConsoleLogsAsAlerts();*/
 
 let _loaderHidden = false;
 
@@ -2285,11 +2285,12 @@ let userPermissions = {};
 
 function getDisplayName(user) {
   if (!user) return "Unknown User";
+
   return (
     user.display_name ||
     user.profile_display_name ||
     user.users?.display_name ||
-    getDisplayName(user) ||
+    user.username ||
     "Unknown User"
   );
 }
@@ -2716,11 +2717,15 @@ async function loadDirectConversations() {
     if (messagesError) throw messagesError;
 
     const membersByConversation = new Map();
-    (members || []).forEach((member) => {
-      const key = member.conversation_id;
-      if (!membersByConversation.has(key)) membersByConversation.set(key, []);
-      membersByConversation.get(key).push(getDisplayName(member));
-    });
+(members || []).forEach((member) => {
+  const key = member.conversation_id;
+  if (!membersByConversation.has(key)) membersByConversation.set(key, []);
+
+  membersByConversation.get(key).push({
+    username: member.username,
+    displayName: getDisplayName(member)
+  });
+});
 
     const lastMessageByConversation = new Map();
     (messages || []).forEach((message) => {
@@ -2730,8 +2735,14 @@ async function loadDirectConversations() {
     });
 
     directConversations = (memberships || []).map((membership) => {
-      const participants = membersByConversation.get(membership.conversation_id) || [];
-      const otherUsername = participants.find((participant) => participant && participant !== username) || "Unknown";
+      const participants =
+  membersByConversation.get(membership.conversation_id) || [];
+
+const otherUser =
+  participants.find((participant) => participant.username !== username);
+
+const otherUsername =
+  otherUser?.displayName || otherUser?.username || "Unknown";
       const lastMessage = lastMessageByConversation.get(membership.conversation_id);
       return {
         id: membership.conversation_id,
