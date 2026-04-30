@@ -11015,6 +11015,7 @@ let voiceSignalingSub = null; // To track the subscription
 let voiceParticipantState = new Map();
 let voiceRoomSub = null; // realtime sub for voice_room_participants
 let voiceOutputVolume = 1.0; // 0..1 — applied to all incoming audio elements
+let selfDeafened = false;
 
 function getVoiceParticipantBadges(state) {
   const badges = [];
@@ -11388,106 +11389,153 @@ async function initiateConnection(targetUsername, channelId) {
 // --- JOIN VOICE CHANNEL ---
 async function joinVoiceChannel(channelId) {
   const channel = channels.find(c => c.id === channelId);
+  
+  // 1. Validation
   if (!channel || channel.channel_type !== 'voice') {
-    console.error("❌ Not a voice channel");
+    console.error("❌ Cannot join: Not a voice channel");
+    alert("❌ This is not a voice channel.");
     return;
   }
 
-  // 🔥 If already in a different voice channel, leave it first
+  // 2. Leave current channel if in a different one
   if (currentVoiceChannelId && currentVoiceChannelId !== channelId) {
     leaveVoiceChannel();
   }
 
   try {
-    // 1. Get local audio stream
+    // 3. Request Microphone Access
     console.log("🎤 Requesting microphone access...");
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log("✅ Microphone access granted.");
 
-    // 2. Record presence in DB (upsert in case a stale row exists)
-    await supabaseClient
-      .from("voice_room_participants")
-      .delete()
-      .eq("channel_id", channelId)
-      .eq("username", username);
-    await supabaseClient
-      .from("voice_room_participants")
-      .insert({
-        channel_id: channelId,
-        username: username,
-        is_muted: false,
-        is_deafened: false,
-        is_admin_muted: false,
-        is_admin_deafened: false
-      });
+    // 4. Update UI: Hide Text Chat, Show Voice Controls
+    const messagesList = document.getElementById('messages');
+    const controlsBar = document.getElementById('controls');
+    const replyBanner = document.getElementById('replyBanner');
+    const voiceGrid = document.getElementById('voiceParticipantGrid');
+    const voiceBar = document.getElementById('voiceControlBar');
+    const vcStatusChannel = document.getElementById('vcStatusChannel');
+    const currentChannelName = document.getElementById('currentChannelName');
+    const input = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendButton');
 
-    // 3. Update UI - HIDE INPUT BAR, SHOW VOICE CONTROL BAR
-    const controls = document.getElementById("controls");
-    if (controls) controls.style.display = "none";
-    const voiceBar = document.getElementById("voiceControlBar");
-    if (voiceBar) voiceBar.style.display = "flex";
-    const vcChan = document.getElementById("vcStatusChannel");
-    if (vcChan) vcChan.textContent = channel.name;
+    // Hide Text Elements
+    if (messagesList) messagesList.style.display = 'none';
+    if (controlsBar) controlsBar.style.display = 'none';
+    if (replyBanner) replyBanner.style.display = 'none';
 
-    // Also disable inputs just in case
-    const input = document.getElementById("messageInput");
-    const sendBtn = document.getElementById("sendButton");
-    if (input) input.disabled = true;
+    // Show Voice Elements (Use 'flex' to match your CSS)
+    if (voiceGrid) {
+      voiceGrid.style.display = 'flex';
+      voiceGrid.innerHTML = ''; // Clear old participants
+      voiceParticipantState.clear(); // Reset state map
+    }
+    if (voiceBar) voiceBar.style.display = 'flex';
+    
+    // Update Header & Inputs
+    if (vcStatusChannel) vcStatusChannel.textContent = channel.name;
+    if (currentChannelName) {
+      currentChannelName.textContent = `🎤 ${channel.name}`;
+      currentChannelName.style.color = 'var(--success)'; // Optional green tint
+    }
+    if (input) {
+      input.disabled = true;
+      input.value = ''; // Clear input
+    }
     if (sendBtn) sendBtn.disabled = true;
 
-    document.getElementById("currentChannelName").textContent = `🎤 ${channel.name} (Voice)`;
-    currentVoiceChannelId = channelId;
+    // 5. Update Database Presence
+    // NOTE: This will fail if your DB is missing is_muted/is_deafened columns.
+    // We catch this error to give a friendly alert.
+    try {
+      // Delete stale entry first (upsert pattern)
+      await supabaseClient
+        .from("voice_room_participants")
+        .delete()
+        .eq("channel_id", channelId)
+        .eq("username", username);
 
-    // 4. Subscribe to Signaling Channel + voice room participant updates
+      const { error: insertError } = await supabaseClient
+        .from("voice_room_participants")
+        .insert({
+          channel_id: channelId,
+          username: username,
+          is_muted: false,
+          is_deafened: false,
+          is_admin_muted: false,
+          is_admin_deafened: false
+        });
+
+      if (insertError) {
+        console.error("DB Insert Error:", insertError);
+        if (insertError.message.includes("column") && insertError.message.includes("does not exist")) {
+          alert("❌ Database Error: The 'voice_room_participants' table is missing required columns (is_muted, is_deafened, etc.).\n\nPlease run the SQL ALTER TABLE command provided in the previous response.");
+          leaveVoiceChannel();
+          return;
+        }
+        throw insertError;
+      }
+    } catch (dbErr) {
+      console.error("Failed to update DB presence:", dbErr);
+      // Continue anyway? Maybe, but better to stop if DB is broken.
+      // For now, we'll alert and leave.
+      alert("❌ Could not update voice status in database. Check console for details.");
+      leaveVoiceChannel();
+      return;
+    }
+
+    // 6. Set Global State
+    currentVoiceChannelId = channelId;
+    selfMuted = false;
+    selfDeafened = false;
+
+    // 7. Subscribe to Real-time Updates
     subscribeToVoiceSignaling(channelId);
     subscribeToVoiceRoom(channelId);
 
-    // 5. Connect to existing users
+    // 8. Connect to existing users
     await connectToExistingUsers(channelId);
 
-  } catch (err) {
-    console.error("Voice connection failed:", err);
-    alert("Failed to join voice chat: " + err.message);
-    leaveVoiceChannel();
-    return;
-  }
+    // 9. Fetch and Render Existing Participants
+    const { data: participants, error: fetchError } = await supabaseClient
+      .from("voice_room_participants")
+      .select("username, is_muted, is_deafened, is_admin_muted, is_admin_deafened")
+      .eq("channel_id", channelId);
 
-  // Hide text messages
-  document.getElementById('messages').style.display = 'none';
+    if (fetchError) {
+      console.error("❌ Failed to fetch participants:", fetchError);
+      // Fallback: Render self only
+      voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
+      renderVoiceParticipant(username, voiceParticipantState.get(username));
+    } else if (participants) {
+      for (const p of participants) {
+        // Skip self if already handled, or update state
+        if (p.username === username) continue;
 
-  // Show participant grid
-  const grid = document.getElementById('voiceParticipantGrid');
-  grid.style.display = 'flex';
-  grid.innerHTML = '';
-  voiceParticipantState.clear();
+        voiceParticipantState.set(p.username, {
+          is_muted: !!p.is_muted,
+          is_deafened: !!p.is_deafened,
+          is_admin_muted: !!p.is_admin_muted,
+          is_admin_deafened: !!p.is_admin_deafened
+        });
+        renderVoiceParticipant(p.username, voiceParticipantState.get(p.username));
 
-  // Load fresh full participant list (with state)
-  const { data: participants } = await supabaseClient
-    .from("voice_room_participants")
-    .select("username, is_muted, is_deafened, is_admin_muted, is_admin_deafened")
-    .eq("channel_id", channelId);
-
-  if (participants) {
-    for (const p of participants) {
-      voiceParticipantState.set(p.username, {
-        is_muted: !!p.is_muted,
-        is_deafened: !!p.is_deafened,
-        is_admin_muted: !!p.is_admin_muted,
-        is_admin_deafened: !!p.is_admin_deafened
-      });
-      renderVoiceParticipant(p.username, voiceParticipantState.get(p.username));
-      if (p.username !== username && !currentPeerConnections.has(p.username)) {
-        await initiateConnection(p.username, channelId);
+        // Initiate connection if not already connected
+        if (!currentPeerConnections.has(p.username)) {
+          await initiateConnection(p.username, channelId);
+        }
       }
+      
+      // Ensure self is rendered last
+      voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
+      renderVoiceParticipant(username, voiceParticipantState.get(username));
+    } else {
+      // No one else there, just render self
+      voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
+      renderVoiceParticipant(username, voiceParticipantState.get(username));
     }
-  } else {
-    // Fallback: at least render self
-    voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
-    renderVoiceParticipant(username, voiceParticipantState.get(username));
-  }
 
-  // If the user previously self-muted, sync that state to the DB so others see the badge.
-  try {
+    // 10. Sync Local State (if user was previously muted)
     if (selfMuted) {
       const st = voiceParticipantState.get(username) || {};
       voiceParticipantState.set(username, { ...st, is_muted: true });
@@ -11498,85 +11546,94 @@ async function joinVoiceChannel(channelId) {
         .eq("channel_id", channelId)
         .eq("username", username);
     }
-  } catch (err) { console.warn("initial mute sync failed:", err.message); }
 
-  applyLocalMicState();
-  applyLocalDeafenState();
-  refreshVoiceControlButtons();
+    // 11. Apply Local Audio States
+    applyLocalMicState();
+    applyLocalDeafenState();
+    refreshVoiceControlButtons();
+
+    console.log(`✅ Joined voice channel: ${channel.name}`);
+
+  } catch (err) {
+    console.error("Voice connection failed:", err);
+    alert("Failed to join voice chat: " + err.message);
+    leaveVoiceChannel();
+    return;
+  }
 }
 
 // --- LEAVE VOICE CHANNEL ---
 function leaveVoiceChannel() {
-  console.log("👋 Leaving voice channel...");
+  // 1. Capture IDs before clearing state
+  const channelIdToLeave = currentVoiceChannelId;
 
-  // 1. Close all peer connections
-  currentPeerConnections.forEach((conn, username) => {
-    console.log(`Closing connection to ${username}`);
-    conn.close();
-  });
-  currentPeerConnections.clear();
+  // 2. Delete DB presence row (async, fire-and-forget)
+  if (channelIdToLeave && username) {
+    supabaseClient
+      .from("voice_room_participants")
+      .delete()
+      .eq("channel_id", channelIdToLeave)
+      .eq("username", username)
+      .then(({ error }) => {
+        if (error) console.error("Failed to remove voice participant from DB:", error);
+      });
+  }
 
-  // 2. Unsubscribe from signaling and voice room state
+  // 3. Unsubscribe realtime channels
   if (voiceSignalingSub) {
-    try { voiceSignalingSub.unsubscribe(); } catch {}
+    supabaseClient.removeChannel(voiceSignalingSub);
     voiceSignalingSub = null;
   }
   if (voiceRoomSub) {
-    try { voiceRoomSub.unsubscribe(); } catch {}
+    supabaseClient.removeChannel(voiceRoomSub);
     voiceRoomSub = null;
   }
-  voiceParticipantState.clear();
 
-  // Hide voice control bar
-  const voiceBar = document.getElementById("voiceControlBar");
-  if (voiceBar) voiceBar.style.display = "none";
+  // 4. Close peer connections
+  currentPeerConnections.forEach(conn => conn.close());
+  currentPeerConnections.clear();
 
-  // 3. Stop local stream
+  // 5. Stop local media stream
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());
     localStream = null;
   }
 
-  // 4. Remove audio elements
-  document.querySelectorAll('audio').forEach(a => a.remove());
+  // 6. Hide voice UI, show text UI
+  const voiceGrid = document.getElementById('voiceParticipantGrid');
+  const voiceBar = document.getElementById('voiceControlBar');
+  if (voiceGrid) voiceGrid.style.display = 'none';
+  if (voiceBar) voiceBar.style.display = 'none';
 
-  // 5. Clean up DB
-  if (currentVoiceChannelId) {
-    supabaseClient
-      .from("voice_room_participants")
-      .delete()
-      .eq("channel_id", currentVoiceChannelId)
-      .eq("username", username);
+  const messagesList = document.getElementById('messages');
+  const controlsBar = document.getElementById('controls');
+  const replyBanner = document.getElementById('replyBanner');
+  if (messagesList) messagesList.style.display = 'block';
+  if (controlsBar) controlsBar.style.display = 'flex';
+  if (replyBanner) replyBanner.style.display = 'none';
 
-      // Restore text messages
-      document.getElementById('messages').style.display = 'block';
-      document.getElementById('voiceParticipantGrid').style.display = 'none';
-      document.getElementById('voiceParticipantGrid').innerHTML = '';
+  // 7. Re-enable text input
+  const input = document.getElementById('messageInput');
+  const sendBtn = document.getElementById('sendButton');
+  if (input) {
+    input.disabled = false;
+    input.focus();
   }
-
-  // 6. Restore Input Bar & UI 🔥
-  const controls = document.getElementById("controls");
-  if (controls) {
-    controls.style.display = "flex"; // 🔥 Bring the row back
-  }
-
-  const input = document.getElementById("messageInput");
-  const sendBtn = document.getElementById("sendButton");
-  if (input) input.disabled = false;
   if (sendBtn) sendBtn.disabled = false;
 
-  const channel = channels.find(c => c.id === currentVoiceChannelId);
-  if (channel) {
-    document.getElementById("currentChannelName").textContent = `# ${channel.name}`;
+  // 8. Reset header to the current text channel name
+  const currentChannelNameEl = document.getElementById('currentChannelName');
+  if (currentChannelNameEl) {
+    const lastTextChannel = channels.find(c => c.id === lastTextChannelId);
+    currentChannelNameEl.textContent = `# ${lastTextChannel?.name || 'general'}`;
+    currentChannelNameEl.style.color = 'var(--text-main)';
   }
 
-  const _wasInVoice = currentVoiceChannelId;
+  // 9. Clear state
+  voiceParticipantState.clear();
   currentVoiceChannelId = null;
-
-  // Return to the last text channel the user was viewing (if it still exists).
-  if (_wasInVoice && lastTextChannelId && channels.some(c => c.id === lastTextChannelId)) {
-    switchChannel(lastTextChannelId);
-  }
+  selfMuted = false;
+  selfDeafened = false;
 }
 
 /* ======================================================================
