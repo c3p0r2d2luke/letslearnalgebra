@@ -38,6 +38,35 @@
  * The loader stays open only while the app is genuinely getting ready. As soon
  * as bootstrapAuth() (or any failure path) calls hideLoader(), it fades out.
  */
+
+/*-------------Debugging trick to make console logs into alerts
+async function catchConsoleLogsAsAlerts() {
+  const methods = ["log", "warn", "error", "info", "debug"];
+
+  methods.forEach((method) => {
+    const original = console[method];
+
+    console[method] = function (...args) {
+      let message = args.map(arg => {
+        try {
+          if (typeof arg === "object") {
+            return JSON.stringify(arg, null, 2);
+          }
+          return String(arg);
+        } catch {
+          return "[Unserializable Object]";
+        }
+      }).join(" ");
+
+      alert(`[${method.toUpperCase()}]\n\n${message}`);
+
+      original.apply(console, args);
+    };
+  });
+}
+
+catchConsoleLogsAsAlerts();*/
+
 let _loaderHidden = false;
 
 function showLoader() {
