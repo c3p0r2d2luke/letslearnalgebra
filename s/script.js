@@ -39,7 +39,7 @@
  * as bootstrapAuth() (or any failure path) calls hideLoader(), it fades out.
  */
 
-/*-------------Debugging trick to make console logs into alerts
+/*-------------Debugging trick to make console logs into alerts*/
 async function catchConsoleLogsAsAlerts() {
   const methods = ["log", "warn", "error", "info", "debug"];
 
@@ -65,7 +65,7 @@ async function catchConsoleLogsAsAlerts() {
   });
 }
 
-catchConsoleLogsAsAlerts();*/
+catchConsoleLogsAsAlerts();
 
 let _loaderHidden = false;
 
@@ -4287,7 +4287,7 @@ async function sendMessage(options = {}) {
     && currentServerSettings.bad_word_filter_enabled
     && !userPermissions.bypass_word_filter
   ) {
-    content = censorContent(content);
+    content = await censorContent(content);
   }
   if (!content || !username) return;
 
