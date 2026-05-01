@@ -12122,11 +12122,13 @@ async function selectTheme(themeId) {
   
   applyThemeVariables(theme);
   
-  // Save ONLY to Local Storage
+  // 🔥 CRITICAL FIX: Update the global state variable
+  currentThemeId = themeId;
+
+  // Save to Local Storage
   localStorage.setItem("chatThemeId", themeId);
   
-  // Optional: Sync to DB if you want persistence across devices
-  // Since there are no built-ins, we always save the ID as-is.
+  // Optional: Sync to DB
   try {
     await supabaseClient.from("users").update({ custom_theme_id: themeId }).eq("username", username);
   } catch (err) { console.warn("Save theme failed:", err.message); }
