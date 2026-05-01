@@ -1,7 +1,5 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
-/*test*/
-
 /* =============================================================================
  * LLA Realtime Chat — script.js
  *
@@ -12234,7 +12232,7 @@ async function loadThemesAndApply() {
     console.warn("Themes table unavailable:", err.message); 
   }
 
-  availableThemes = [...BUILTIN_THEMES, ...dbThemes];
+  /*availableThemes = [...BUILTIN_THEMES, ...dbThemes];*/
 
   // --- CHANGE: Prioritize Local Storage over Database ---
   let chosen = null;
