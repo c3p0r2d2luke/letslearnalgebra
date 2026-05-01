@@ -373,10 +373,25 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
 }
 
 function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
-  // 1. Clear existing content
+  // CRITICAL: Clear ALL existing submenus before building a new menu
+  document.querySelectorAll('.submenu-panel').forEach(el => el.remove());
+  
   menu.innerHTML = "";
   
-  // Helper to create a menu item
+  let hideTimeout = null;
+  const HOVER_DELAY = 150;
+  
+  // Helper to close all submenus immediately
+  const closeAllSubmenus = () => {
+    if (hideTimeout) clearTimeout(hideTimeout);
+    document.querySelectorAll('.submenu-panel').forEach(sub => {
+      sub.style.display = 'none';
+      // Reset parent highlights
+      const parent = sub.previousElementSibling || sub.parentElement;
+      if (parent) parent.style.background = 'transparent';
+    });
+  };
+
   const createMenuItem = (label, action, hasChildren = false, parentContainer = menu) => {
     const itemWrapper = document.createElement("div");
     itemWrapper.style.position = "relative"; 
@@ -389,7 +404,7 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     itemWrapper.style.color = "#dbdee1";
     itemWrapper.style.fontSize = "13px";
     itemWrapper.style.background = "transparent";
-    itemWrapper.style.whiteSpace = "nowrap"; // Prevent text wrapping
+    itemWrapper.style.whiteSpace = "nowrap";
 
     const labelSpan = document.createElement("span");
     labelSpan.textContent = label;
@@ -403,27 +418,37 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
       itemWrapper.appendChild(arrow);
     }
 
-    // Hover Logic
     itemWrapper.onmouseenter = () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+      
       itemWrapper.style.background = "#40444b";
+      
       if (hasChildren) {
-        // Show the submenu immediately
         const submenu = itemWrapper._submenu;
         if (submenu) {
           submenu.style.display = "block";
-          // Recalculate position in case window scrolled or resized
           positionSubmenu(itemWrapper, submenu);
         }
       }
     };
 
     itemWrapper.onmouseleave = () => {
-      itemWrapper.style.background = "transparent";
       if (hasChildren) {
         const submenu = itemWrapper._submenu;
         if (submenu) {
-          submenu.style.display = "none";
+          hideTimeout = setTimeout(() => {
+            if (submenu.style.display === "block" && !submenu.matches(':hover')) {
+              submenu.style.display = "none";
+              itemWrapper.style.background = "transparent";
+            }
+            hideTimeout = null;
+          }, HOVER_DELAY);
         }
+      } else {
+        itemWrapper.style.background = "transparent";
       }
     };
 
@@ -431,6 +456,7 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
       itemWrapper.onclick = (e) => {
         e.stopPropagation();
         action();
+        closeAllSubmenus(); // Close everything on click
         menu.style.display = "none";
       };
     }
@@ -438,11 +464,9 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     parentContainer.appendChild(itemWrapper);
 
     if (hasChildren) {
-      // Create the submenu element
       const submenu = document.createElement("div");
       submenu.className = "submenu-panel";
       
-      // CRITICAL: Style the submenu as a floating layer
       submenu.style.position = "absolute";
       submenu.style.top = "0";
       submenu.style.minWidth = "180px";
@@ -453,16 +477,27 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
       submenu.style.display = "none";
       submenu.style.zIndex = "10000";
       submenu.style.padding = "4px";
-      submenu.style.pointerEvents = "auto"; // Ensure it captures mouse
+      submenu.style.pointerEvents = "auto";
 
-      // Prevent mouse events from bubbling up to the parent (causing flicker)
-      submenu.onmouseenter = (e) => e.stopPropagation();
-      submenu.onmouseleave = (e) => e.stopPropagation();
-
-      // Store reference on the parent item
-      itemWrapper._submenu = submenu;
+      submenu.onmouseenter = (e) => {
+        e.stopPropagation();
+        if (hideTimeout) {
+          clearTimeout(hideTimeout);
+          hideTimeout = null;
+        }
+        itemWrapper.style.background = "#40444b";
+      };
       
-      // Append to BODY, NOT to the parent item. This prevents expansion.
+      submenu.onmouseleave = (e) => {
+        e.stopPropagation();
+        hideTimeout = setTimeout(() => {
+          submenu.style.display = "none";
+          itemWrapper.style.background = "transparent";
+          hideTimeout = null;
+        }, HOVER_DELAY);
+      };
+
+      itemWrapper._submenu = submenu;
       document.body.appendChild(submenu);
 
       return submenu;
@@ -471,7 +506,6 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     return null;
   };
 
-  // Helper to create a section header
   const createSectionHeader = (title, parentContainer = menu) => {
     const headerWrapper = document.createElement("div");
     headerWrapper.style.position = "relative";
@@ -505,8 +539,23 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     submenu.style.padding = "4px";
     submenu.style.pointerEvents = "auto";
 
-    submenu.onmouseenter = (e) => e.stopPropagation();
-    submenu.onmouseleave = (e) => e.stopPropagation();
+    submenu.onmouseenter = (e) => {
+      e.stopPropagation();
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+      headerWrapper.style.background = "#40444b";
+    };
+    
+    submenu.onmouseleave = (e) => {
+      e.stopPropagation();
+      hideTimeout = setTimeout(() => {
+        submenu.style.display = "none";
+        headerWrapper.style.background = "transparent";
+        hideTimeout = null;
+      }, HOVER_DELAY);
+    };
 
     headerWrapper._submenu = submenu;
     document.body.appendChild(submenu);
@@ -515,33 +564,36 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
       submenu.style.display = "block";
       positionSubmenu(headerWrapper, submenu);
     };
+    
     headerWrapper.onmouseleave = () => {
-      submenu.style.display = "none";
+      hideTimeout = setTimeout(() => {
+        if (submenu.style.display === "block") {
+          submenu.style.display = "none";
+        }
+        headerWrapper.style.background = "transparent";
+        hideTimeout = null;
+      }, HOVER_DELAY);
     };
 
     return submenu;
   };
 
-  // Function to calculate and set position for the submenu
   const positionSubmenu = (parent, submenu) => {
     const parentRect = parent.getBoundingClientRect();
-    const submenuWidth = 180; // Approximate width
-    const submenuHeight = submenu.offsetHeight || 100; // Approximate height
+    const submenuWidth = 180;
+    const submenuHeight = submenu.offsetHeight || 100;
 
-    let left = parentRect.right + 4; // 4px gap
+    let left = parentRect.right;
     let top = parentRect.top;
 
-    // Check if it goes off the right edge
     if (left + submenuWidth > window.innerWidth) {
-      left = parentRect.left - submenuWidth - 4;
+      left = parentRect.left - submenuWidth;
     }
 
-    // Check if it goes off the bottom edge
     if (top + submenuHeight > window.innerHeight) {
       top = window.innerHeight - submenuHeight - 10;
     }
     
-    // Check if it goes off the top edge
     if (top < 0) {
       top = 10;
     }
@@ -550,7 +602,6 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     submenu.style.top = top + "px";
   };
 
-  // Build the menu structure
   sections.forEach((section, index) => {
     if (index === 0) {
       section.items.forEach(item => {
@@ -564,7 +615,6 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
     }
   });
 
-  // Positioning Logic for the MAIN menu
   const menuWidth = 200;
   const menuHeight = 300;
   let leftPos = anchorX + 10;
@@ -585,7 +635,21 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   menu.style.zIndex = "9999";
   menu.style.borderRadius = "4px";
   menu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
-  menu.style.maxWidth = "220px"; // Prevent main menu from getting too wide
+  menu.style.maxWidth = "220px";
+
+  // CRITICAL: Close all submenus if the main menu is clicked outside
+  const closeHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      closeAllSubmenus();
+      menu.style.display = "none";
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  
+  // Delay slightly to allow click events to propagate
+  setTimeout(() => {
+    document.addEventListener('click', closeHandler);
+  }, 0);
 }
 
 function showMobileMessageMenu(menu, sections) {
