@@ -4645,6 +4645,11 @@ function createMessageElement(msg) {
 
     contentDiv.innerHTML = formatted;
 
+    // Apply long message class if content is very long
+    if (cleanContent.length > 1000) {
+      contentDiv.classList.add("long-message");
+    }
+
     // Emoji-only message styling
     if (isEmojiOnlyMessage(cleanContent)) {
       contentDiv.classList.add("emoji-only-message");
@@ -6816,6 +6821,12 @@ function handleReaction(messageId, emoji) {
 }
 
 function formatMessageContent(content, role) {
+  // Handle extremely long messages by truncating them
+  const MAX_MESSAGE_LENGTH = 10000; // 10k characters limit
+  if (content.length > MAX_MESSAGE_LENGTH) {
+    content = content.substring(0, MAX_MESSAGE_LENGTH) + "...";
+  }
+
   // Detect triple backtick code block
   const codeBlockMatch = content.match(/```([\s\S]*?)```/);
 
@@ -6846,6 +6857,12 @@ function formatMessageContent(content, role) {
   // We need to be careful not to match inside HTML entities if we had any, but escapeHTML handles that.
   escaped = escaped.replace(/#([a-zA-Z0-9_-]+)/g, (match, channelName) => {
     return `<span class="channel-mention" data-channel="${channelName}">#${channelName}</span>`;
+  });
+
+  // Handle very long words that could break layout
+  escaped = escaped.replace(/(\S{50,})/g, (match, longWord) => {
+    // Insert zero-width spaces every 20 characters to allow word breaking
+    return longWord.replace(/(.{20})/g, '$1\u200B');
   });
 
   return escaped;
@@ -7436,20 +7453,55 @@ async function giveCustomRole(targetUser) {
   const roleName = prompt("Enter role name to give:");
   if (!roleName) return;
 
-  const { error } = await supabaseClient
-    .from("server_members")
-    .update({ primary_role_id: roleRow?.id || null })
-    .eq("server_id", currentServerId)
-    .eq("username", targetUser);
+  try {
+    // First, try to find existing role
+    let { data: existingRole, error: findError } = await supabaseClient
+      .from("server_roles")
+      .select("id")
+      .eq("server_id", currentServerId)
+      .eq("name", roleName)
+      .single();
 
-  if (error) {
-    alert("❌ Failed to assign role");
-    console.error(error);
-    return;
+    let roleId;
+    
+    if (findError && findError.code === 'PGRST116') {
+      // Role doesn't exist, create it
+      const { data: newRole, error: createError } = await supabaseClient
+        .from("server_roles")
+        .insert({
+          server_id: currentServerId,
+          name: roleName,
+          display_name: roleName,
+          color: "#5865f2",
+          permissions: {}
+        })
+        .select("id")
+        .single();
+
+      if (createError) throw createError;
+      roleId = newRole.id;
+    } else if (findError) {
+      throw findError;
+    } else {
+      roleId = existingRole.id;
+    }
+
+    // Now assign the role to the user
+    const { error: assignError } = await supabaseClient
+      .from("server_members")
+      .update({ primary_role_id: roleId })
+      .eq("server_id", currentServerId)
+      .eq("username", targetUser);
+
+    if (assignError) throw assignError;
+
+    alert(`✅ Role "${roleName}" assigned to ${targetUser} in this server.`);
+    await loadServerMembers();
+    await refreshServerRole();
+  } catch (error) {
+    alert("❌ Failed to assign role: " + error.message);
+    console.error("giveCustomRole error:", error);
   }
-
-  alert(`✅ Role "${roleName}" assigned to ${targetUser} in this server.`);
-  loadServerMembers();
 }
 
 
@@ -8595,16 +8647,16 @@ async function refreshServerRole() {
         .eq("member_id", memberData.id)
         .limit(1)
         .maybeSingle();
-        if (memberRoleLink?.role_id) {
-          const { data: linkedRole } = await supabaseClient
-            .from("server_roles")
-            .select("name, role, permissions")
-            .eq("id", memberRoleLink.role_id)
-            .maybeSingle();
+      if (memberRoleLink?.role_id) {
+        const { data: linkedRole } = await supabaseClient
+          .from("server_roles")
+          .select("name, role, permissions")
+          .eq("id", memberRoleLink.role_id)
+          .maybeSingle();
         resolvedRole = normalizeServerRole(linkedRole?.name || linkedRole?.role || resolvedRole);
         customRolePerms = linkedRole?.permissions || null;
-        }
       }
+    }
     setServerProfileData(currentServerId, username, {
       display_name: memberData?.profile_display_name || "",
       avatar_url: memberData?.profile_avatar_url || "",
@@ -11346,13 +11398,59 @@ async function initiateConnection(targetUsername, channelId) {
   // Handle incoming remote stream
   peerConn.ontrack = (event) => {
     console.log(`🎵 Received track from ${targetUsername}`);
+    
+    // Remove any existing audio element for this user
+    const existingAudio = document.getElementById(`audio-${targetUsername}`);
+    if (existingAudio) existingAudio.remove();
+    
     const audio = document.createElement('audio');
     audio.srcObject = event.streams[0];
     audio.autoplay = true;
+    audio.id = `audio-${targetUsername}`;
+    
+    // Apply user's volume settings
+    audio.volume = voiceOutputVolume;
+    
     document.body.appendChild(audio);
 
-    // Optional: Add visual indicator
-    audio.id = `audio-${targetUsername}`;
+    // Audio level analyzer for speaking detection
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaElementSource(audio);
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      analyser.fftSize = 256;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let lastSpeaking = false;
+
+      const checkSpeaking = () => {
+        try {
+          analyser.getByteFrequencyData(dataArray);
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const isSpeaking = average > 20; // Threshold
+
+          const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+          if (participantEl) {
+            const avatar = participantEl.querySelector('.voice-participant-avatar');
+            if (isSpeaking && !lastSpeaking) {
+              avatar.classList.add('speaking');
+            } else if (!isSpeaking && lastSpeaking) {
+              avatar.classList.remove('speaking');
+            }
+          }
+          lastSpeaking = isSpeaking;
+          requestAnimationFrame(checkSpeaking);
+        } catch (err) {
+          console.warn("Audio analysis error:", err);
+        }
+      };
+
+      checkSpeaking();
+    } catch (err) {
+      console.warn("Failed to setup audio analysis:", err);
+    }
   };
 
   // Handle ICE candidates
@@ -11385,45 +11483,23 @@ async function initiateConnection(targetUsername, channelId) {
 
   currentPeerConnections.set(targetUsername, peerConn);
 
-  peerConn.ontrack = (event) => {
-  console.log(`🎵 Received track from ${targetUsername}`);
-  const audio = document.createElement('audio');
-  audio.srcObject = event.streams[0];
-  audio.autoplay = true;
-  audio.id = `audio-${targetUsername}`;
-  document.body.appendChild(audio);
-
-  // Audio level analyzer
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const analyser = audioContext.createAnalyser();
-  const source = audioContext.createMediaElementSource(audio);
-  source.connect(analyser);
-  analyser.connect(audioContext.destination);
-  analyser.fftSize = 256;
-
-  const dataArray = new Uint8Array(analyser.frequencyBinCount);
-  let lastSpeaking = false;
-
-  function checkSpeaking() {
-    analyser.getByteFrequencyData(dataArray);
-    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-    const isSpeaking = average > 20; // Threshold
-
-    const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
-    if (participantEl) {
-      const avatar = participantEl.querySelector('.voice-participant-avatar');
-      if (isSpeaking && !lastSpeaking) {
-        avatar.classList.add('speaking');
-      } else if (!isSpeaking && lastSpeaking) {
-        avatar.classList.remove('speaking');
-      }
+  // Add connection state monitoring
+  peerConn.onconnectionstatechange = () => {
+    console.log(`🔗 Connection state with ${targetUsername}:`, peerConn.connectionState);
+    if (peerConn.connectionState === 'failed' || peerConn.connectionState === 'disconnected') {
+      console.warn(`❌ Connection with ${targetUsername} failed/disconnected`);
+      // Clean up audio element
+      const audio = document.getElementById(`audio-${targetUsername}`);
+      if (audio) audio.remove();
+      // Remove from connections map
+      currentPeerConnections.delete(targetUsername);
     }
-    lastSpeaking = isSpeaking;
-    requestAnimationFrame(checkSpeaking);
-  }
+  };
 
-  checkSpeaking();
-};
+  // Handle ICE connection state changes
+  peerConn.oniceconnectionstatechange = () => {
+    console.log(`🧊 ICE connection state with ${targetUsername}:`, peerConn.iceConnectionState);
+  };
 }
 
 // --- JOIN VOICE CHANNEL ---
@@ -12107,8 +12183,12 @@ async function loadThemesAndApply() {
       .select("id, name, display_name, css_variables, is_default")
       .order("is_default", { ascending: false })
       .order("display_name", { ascending: true });
-    if (!error && Array.isArray(data)) dbThemes = data;
-  } catch (err) { console.warn("Themes table unavailable:", err.message); }
+    if (!error && Array.isArray(data)) {
+      dbThemes = data.filter(theme => theme && theme.css_variables);
+    }
+  } catch (err) { 
+    console.warn("Themes table unavailable:", err.message); 
+  }
 
   availableThemes = [...BUILTIN_THEMES, ...dbThemes];
 
@@ -12117,7 +12197,18 @@ async function loadThemesAndApply() {
   if (currentThemeId) chosen = availableThemes.find(t => t.id === currentThemeId);
   if (!chosen) chosen = availableThemes.find(t => t.is_default);
   if (!chosen) chosen = availableThemes[0];
-  if (chosen) applyThemeVariables(chosen);
+  if (chosen) {
+    try {
+      applyThemeVariables(chosen);
+      console.log("✅ Applied theme:", chosen.name || chosen.display_name);
+    } catch (err) {
+      console.warn("❌ Failed to apply theme:", err.message);
+      // Fallback to first available theme
+      if (chosen !== availableThemes[0]) {
+        applyThemeVariables(availableThemes[0]);
+      }
+    }
+  }
 
   // If the settings modal is currently open on the appearance tab, refresh it.
   if (document.getElementById("userSettingsModal")?.style.display === "flex") {
