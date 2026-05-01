@@ -373,76 +373,198 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
 }
 
 function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
-  let currentSection = menu;
+  // 1. Clear existing content
+  menu.innerHTML = "";
+  
+  // Helper to create a menu item
+  const createMenuItem = (label, action, hasChildren = false, parentContainer = menu) => {
+    const itemWrapper = document.createElement("div");
+    itemWrapper.style.position = "relative"; 
+    itemWrapper.style.cursor = "pointer";
+    itemWrapper.style.padding = "6px 8px";
+    itemWrapper.style.borderRadius = "4px";
+    itemWrapper.style.display = "flex";
+    itemWrapper.style.alignItems = "center";
+    itemWrapper.style.justifyContent = "space-between";
+    itemWrapper.style.color = "#dbdee1";
+    itemWrapper.style.fontSize = "13px";
+    itemWrapper.style.background = "transparent";
+    itemWrapper.style.whiteSpace = "nowrap"; // Prevent text wrapping
 
-  const addButton = (label, action) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.display = "block";
-    btn.style.width = "100%";
-    btn.style.padding = "6px";
-    btn.style.border = "none";
-    btn.style.background = "transparent";
-    btn.style.cursor = "pointer";
-    btn.style.color = "white";
-    btn.style.textAlign = "left";
-    btn.style.fontSize = "13px";
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = label;
+    itemWrapper.appendChild(labelSpan);
 
-    btn.onmouseenter = () => btn.style.background = "#40444b";
-    btn.onmouseleave = () => btn.style.background = "transparent";
+    if (hasChildren) {
+      const arrow = document.createElement("span");
+      arrow.textContent = " ▶";
+      arrow.style.marginLeft = "8px";
+      arrow.style.color = "#949ba4";
+      itemWrapper.appendChild(arrow);
+    }
 
-    btn.onclick = (event) => {
-      event.stopPropagation();
-      action();
-      menu.style.display = "none";
+    // Hover Logic
+    itemWrapper.onmouseenter = () => {
+      itemWrapper.style.background = "#40444b";
+      if (hasChildren) {
+        // Show the submenu immediately
+        const submenu = itemWrapper._submenu;
+        if (submenu) {
+          submenu.style.display = "block";
+          // Recalculate position in case window scrolled or resized
+          positionSubmenu(itemWrapper, submenu);
+        }
+      }
     };
 
-    currentSection.appendChild(btn);
+    itemWrapper.onmouseleave = () => {
+      itemWrapper.style.background = "transparent";
+      if (hasChildren) {
+        const submenu = itemWrapper._submenu;
+        if (submenu) {
+          submenu.style.display = "none";
+        }
+      }
+    };
+
+    if (!hasChildren) {
+      itemWrapper.onclick = (e) => {
+        e.stopPropagation();
+        action();
+        menu.style.display = "none";
+      };
+    }
+
+    parentContainer.appendChild(itemWrapper);
+
+    if (hasChildren) {
+      // Create the submenu element
+      const submenu = document.createElement("div");
+      submenu.className = "submenu-panel";
+      
+      // CRITICAL: Style the submenu as a floating layer
+      submenu.style.position = "absolute";
+      submenu.style.top = "0";
+      submenu.style.minWidth = "180px";
+      submenu.style.background = "#2f3136";
+      submenu.style.border = "1px solid #444";
+      submenu.style.borderRadius = "4px";
+      submenu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
+      submenu.style.display = "none";
+      submenu.style.zIndex = "10000";
+      submenu.style.padding = "4px";
+      submenu.style.pointerEvents = "auto"; // Ensure it captures mouse
+
+      // Prevent mouse events from bubbling up to the parent (causing flicker)
+      submenu.onmouseenter = (e) => e.stopPropagation();
+      submenu.onmouseleave = (e) => e.stopPropagation();
+
+      // Store reference on the parent item
+      itemWrapper._submenu = submenu;
+      
+      // Append to BODY, NOT to the parent item. This prevents expansion.
+      document.body.appendChild(submenu);
+
+      return submenu;
+    }
+
+    return null;
   };
 
-  const addSection = (title) => {
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "relative";
+  // Helper to create a section header
+  const createSectionHeader = (title, parentContainer = menu) => {
+    const headerWrapper = document.createElement("div");
+    headerWrapper.style.position = "relative";
+    headerWrapper.style.padding = "6px 8px";
+    headerWrapper.style.color = "#949ba4";
+    headerWrapper.style.fontSize = "11px";
+    headerWrapper.style.textTransform = "uppercase";
+    headerWrapper.style.fontWeight = "bold";
+    headerWrapper.style.cursor = "default";
+    headerWrapper.style.display = "flex";
+    headerWrapper.style.alignItems = "center";
+    headerWrapper.style.whiteSpace = "nowrap";
 
-    const header = document.createElement("div");
-    header.textContent = title + " ▶";
-    header.style.fontSize = "12px";
-    header.style.padding = "6px";
-    header.style.cursor = "pointer";
-    header.style.color = "white";
+    const headerText = document.createElement("span");
+    headerText.textContent = title + " ▶";
+    headerWrapper.appendChild(headerText);
 
-    header.onmouseenter = () => header.style.background = "#40444b";
-    header.onmouseleave = () => header.style.background = "transparent";
+    parentContainer.appendChild(headerWrapper);
 
-    const sub = document.createElement("div");
-    sub.style.position = "absolute";
-    sub.style.left = "100%";
-    sub.style.top = "0";
-    sub.style.background = "#2f3136";
-    sub.style.border = "1px solid #444";
-    sub.style.display = "none";
-    sub.style.minWidth = "180px";
+    const submenu = document.createElement("div");
+    submenu.className = "submenu-panel";
+    submenu.style.position = "absolute";
+    submenu.style.top = "0";
+    submenu.style.minWidth = "180px";
+    submenu.style.background = "#2f3136";
+    submenu.style.border = "1px solid #444";
+    submenu.style.borderRadius = "4px";
+    submenu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
+    submenu.style.display = "none";
+    submenu.style.zIndex = "10000";
+    submenu.style.padding = "4px";
+    submenu.style.pointerEvents = "auto";
 
-    wrapper.onmouseenter = () => sub.style.display = "block";
-    wrapper.onmouseleave = () => sub.style.display = "none";
+    submenu.onmouseenter = (e) => e.stopPropagation();
+    submenu.onmouseleave = (e) => e.stopPropagation();
 
-    wrapper.appendChild(header);
-    wrapper.appendChild(sub);
-    menu.appendChild(wrapper);
+    headerWrapper._submenu = submenu;
+    document.body.appendChild(submenu);
 
-    currentSection = sub;
+    headerWrapper.onmouseenter = () => {
+      submenu.style.display = "block";
+      positionSubmenu(headerWrapper, submenu);
+    };
+    headerWrapper.onmouseleave = () => {
+      submenu.style.display = "none";
+    };
+
+    return submenu;
   };
 
+  // Function to calculate and set position for the submenu
+  const positionSubmenu = (parent, submenu) => {
+    const parentRect = parent.getBoundingClientRect();
+    const submenuWidth = 180; // Approximate width
+    const submenuHeight = submenu.offsetHeight || 100; // Approximate height
+
+    let left = parentRect.right + 4; // 4px gap
+    let top = parentRect.top;
+
+    // Check if it goes off the right edge
+    if (left + submenuWidth > window.innerWidth) {
+      left = parentRect.left - submenuWidth - 4;
+    }
+
+    // Check if it goes off the bottom edge
+    if (top + submenuHeight > window.innerHeight) {
+      top = window.innerHeight - submenuHeight - 10;
+    }
+    
+    // Check if it goes off the top edge
+    if (top < 0) {
+      top = 10;
+    }
+
+    submenu.style.left = left + "px";
+    submenu.style.top = top + "px";
+  };
+
+  // Build the menu structure
   sections.forEach((section, index) => {
     if (index === 0) {
-      currentSection = menu;
-      section.items.forEach(item => addButton(item.label, item.action));
-      return;
+      section.items.forEach(item => {
+        createMenuItem(item.label, item.action, false, menu);
+      });
+    } else {
+      const subContainer = createSectionHeader(section.title, menu);
+      section.items.forEach(item => {
+        createMenuItem(item.label, item.action, false, subContainer);
+      });
     }
-    addSection(section.title);
-    section.items.forEach(item => addButton(item.label, item.action));
   });
 
+  // Positioning Logic for the MAIN menu
   const menuWidth = 200;
   const menuHeight = 300;
   let leftPos = anchorX + 10;
@@ -456,12 +578,14 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   menu.style.position = "fixed";
   menu.style.left = leftPos + "px";
   menu.style.top = topPos + "px";
-  menu.style.right = "auto";
-  menu.style.bottom = "auto";
   menu.style.background = "#2f3136";
   menu.style.border = "1px solid #444";
   menu.style.padding = "4px";
   menu.style.display = "block";
+  menu.style.zIndex = "9999";
+  menu.style.borderRadius = "4px";
+  menu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
+  menu.style.maxWidth = "220px"; // Prevent main menu from getting too wide
 }
 
 function showMobileMessageMenu(menu, sections) {
@@ -2329,12 +2453,10 @@ function getDisplayName(user) {
   );
 }
 
-
-
 function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
   
-  // 1. Define Base Permissions for standard roles
+  // 1. Define Base Permissions for standard roles (Fallback only)
   let basePerms = {
     read_messages: true, 
     send_messages: true, 
@@ -2354,60 +2476,67 @@ function loadUserPermissions(roleName, customPerms = null) {
     use_custom_emojis: false
   };
 
-  // Assign base permissions based on role hierarchy
-  switch (name) {
-    case "sysadmin":
-    case "admin":
-      basePerms = {
-        read_messages: true, send_messages: true, delete_messages: true,
-        rename_channels: true, create_channels: true, manage_roles: true,
-        mute_users: true, manage_messages: true, manage_reports: true,
-        send_gifs: true, send_links: true, send_attachments: true,
-        mention_everyone: true, bypass_word_filter: true,
-        create_invites: true, use_custom_emojis: true
-      };
-      break;
-    case "sysmanager":
-      basePerms = {
-        read_messages: true, send_messages: true, delete_messages: true,
-        rename_channels: true, create_channels: true, manage_roles: true,
-        mute_users: true, manage_messages: true, manage_reports: true,
-        send_gifs: true, send_links: true, send_attachments: true,
-        mention_everyone: true, bypass_word_filter: true,
-        create_invites: true, use_custom_emojis: true
-      };
-      break;
-    case "teacher":
-    case "moderator":
-    case "mod":
-    case "manager":
-      basePerms = {
-        read_messages: true, send_messages: true, delete_messages: true,
-        rename_channels: false, create_channels: false, manage_roles: false,
-        mute_users: true, manage_messages: true, manage_reports: true,
-        send_gifs: true, send_links: true, send_attachments: true,
-        mention_everyone: false, bypass_word_filter: false,
-        create_invites: true, use_custom_emojis: true
-      };
-      break;
-    // Default "user" keeps the basePerms defined at the top
-  }
-
-  // 2. CRITICAL: Merge Custom Permissions
-  // If customPerms exists, it OVERRIDES the base permissions.
-  // We iterate through customPerms and only update keys that are explicitly set (true/false).
+  // 2. CRITICAL: If customPerms exist, they OVERRULE the base completely.
+  // We do NOT merge; we REPLACE the base with the custom role's definition.
   if (customPerms && typeof customPerms === "object") {
+    // Start with a clean slate or the base, then apply custom.
+    // To ensure custom roles rule, we start with base and overwrite EVERYTHING custom says.
+    // However, to be safe, let's start with base and let customPerms override specific keys.
+    // If you want custom roles to be ENTIRELY independent, uncomment the line below:
+    // basePerms = { ...customPerms }; 
+    
+    // Better approach: Start with base, then apply custom. 
+    // If customPerms has a key, it wins. If not, basePerms wins.
     Object.entries(customPerms).forEach(([key, value]) => {
-      // Only override if the value is explicitly true or false (not undefined/null)
       if (value !== undefined && value !== null) {
         basePerms[key] = value;
       }
     });
+  } else {
+    // 3. If NO custom role, apply hardcoded logic based on role name
+    switch (name) {
+      case "sysadmin":
+      case "admin":
+        basePerms = {
+          read_messages: true, send_messages: true, delete_messages: true,
+          rename_channels: true, create_channels: true, manage_roles: true,
+          mute_users: true, manage_messages: true, manage_reports: true,
+          send_gifs: true, send_links: true, send_attachments: true,
+          mention_everyone: true, bypass_word_filter: true,
+          create_invites: true, use_custom_emojis: true
+        };
+        break;
+      case "sysmanager":
+        basePerms = {
+          read_messages: true, send_messages: true, delete_messages: true,
+          rename_channels: true, create_channels: true, manage_roles: true,
+          mute_users: true, manage_messages: true, manage_reports: true,
+          send_gifs: true, send_links: true, send_attachments: true,
+          mention_everyone: true, bypass_word_filter: true,
+          create_invites: true, use_custom_emojis: true
+        };
+        break;
+      case "teacher":
+      case "moderator":
+      case "mod":
+      case "manager":
+        basePerms = {
+          read_messages: true, send_messages: true, delete_messages: true,
+          rename_channels: false, create_channels: false, manage_roles: false,
+          mute_users: true, manage_messages: true, manage_reports: true,
+          send_gifs: true, send_links: true, send_attachments: true,
+          mention_everyone: false, bypass_word_filter: false,
+          create_invites: true, use_custom_emojis: true
+        };
+        break;
+      // Default "user" keeps the basePerms defined at the top
+    }
   }
 
   // Update global state
   userPermissions = basePerms;
 }
+
 const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
 const reactionIdsByMessage = new Map(); // message id -> reaction ids currently cached
@@ -7505,57 +7634,89 @@ function subscribeToServerRealtime(serverId) {
 }
 
 async function giveCustomRole(targetUser) {
-  const roleName = prompt("Enter role name to give:");
-  if (!roleName) return;
+  if (!currentServerId || !targetUser) {
+    alert("❌ No server or user selected.");
+    return;
+  }
 
+  // 1. Fetch existing roles from the database for this server
+  const { data: roles, error: rolesError } = await supabaseClient
+    .from("server_roles")
+    .select("id, name, role, color")
+    .eq("server_id", currentServerId)
+    .order("name", { ascending: true });
+
+  if (rolesError) {
+    console.error("❌ Failed to fetch roles:", rolesError.message);
+    alert("❌ Could not load roles. Check console.");
+    return;
+  }
+
+  // Filter out the default "User" role if you don't want to assign it via this button
+  // Or include it if you want to allow demoting to User.
+  // Let's assume you want to assign ANY custom role created in Manage Roles.
+  const availableRoles = roles.filter(r => r.name && r.name !== "User");
+
+  if (availableRoles.length === 0) {
+    alert("❌ No custom roles found in this server. Go to Server Options > Manage Roles to create one first.");
+    return;
+  }
+
+  // 2. Build a selection list
+  const roleList = availableRoles.map((r, i) => `${i + 1}. ${r.name} (${r.role || 'Custom'})`).join("\n");
+  
+  const choice = prompt(
+    `Give a custom role to ${targetUser}:\n\n${roleList}\n\nEnter the number (1, 2, etc.):`
+  );
+
+  if (!choice) return;
+
+  const selectedIndex = parseInt(choice) - 1;
+  if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= availableRoles.length) {
+    alert("❌ Invalid selection.");
+    return;
+  }
+
+  const selectedRole = availableRoles[selectedIndex];
+
+  // 3. Assign the role
   try {
-    // First, try to find existing role
-    let { data: existingRole, error: findError } = await supabaseClient
-      .from("server_roles")
-      .select("id")
-      .eq("server_id", currentServerId)
-      .eq("name", roleName)
-      .single();
-
-    let roleId;
-    
-    if (findError && findError.code === 'PGRST116') {
-      // Role doesn't exist, create it
-      const { data: newRole, error: createError } = await supabaseClient
-        .from("server_roles")
-        .insert({
-          server_id: currentServerId,
-          name: roleName,
-          display_name: roleName,
-          color: "#5865f2",
-          permissions: {}
-        })
-        .select("id")
-        .single();
-
-      if (createError) throw createError;
-      roleId = newRole.id;
-    } else if (findError) {
-      throw findError;
-    } else {
-      roleId = existingRole.id;
-    }
-
-    // Now assign the role to the user
-    const { error: assignError } = await supabaseClient
+    // First, ensure the role exists in the server_members link table
+    // We update the primary_role_id for the member
+    const { error: updateError } = await supabaseClient
       .from("server_members")
-      .update({ primary_role_id: roleId })
+      .update({ primary_role_id: selectedRole.id })
       .eq("server_id", currentServerId)
       .eq("username", targetUser);
 
-    if (assignError) throw assignError;
+    if (updateError) throw updateError;
 
-    alert(`✅ Role "${roleName}" assigned to ${targetUser} in this server.`);
+    // Also clear any old role links if necessary (optional, depending on your schema strictness)
+    await supabaseClient
+      .from("server_member_roles")
+      .delete()
+      .eq("server_id", currentServerId)
+      .eq("member_id", (await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single()).data?.id);
+      
+    // Re-insert the link for the new role
+    const memberData = await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single();
+    if (memberData.data) {
+      await supabaseClient.from("server_member_roles").insert({
+        server_id: currentServerId,
+        member_id: memberData.data.id,
+        role_id: selectedRole.id
+      });
+    }
+
+    alert(`✅ Assigned role "${selectedRole.name}" to ${targetUser}.`);
+    
+    // Refresh UI
     await loadServerMembers();
-    await refreshServerRole();
+    await refreshServerRole(); // Refresh current user's view if they are the target
+
   } catch (error) {
+    console.error("❌ Failed to assign role:", error);
     alert("❌ Failed to assign role: " + error.message);
-    console.error("giveCustomRole error:", error);
   }
 }
 
