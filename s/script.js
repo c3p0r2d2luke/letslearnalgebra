@@ -12030,194 +12030,7 @@ async function globalUnmuteUser(user) {
   alert(`🔊 ${user}'s global mute has been cleared.`);
 }
 
-/* ======================================================================
-   THEMES — load from `themes` table, apply CSS vars, persist choice
-   ====================================================================== */
-const BUILTIN_THEMES = [
-  {
-    id: "__builtin_dark",
-    name: "default-dark",
-    display_name: "Discord Dark (Default)",
-    is_default: true,
-    css_variables: {
-      "--bg-main": "#2b2d31",
-      "--bg-secondary": "#1e1f22",
-      "--bg-tertiary": "#313338",
-      "--bg-hover": "#35373c",
-      "--bg-elevated": "#3a3d44",
-      "--bg-deepest": "#111214",
-      "--bg-input": "#1e1f22",
-      "--bg-modal": "#313338",
-      "--bg-message-hover": "rgba(4,4,5,0.07)",
-      "--body-gradient-1": "rgba(88,101,242,0.18)",
-      "--body-gradient-2": "rgba(0,168,252,0.12)",
-      "--body-bg-from": "#24262b",
-      "--body-bg-to": "#1b1d20",
-      "--text-main": "#dbdee1",
-      "--text-muted": "#949ba4",
-      "--text-link": "#00a8fc",
-      "--accent": "#5865f2",
-      "--accent-strong": "#7c88ff",
-      "--danger": "#ed4245",
-      "--success": "#3ba55d",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  },
-  {
-    id: "__builtin_light",
-    name: "light",
-    display_name: "Light",
-    is_default: false,
-    css_variables: {
-      "--bg-main": "#ffffff",
-      "--bg-secondary": "#f2f3f5",
-      "--bg-tertiary": "#ebedef",
-      "--bg-hover": "#e3e5e8",
-      "--bg-elevated": "#ffffff",
-      "--bg-deepest": "#d4d7dc",
-      "--bg-input": "#ebedef",
-      "--bg-modal": "#ffffff",
-      "--bg-message-hover": "rgba(6,6,7,0.04)",
-      "--body-gradient-1": "rgba(88,101,242,0.10)",
-      "--body-gradient-2": "rgba(0,168,252,0.06)",
-      "--body-bg-from": "#f2f3f5",
-      "--body-bg-to": "#e3e5e8",
-      "--text-main": "#2e3338",
-      "--text-muted": "#5c6772",
-      "--text-link": "#0067e0",
-      "--accent": "#5865f2",
-      "--accent-strong": "#4752c4",
-      "--danger": "#d83c3e",
-      "--success": "#248045",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  },
-  {
-    id: "__builtin_amoled",
-    name: "amoled",
-    display_name: "AMOLED Black",
-    is_default: false,
-    css_variables: {
-      "--bg-main": "#000000",
-      "--bg-secondary": "#050505",
-      "--bg-tertiary": "#0d0d0d",
-      "--bg-hover": "#1c1c1c",
-      "--bg-elevated": "#161616",
-      "--bg-deepest": "#000000",
-      "--bg-input": "#0d0d0d",
-      "--bg-modal": "#0d0d0d",
-      "--bg-message-hover": "rgba(255,255,255,0.04)",
-      "--body-gradient-1": "rgba(88,101,242,0.10)",
-      "--body-gradient-2": "rgba(124,136,255,0.06)",
-      "--body-bg-from": "#000000",
-      "--body-bg-to": "#000000",
-      "--text-main": "#f5f5f5",
-      "--text-muted": "#9a9a9a",
-      "--text-link": "#3da9ff",
-      "--accent": "#5865f2",
-      "--accent-strong": "#7c88ff",
-      "--danger": "#ff5364",
-      "--success": "#43d17a",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  },
-  {
-    id: "__builtin_midnight",
-    name: "midnight",
-    display_name: "Midnight Indigo",
-    is_default: false,
-    css_variables: {
-      "--bg-main": "#1a1d2e",
-      "--bg-secondary": "#13162a",
-      "--bg-tertiary": "#1f2340",
-      "--bg-hover": "#262b4d",
-      "--bg-elevated": "#2c3055",
-      "--bg-deepest": "#0a0c1d",
-      "--bg-input": "#13162a",
-      "--bg-modal": "#1f2340",
-      "--bg-message-hover": "rgba(124,136,255,0.07)",
-      "--body-gradient-1": "rgba(124,136,255,0.20)",
-      "--body-gradient-2": "rgba(0,168,252,0.10)",
-      "--body-bg-from": "#13162a",
-      "--body-bg-to": "#0a0c1d",
-      "--text-main": "#e6e9ef",
-      "--text-muted": "#8a93a4",
-      "--text-link": "#7aa7ff",
-      "--accent": "#7c88ff",
-      "--accent-strong": "#9aa3ff",
-      "--danger": "#ff5b6e",
-      "--success": "#3ddc97",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  },
-  {
-    id: "__builtin_forest",
-    name: "forest",
-    display_name: "Forest Green",
-    is_default: false,
-    css_variables: {
-      "--bg-main": "#1f2a25",
-      "--bg-secondary": "#16201c",
-      "--bg-tertiary": "#243029",
-      "--bg-hover": "#2c3a32",
-      "--bg-elevated": "#34433a",
-      "--bg-deepest": "#0e1612",
-      "--bg-input": "#16201c",
-      "--bg-modal": "#243029",
-      "--bg-message-hover": "rgba(86,196,123,0.07)",
-      "--body-gradient-1": "rgba(59,165,93,0.18)",
-      "--body-gradient-2": "rgba(86,196,123,0.10)",
-      "--body-bg-from": "#1a241f",
-      "--body-bg-to": "#0d1410",
-      "--text-main": "#e6efe9",
-      "--text-muted": "#9bb1a3",
-      "--text-link": "#7fd6a0",
-      "--accent": "#3ba55d",
-      "--accent-strong": "#56c47b",
-      "--danger": "#ed4245",
-      "--success": "#3ba55d",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  },
-  {
-    id: "__builtin_crimson",
-    name: "crimson",
-    display_name: "Crimson",
-    is_default: false,
-    css_variables: {
-      "--bg-main": "#2b1f24",
-      "--bg-secondary": "#1f1418",
-      "--bg-tertiary": "#332229",
-      "--bg-hover": "#3d2832",
-      "--bg-elevated": "#4a303c",
-      "--bg-deepest": "#15090d",
-      "--bg-input": "#1f1418",
-      "--bg-modal": "#332229",
-      "--bg-message-hover": "rgba(255,122,166,0.07)",
-      "--body-gradient-1": "rgba(226,91,138,0.20)",
-      "--body-gradient-2": "rgba(237,66,69,0.10)",
-      "--body-bg-from": "#231419",
-      "--body-bg-to": "#13070b",
-      "--text-main": "#f5e6ec",
-      "--text-muted": "#c79bb0",
-      "--text-link": "#ff9bbf",
-      "--accent": "#e25b8a",
-      "--accent-strong": "#ff7aa6",
-      "--danger": "#ed4245",
-      "--success": "#3ba55d",
-      "--warning": "#faa61a",
-      "--text-on-accent": "#ffffff"
-    }
-  }
-];
-
 async function loadThemesAndApply() {
-  // Load from DB; merge with built-ins. Built-in dark theme is always available.
   let dbThemes = [];
   try {
     const { data, error } = await supabaseClient
@@ -12225,37 +12038,82 @@ async function loadThemesAndApply() {
       .select("id, name, display_name, css_variables, is_default")
       .order("is_default", { ascending: false })
       .order("display_name", { ascending: true });
+    
     if (!error && Array.isArray(data)) {
-      dbThemes = data.filter(theme => theme && theme.css_variables);
+      // Filter out any accidental built-in IDs just in case
+      dbThemes = data.filter(theme => theme && theme.css_variables && !theme.id.startsWith("__builtin_"));
     }
   } catch (err) { 
     console.warn("Themes table unavailable:", err.message); 
   }
 
-  /*availableThemes = [...BUILTIN_THEMES, ...dbThemes];*/
+  // Since we removed built-ins, availableThemes is purely DB-driven
+  availableThemes = dbThemes;
 
-  // --- CHANGE: Prioritize Local Storage over Database ---
+  // --- FALLBACK LOGIC ---
+  // If the DB is empty, we don't want a broken UI. 
+  // We will apply a hardcoded "Safe Default" style immediately.
+  if (availableThemes.length === 0) {
+    console.warn("⚠️ No themes found in DB. Applying safe fallback style.");
+    applyFallbackStyle();
+    // We do NOT set currentThemeId here so the user knows to pick one later
+    return; 
+  }
+
+  // --- THEME SELECTION ---
   let chosen = null;
   
-  // 1. Check Local Storage first (Appearance tab setting)
+  // 1. Check Local Storage first
   const localThemeId = localStorage.getItem("chatThemeId");
-  
   if (localThemeId) {
     chosen = availableThemes.find(t => t.id === localThemeId);
   }
 
-  // 2. Fallback to default flag if no local selection
-  if (!chosen) chosen = availableThemes.find(t => t.is_default);
-  
-  // 3. Fallback to first theme if nothing else
-  if (!chosen) chosen = availableThemes[0];
+  // 2. Fallback to the DB's default flag
+  if (!chosen) {
+    chosen = availableThemes.find(t => t.is_default === true);
+  }
 
-  if (chosen) applyThemeVariables(chosen);
+  // 3. Fallback to the first theme if no default exists
+  if (!chosen) {
+    chosen = availableThemes[0];
+  }
 
-  // If the settings modal is currently open on the appearance tab, refresh it.
+  if (chosen) {
+    applyThemeVariables(chosen);
+    // Sync local storage if we picked a DB theme
+    localStorage.setItem("chatThemeId", chosen.id);
+  }
+
+  // Refresh settings modal if open
   if (document.getElementById("userSettingsModal")?.style.display === "flex") {
     renderThemeList();
   }
+}
+
+// Helper to apply a hardcoded fallback if DB is empty
+function applyFallbackStyle() {
+  const root = document.documentElement;
+  const fallback = {
+    "--bg-main": "#2b2d31",
+    "--bg-secondary": "#1e1f22",
+    "--bg-tertiary": "#313338",
+    "--text-main": "#dbdee1",
+    "--text-muted": "#949ba4",
+    "--accent": "#5865f2",
+    "--danger": "#ed4245",
+    "--success": "#3ba55d"
+  };
+  
+  // Reset previous vars
+  if (root._lastThemeVarKeys && Array.isArray(root._lastThemeVarKeys)) {
+    root._lastThemeVarKeys.forEach((k) => root.style.removeProperty(k));
+  }
+
+  Object.entries(fallback).forEach(([k, v]) => {
+    root.style.setProperty(k, v);
+  });
+  root._lastThemeVarKeys = Object.keys(fallback);
 }
 
 async function selectTheme(themeId) {
@@ -12264,17 +12122,14 @@ async function selectTheme(themeId) {
   
   applyThemeVariables(theme);
   
-  // --- CHANGE: Save ONLY to Local Storage ---
+  // Save ONLY to Local Storage
   localStorage.setItem("chatThemeId", themeId);
   
-  // OPTIONAL: Comment out the DB update if you want it PURELY local.
-  // If you want to keep DB sync for other devices, uncomment the block below.
-  /*
-  const dbValue = themeId.startsWith("__builtin_") ? null : themeId;
+  // Optional: Sync to DB if you want persistence across devices
+  // Since there are no built-ins, we always save the ID as-is.
   try {
-    await supabaseClient.from("users").update({ custom_theme_id: dbValue }).eq("username", username);
+    await supabaseClient.from("users").update({ custom_theme_id: themeId }).eq("username", username);
   } catch (err) { console.warn("Save theme failed:", err.message); }
-  */
 
   renderThemeList();
 }
