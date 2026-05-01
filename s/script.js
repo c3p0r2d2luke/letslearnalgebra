@@ -39,6 +39,42 @@
  * as bootstrapAuth() (or any failure path) calls hideLoader(), it fades out.
  */
 
+
+// --- AUDIO UNLOCK HELPER ---
+let audioContextUnlocked = false;
+
+async function unlockAudioContext() {
+  if (audioContextUnlocked) return;
+  
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    
+    // Create a silent oscillator
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.frequency.value = 1; // Very low frequency
+    gain.gain.value = 0.001; // Almost silent
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.1);
+    
+    // Wait a moment then resume
+    await ctx.resume();
+    audioContextUnlocked = true;
+    console.log("✅ Audio context unlocked via silent oscillator.");
+  } catch (e) {
+    console.warn("⚠️ Could not unlock audio context:", e);
+  }
+}
+
+// Call this immediately when the user joins a voice channel
+// We will hook this into joinVoiceChannel below.
+
 /*-------------Debugging trick to make console logs into alerts
 async function catchConsoleLogsAsAlerts() {
   const methods = ["log", "warn", "error", "info", "debug"];
@@ -2299,10 +2335,32 @@ function getDisplayName(user) {
 
 function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
+  
+  // 1. Define Base Permissions for standard roles
+  let basePerms = {
+    read_messages: true, 
+    send_messages: true, 
+    delete_messages: false,
+    rename_channels: false, 
+    create_channels: false, 
+    manage_roles: false,
+    mute_users: false, 
+    manage_messages: false, 
+    manage_reports: false,
+    send_gifs: false, 
+    send_links: false, 
+    send_attachments: false,
+    mention_everyone: false, 
+    bypass_word_filter: false,
+    create_invites: false, 
+    use_custom_emojis: false
+  };
+
+  // Assign base permissions based on role hierarchy
   switch (name) {
     case "sysadmin":
     case "admin":
-      userPermissions = {
+      basePerms = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: true, create_channels: true, manage_roles: true,
         mute_users: true, manage_messages: true, manage_reports: true,
@@ -2312,7 +2370,7 @@ function loadUserPermissions(roleName, customPerms = null) {
       };
       break;
     case "sysmanager":
-      userPermissions = {
+      basePerms = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: true, create_channels: true, manage_roles: true,
         mute_users: true, manage_messages: true, manage_reports: true,
@@ -2325,7 +2383,7 @@ function loadUserPermissions(roleName, customPerms = null) {
     case "moderator":
     case "mod":
     case "manager":
-      userPermissions = {
+      basePerms = {
         read_messages: true, send_messages: true, delete_messages: true,
         rename_channels: false, create_channels: false, manage_roles: false,
         mute_users: true, manage_messages: true, manage_reports: true,
@@ -2334,24 +2392,23 @@ function loadUserPermissions(roleName, customPerms = null) {
         create_invites: true, use_custom_emojis: true
       };
       break;
-    default:
-      userPermissions = {
-        read_messages: true, send_messages: true, delete_messages: false,
-        rename_channels: false, create_channels: false, manage_roles: false,
-        mute_users: false, manage_messages: false, manage_reports: false,
-        send_gifs: false, send_links: false, send_attachments: true,
-        mention_everyone: false, bypass_word_filter: false,
-        create_invites: false, use_custom_emojis: true
-      };
+    // Default "user" keeps the basePerms defined at the top
   }
 
-  // Merge in custom permissions from server_roles.permissions (any "true" key wins).
+  // 2. CRITICAL: Merge Custom Permissions
+  // If customPerms exists, it OVERRIDES the base permissions.
+  // We iterate through customPerms and only update keys that are explicitly set (true/false).
   if (customPerms && typeof customPerms === "object") {
-    Object.entries(customPerms).forEach(([k, v]) => {
-      if (v === true || v === false) userPermissions[k] = v || userPermissions[k];
-      // booleans: only let true OR existing-true win — never remove a built-in baseline.
+    Object.entries(customPerms).forEach(([key, value]) => {
+      // Only override if the value is explicitly true or false (not undefined/null)
+      if (value !== undefined && value !== null) {
+        basePerms[key] = value;
+      }
     });
   }
+
+  // Update global state
+  userPermissions = basePerms;
 }
 const messagesMap = new Map();
 const reactionMessageMap = new Map(); // reaction id → message id (for DELETE realtime lookup)
@@ -11381,9 +11438,14 @@ async function connectToExistingUsers(channelId) {
   }
 }
 
-// --- INITIATE CONNECTION (SENDER SIDE) ---
+// --- INITIATE CONNECTION (ROBUST VERSION) ---
 async function initiateConnection(targetUsername, channelId) {
   console.log(`🤝 Initiating connection to ${targetUsername}...`);
+
+  if (!localStream) {
+    console.error("❌ initiateConnection failed: No localStream available.");
+    return;
+  }
 
   const peerConn = new RTCPeerConnection({
     iceServers: [
@@ -11393,138 +11455,140 @@ async function initiateConnection(targetUsername, channelId) {
   });
 
   // Add local tracks
-  localStream.getTracks().forEach(track => peerConn.addTrack(track, localStream));
+  localStream.getTracks().forEach(track => {
+    peerConn.addTrack(track, localStream);
+  });
 
   // Handle incoming remote stream
   peerConn.ontrack = (event) => {
     console.log(`🎵 Received track from ${targetUsername}`);
     
-    // Remove any existing audio element for this user
-    const existingAudio = document.getElementById(`audio-${targetUsername}`);
-    if (existingAudio) existingAudio.remove();
+    let stream = event.streams[0];
     
+    // FIX: If stream is missing, create one from the track
+    if (!stream) {
+      console.warn(`⚠️ No stream object received for ${targetUsername}, creating one manually.`);
+      stream = new MediaStream();
+      event.track && stream.addTrack(event.track);
+    }
+
     const audio = document.createElement('audio');
-    audio.srcObject = event.streams[0];
+    audio.srcObject = stream;
     audio.autoplay = true;
     audio.id = `audio-${targetUsername}`;
     
-    // Apply user's volume settings
-    audio.volume = voiceOutputVolume;
-    
+    // Ensure not muted unless deafened
+    if (selfDeafened) {
+      audio.muted = true;
+    } else {
+      audio.muted = false;
+    }
+
     document.body.appendChild(audio);
 
-    // Audio level analyzer for speaking detection
+    // Audio Level Analyzer
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+    
     try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaElementSource(audio);
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-      analyser.fftSize = 256;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      let lastSpeaking = false;
-
-      const checkSpeaking = () => {
-        try {
-          analyser.getByteFrequencyData(dataArray);
-          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const isSpeaking = average > 20; // Threshold
-
-          const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
-          if (participantEl) {
-            const avatar = participantEl.querySelector('.voice-participant-avatar');
-            if (isSpeaking && !lastSpeaking) {
-              avatar.classList.add('speaking');
-            } else if (!isSpeaking && lastSpeaking) {
-              avatar.classList.remove('speaking');
-            }
-          }
-          lastSpeaking = isSpeaking;
-          requestAnimationFrame(checkSpeaking);
-        } catch (err) {
-          console.warn("Audio analysis error:", err);
-        }
-      };
-
-      checkSpeaking();
-    } catch (err) {
-      console.warn("Failed to setup audio analysis:", err);
+      audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(e => console.warn("AudioContext resume failed:", e));
+      }
+    } catch (e) {
+      console.warn("Failed to create AudioContext:", e);
+      return;
     }
+
+    const analyser = audioCtx.createAnalyser();
+    const source = audioCtx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    analyser.fftSize = 256;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let lastSpeaking = false;
+
+    function checkSpeaking() {
+      analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const isSpeaking = average > 20; 
+
+      const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+      if (participantEl) {
+        const avatar = participantEl.querySelector('.voice-participant-avatar');
+        if (isSpeaking && !lastSpeaking) {
+          avatar.classList.add('speaking');
+        } else if (!isSpeaking && lastSpeaking) {
+          avatar.classList.remove('speaking');
+        }
+      }
+      lastSpeaking = isSpeaking;
+      requestAnimationFrame(checkSpeaking);
+    }
+
+    checkSpeaking();
   };
 
-  // Handle ICE candidates
   peerConn.onicecandidate = async (event) => {
     if (event.candidate) {
-      await supabaseClient
-        .from("voice_signaling")
-        .insert({
-          channel_id: channelId,
-          from_username: username,
-          to_username: targetUsername,
-          ice_candidate: event.candidate.toJSON()
-        });
+      try {
+        await supabaseClient
+          .from("voice_signaling")
+          .insert({
+            channel_id: channelId,
+            from_username: username,
+            to_username: targetUsername,
+            ice_candidate: event.candidate.toJSON()
+          });
+      } catch (err) {
+        console.error("Failed to send ICE candidate:", err);
+      }
     }
   };
 
-  // Create and send Offer
-  const offer = await peerConn.createOffer();
-  await peerConn.setLocalDescription(offer);
+  try {
+    const offer = await peerConn.createOffer();
+    await peerConn.setLocalDescription(offer);
 
-  // Send Offer via DB
-  await supabaseClient
-    .from("voice_signaling")
-    .insert({
-      channel_id: channelId,
-      from_username: username,
-      to_username: targetUsername,
-      sdp: JSON.stringify(offer)
-    });
+    await supabaseClient
+      .from("voice_signaling")
+      .insert({
+        channel_id: channelId,
+        from_username: username,
+        to_username: targetUsername,
+        sdp: JSON.stringify(offer)
+      });
 
-  currentPeerConnections.set(targetUsername, peerConn);
-
-  // Add connection state monitoring
-  peerConn.onconnectionstatechange = () => {
-    console.log(`🔗 Connection state with ${targetUsername}:`, peerConn.connectionState);
-    if (peerConn.connectionState === 'failed' || peerConn.connectionState === 'disconnected') {
-      console.warn(`❌ Connection with ${targetUsername} failed/disconnected`);
-      // Clean up audio element
-      const audio = document.getElementById(`audio-${targetUsername}`);
-      if (audio) audio.remove();
-      // Remove from connections map
-      currentPeerConnections.delete(targetUsername);
-    }
-  };
-
-  // Handle ICE connection state changes
-  peerConn.oniceconnectionstatechange = () => {
-    console.log(`🧊 ICE connection state with ${targetUsername}:`, peerConn.iceConnectionState);
-  };
+    currentPeerConnections.set(targetUsername, peerConn);
+    console.log(`✅ Offer sent to ${targetUsername}`);
+  } catch (err) {
+    console.error("❌ Failed to create/send offer:", err);
+  }
 }
 
-// --- JOIN VOICE CHANNEL ---
+// --- JOIN VOICE CHANNEL (UPDATED) ---
 async function joinVoiceChannel(channelId) {
   const channel = channels.find(c => c.id === channelId);
   
-  // 1. Validation
   if (!channel || channel.channel_type !== 'voice') {
     console.error("❌ Cannot join: Not a voice channel");
     alert("❌ This is not a voice channel.");
     return;
   }
 
-  // 2. Leave current channel if in a different one
   if (currentVoiceChannelId && currentVoiceChannelId !== channelId) {
     leaveVoiceChannel();
   }
 
   try {
-    // 3. Request Microphone Access
     console.log("🎤 Requesting microphone access...");
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log("✅ Microphone access granted.");
 
-    // 4. Update UI: Hide Text Chat, Show Voice Controls
+    // CALL THE HELPER HERE
+    await unlockAudioContext();
+
     const messagesList = document.getElementById('messages');
     const controlsBar = document.getElementById('controls');
     const replyBanner = document.getElementById('replyBanner');
@@ -11535,36 +11599,29 @@ async function joinVoiceChannel(channelId) {
     const input = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendButton');
 
-    // Hide Text Elements
     if (messagesList) messagesList.style.display = 'none';
     if (controlsBar) controlsBar.style.display = 'none';
     if (replyBanner) replyBanner.style.display = 'none';
 
-    // Show Voice Elements (Use 'flex' to match your CSS)
     if (voiceGrid) {
       voiceGrid.style.display = 'flex';
-      voiceGrid.innerHTML = ''; // Clear old participants
-      voiceParticipantState.clear(); // Reset state map
+      voiceGrid.innerHTML = ''; 
+      voiceParticipantState.clear(); 
     }
     if (voiceBar) voiceBar.style.display = 'flex';
     
-    // Update Header & Inputs
     if (vcStatusChannel) vcStatusChannel.textContent = channel.name;
     if (currentChannelName) {
       currentChannelName.textContent = `🎤 ${channel.name}`;
-      currentChannelName.style.color = 'var(--success)'; // Optional green tint
+      currentChannelName.style.color = 'var(--success)'; 
     }
     if (input) {
       input.disabled = true;
-      input.value = ''; // Clear input
+      input.value = ''; 
     }
     if (sendBtn) sendBtn.disabled = true;
 
-    // 5. Update Database Presence
-    // NOTE: This will fail if your DB is missing is_muted/is_deafened columns.
-    // We catch this error to give a friendly alert.
     try {
-      // Delete stale entry first (upsert pattern)
       await supabaseClient
         .from("voice_room_participants")
         .delete()
@@ -11585,7 +11642,7 @@ async function joinVoiceChannel(channelId) {
       if (insertError) {
         console.error("DB Insert Error:", insertError);
         if (insertError.message.includes("column") && insertError.message.includes("does not exist")) {
-          alert("❌ Database Error: The 'voice_room_participants' table is missing required columns (is_muted, is_deafened, etc.).\n\nPlease run the SQL ALTER TABLE command provided in the previous response.");
+          alert("❌ Database Error: Missing columns. Run SQL migration.");
           leaveVoiceChannel();
           return;
         }
@@ -11593,26 +11650,20 @@ async function joinVoiceChannel(channelId) {
       }
     } catch (dbErr) {
       console.error("Failed to update DB presence:", dbErr);
-      // Continue anyway? Maybe, but better to stop if DB is broken.
-      // For now, we'll alert and leave.
-      alert("❌ Could not update voice status in database. Check console for details.");
+      alert("❌ Could not update voice status in database.");
       leaveVoiceChannel();
       return;
     }
 
-    // 6. Set Global State
     currentVoiceChannelId = channelId;
     selfMuted = false;
     selfDeafened = false;
 
-    // 7. Subscribe to Real-time Updates
     subscribeToVoiceSignaling(channelId);
     subscribeToVoiceRoom(channelId);
 
-    // 8. Connect to existing users
     await connectToExistingUsers(channelId);
 
-    // 9. Fetch and Render Existing Participants
     const { data: participants, error: fetchError } = await supabaseClient
       .from("voice_room_participants")
       .select("username, is_muted, is_deafened, is_admin_muted, is_admin_deafened")
@@ -11620,12 +11671,10 @@ async function joinVoiceChannel(channelId) {
 
     if (fetchError) {
       console.error("❌ Failed to fetch participants:", fetchError);
-      // Fallback: Render self only
       voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
       renderVoiceParticipant(username, voiceParticipantState.get(username));
     } else if (participants) {
       for (const p of participants) {
-        // Skip self if already handled, or update state
         if (p.username === username) continue;
 
         voiceParticipantState.set(p.username, {
@@ -11636,22 +11685,18 @@ async function joinVoiceChannel(channelId) {
         });
         renderVoiceParticipant(p.username, voiceParticipantState.get(p.username));
 
-        // Initiate connection if not already connected
         if (!currentPeerConnections.has(p.username)) {
           await initiateConnection(p.username, channelId);
         }
       }
       
-      // Ensure self is rendered last
       voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
       renderVoiceParticipant(username, voiceParticipantState.get(username));
     } else {
-      // No one else there, just render self
       voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
       renderVoiceParticipant(username, voiceParticipantState.get(username));
     }
 
-    // 10. Sync Local State (if user was previously muted)
     if (selfMuted) {
       const st = voiceParticipantState.get(username) || {};
       voiceParticipantState.set(username, { ...st, is_muted: true });
@@ -11663,7 +11708,6 @@ async function joinVoiceChannel(channelId) {
         .eq("username", username);
     }
 
-    // 11. Apply Local Audio States
     applyLocalMicState();
     applyLocalDeafenState();
     refreshVoiceControlButtons();
@@ -12175,7 +12219,7 @@ const BUILTIN_THEMES = [
 ];
 
 async function loadThemesAndApply() {
-  // Load from DB; merge with built-ins. Built-in dark theme is always available even if table is empty.
+  // Load from DB; merge with built-ins. Built-in dark theme is always available.
   let dbThemes = [];
   try {
     const { data, error } = await supabaseClient
@@ -12192,28 +12236,49 @@ async function loadThemesAndApply() {
 
   availableThemes = [...BUILTIN_THEMES, ...dbThemes];
 
-  // Decide which theme to apply: user's saved choice → default flag → first.
+  // --- CHANGE: Prioritize Local Storage over Database ---
   let chosen = null;
-  if (currentThemeId) chosen = availableThemes.find(t => t.id === currentThemeId);
-  if (!chosen) chosen = availableThemes.find(t => t.is_default);
-  if (!chosen) chosen = availableThemes[0];
-  if (chosen) {
-    try {
-      applyThemeVariables(chosen);
-      console.log("✅ Applied theme:", chosen.name || chosen.display_name);
-    } catch (err) {
-      console.warn("❌ Failed to apply theme:", err.message);
-      // Fallback to first available theme
-      if (chosen !== availableThemes[0]) {
-        applyThemeVariables(availableThemes[0]);
-      }
-    }
+  
+  // 1. Check Local Storage first (Appearance tab setting)
+  const localThemeId = localStorage.getItem("chatThemeId");
+  
+  if (localThemeId) {
+    chosen = availableThemes.find(t => t.id === localThemeId);
   }
+
+  // 2. Fallback to default flag if no local selection
+  if (!chosen) chosen = availableThemes.find(t => t.is_default);
+  
+  // 3. Fallback to first theme if nothing else
+  if (!chosen) chosen = availableThemes[0];
+
+  if (chosen) applyThemeVariables(chosen);
 
   // If the settings modal is currently open on the appearance tab, refresh it.
   if (document.getElementById("userSettingsModal")?.style.display === "flex") {
     renderThemeList();
   }
+}
+
+async function selectTheme(themeId) {
+  const theme = availableThemes.find(t => t.id === themeId);
+  if (!theme) return;
+  
+  applyThemeVariables(theme);
+  
+  // --- CHANGE: Save ONLY to Local Storage ---
+  localStorage.setItem("chatThemeId", themeId);
+  
+  // OPTIONAL: Comment out the DB update if you want it PURELY local.
+  // If you want to keep DB sync for other devices, uncomment the block below.
+  /*
+  const dbValue = themeId.startsWith("__builtin_") ? null : themeId;
+  try {
+    await supabaseClient.from("users").update({ custom_theme_id: dbValue }).eq("username", username);
+  } catch (err) { console.warn("Save theme failed:", err.message); }
+  */
+
+  renderThemeList();
 }
 
 // Coerce a theme's css_variables (which may come back from Postgres as a JSON
@@ -12358,19 +12423,6 @@ function applyThemeVariables(theme) {
     root._lastThemeVarKeys = Object.keys(vars);
   } catch {}
 })();
-
-async function selectTheme(themeId) {
-  const theme = availableThemes.find(t => t.id === themeId);
-  if (!theme) return;
-  applyThemeVariables(theme);
-  currentThemeId = themeId;
-  // Built-in theme has a synthetic id that the DB doesn't know — store null in that case.
-  const dbValue = themeId.startsWith("__builtin_") ? null : themeId;
-  try {
-    await supabaseClient.from("users").update({ custom_theme_id: dbValue }).eq("username", username);
-  } catch (err) { console.warn("Save theme failed:", err.message); }
-  renderThemeList();
-}
 
 function renderThemeList() {
   const list = document.getElementById("settingsThemeList");
