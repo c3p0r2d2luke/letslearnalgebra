@@ -73,7 +73,7 @@ async function unlockAudioContext() {
 // Call this immediately when the user joins a voice channel
 // We will hook this into joinVoiceChannel below.
 
-/*-------------Debugging trick to make console logs into alerts
+/*-------------Debugging trick to make console logs into alerts*/
 async function catchConsoleLogsAsAlerts() {
   const methods = ["log", "warn", "error", "info", "debug"];
 
@@ -99,7 +99,7 @@ async function catchConsoleLogsAsAlerts() {
   });
 }
 
-catchConsoleLogsAsAlerts();*/
+catchConsoleLogsAsAlerts();
 
 let _loaderHidden = false;
 
