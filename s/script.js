@@ -11699,16 +11699,14 @@ async function connectToExistingUsers(channelId) {
 async function initiateConnection(targetUsername, channelId) {
   console.log(`🤝 Initiating connection to ${targetUsername}...`);
 
-<<<<<<< HEAD
   if (!localStream) {
     console.error("❌ initiateConnection failed: No localStream available.");
     return;
   }
-=======
+
   // Initialize connection state
   connectionStates.set(targetUsername, { remoteDescriptionSet: false });
   pendingIceCandidates.set(targetUsername, []);
->>>>>>> ba361ac (VC)
 
   const peerConn = new RTCPeerConnection({
     iceServers: [
