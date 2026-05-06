@@ -4814,6 +4814,7 @@ function createMessageElement(msg) {
   if (msg.is_pinned) li.dataset.pinned = "true";
   if (msg.reply_to) li.classList.add("is-reply");
 
+  // 1. Clean content for display (remove the internal marker if it exists)
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
   const timestamp = msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -4857,7 +4858,7 @@ function createMessageElement(msg) {
   const fileMatch = cleanContent.match(/\[📄 (.*?)\]\((.*?)\)/);
 
   if (fileMatch) {
-    // Handle File Uploads
+    // Handle File Uploads (Existing logic)
     const url = fileMatch[2].trim();
     const type = getFileType(url);
     if (type === "image") {
@@ -4876,24 +4877,21 @@ function createMessageElement(msg) {
     // --- TEXT MESSAGE HANDLING ---
     let formatted = formatMessageContent(cleanContent, msg.role);
 
-    // --- CRITICAL: FORCE @ MENTION STYLING (BLUE) ---
-    // This regex finds @username patterns and wraps them in the styled span
-    // It runs AFTER formatMessageContent to ensure we catch raw text mentions
+    // Force @ Mention Styling
     formatted = formatted.replace(/@([a-zA-Z0-9_]+)/g, (match, name) => {
       const isMine = name.toLowerCase() === (username || "").toLowerCase();
       const mentionClass = isMine ? "mention mine" : "mention";
-      // We escape the name to prevent XSS, but keep the structure
       return `<span class="${mentionClass}"><span class="mention-mark">@</span><span class="mention-name">${escapeHTML(name)}</span></span>`;
     });
 
-    // Handle Code Blocks (Admin only usually, but good to check)
+    // Handle Code Blocks
     if (!formatted.startsWith("<pre class=\"code-block\">")) {
       formatted = replaceCustomEmojiShortcodes(formatted);
     }
 
     contentDiv.innerHTML = formatted;
 
-    // Apply long message class if content is very long
+    // Apply long message class
     if (cleanContent.length > 1000) {
       contentDiv.classList.add("long-message");
     }
@@ -4903,33 +4901,44 @@ function createMessageElement(msg) {
       contentDiv.classList.add("emoji-only-message");
     }
 
-    // --- LINK PREVIEWS & GIFS (Post-render) ---
+    // --- CRITICAL GIF & LINK HANDLING ---
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
+    
     if (urlMatch) {
       const url = urlMatch[0];
       const gifUrl = resolveGifUrl(url);
 
+      // Helper: Strip the raw URL text from the HTML
       const stripUrlFromBody = () => {
         const escapedUrl = escapeHTML(url);
         let html = contentDiv.innerHTML || "";
+        
+        // Remove the raw URL text (escaped)
         if (html.includes(escapedUrl)) {
           html = html.split(escapedUrl).join("");
-        } else if (html.includes(url)) {
+        } 
+        // Remove the raw URL text (unescaped, just in case)
+        else if (html.includes(url)) {
           html = html.split(url).join("");
         }
+        
+        // Clean up any leftover whitespace
         contentDiv.innerHTML = html.trim();
       };
 
       const appendInlineGif = (mediaUrl) => {
-        stripUrlFromBody();
+        stripUrlFromBody(); // <--- STRIPS THE TEXT URL
         contentDiv.appendChild(createInlineGifElement(mediaUrl));
       };
 
       const appendLinkPreview = () => {
+        // Only show preview if we haven't already embedded a GIF
         if (cleanContent.includes(NO_EMBED_PHRASE)) return;
+        
         const previewContainer = document.createElement("div");
         previewContainer.className = "link-preview-container";
         contentDiv.appendChild(previewContainer);
+        
         setTimeout(async () => {
           const preview = await buildLinkPreview(url);
           if (preview) {
@@ -4942,21 +4951,25 @@ function createMessageElement(msg) {
       };
 
       if (gifUrl) {
+        // It's a direct GIF/Image -> Show ONLY the image
         appendInlineGif(gifUrl);
       } else if (isLikelyGifPageUrl(url) && !cleanContent.includes(NO_EMBED_PHRASE)) {
+        // It's a page URL (like tenor.com/view/...) -> Try to resolve to media
         const placeholder = document.createElement("div");
         placeholder.className = "gif-resolving";
         contentDiv.appendChild(placeholder);
+        
         setTimeout(async () => {
           const resolved = await resolveGifPageUrlAsync(url);
           placeholder.remove();
           if (resolved) {
-            appendInlineGif(resolved);
+            appendInlineGif(resolved); // <--- STRIPS TEXT IF SUCCESSFUL
           } else {
-            appendLinkPreview();
+            appendLinkPreview(); // Fallback to preview if resolution fails
           }
         }, 0);
       } else {
+        // Regular link -> Show Preview
         appendLinkPreview();
       }
     }
@@ -14726,3 +14739,85 @@ window.monitorNetworkAudio = async function() {
     }
   }
 };
+
+async function fixPlainGifUrls() {
+  console.log('🔧 Starting plain GIF URL cleanup...');
+  
+  if (!username) {
+    console.error('❌ Not logged in. Please log in first.');
+    return;
+  }
+
+  // Regex to detect plain GIF URLs (tenor, giphy, or .gif/.webp/.mp4 endings)
+  const GIF_URL_REGEX = /^(https?:\/\/[^\s]+)$/i;
+  const GIF_EXTENSIONS = /\.(gif|webp|mp4|png|jpg|jpeg)(\?.*)?$/i;
+  const TENOR_DOMAIN = /tenor\.com/i;
+  const GIPHY_DOMAIN = /giphy\.com/i;
+
+  let processed = 0;
+  let fixed = 0;
+  let errors = 0;
+
+  // Fetch messages - adjust limit if you have more
+  const { data: messages, error: fetchError } = await supabaseClient
+    .from("messages")
+    .select("id, content, channel_id")
+    .order("id", { ascending: false })
+    .limit(500);
+
+  if (fetchError) {
+    console.error('❌ Failed to fetch messages:', fetchError.message);
+    return;
+  }
+
+  if (!messages || messages.length === 0) {
+    console.log('ℹ️ No messages found to check.');
+    return;
+  }
+
+  console.log(`📊 Found ${messages.length} messages to scan.`);
+
+  for (const msg of messages) {
+    processed++;
+    
+    // Check if content is a plain GIF URL
+    const isPlainUrl = GIF_URL_REGEX.test(msg.content.trim());
+    
+    if (isPlainUrl) {
+      const url = msg.content.trim();
+      const isGif = GIF_EXTENSIONS.test(url) || TENOR_DOMAIN.test(url) || GIPHY_DOMAIN.test(url);
+      
+      if (isGif) {
+        // Wrap in markdown format that your app expects
+        const fixedContent = `[📄 GIF](${url})`;
+        
+        try {
+          const { error: updateError } = await supabaseClient
+            .from("messages")
+            .update({ content: fixedContent })
+            .eq("id", msg.id);
+
+          if (updateError) {
+            console.warn(`⚠️ Failed to update message ${msg.id}:`, updateError.message);
+            errors++;
+          } else {
+            fixed++;
+            console.log(`✅ Fixed message ${msg.id}: ${url.substring(0, 50)}...`);
+          }
+        } catch (err) {
+          console.error(`❌ Exception updating message ${msg.id}:`, err);
+          errors++;
+        }
+      }
+    }
+  }
+
+  console.log(`\n🏁 Cleanup Complete!`);
+  console.log(`   Processed: ${processed}`);
+  console.log(`   Fixed: ${fixed}`);
+  console.log(`   Errors: ${errors}`);
+  
+  if (fixed > 0) {
+    console.log('💡 Tip: Reload the page to see the changes reflected in the chat.');
+  }
+}
