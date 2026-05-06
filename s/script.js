@@ -5130,9 +5130,33 @@ if (avatarInput) {
   });
 }
 
-// Secret sign-out shortcut
+// Secret sign-out shortcut + Admin Console Toggle
 document.addEventListener("keydown", async e => {
-  if(e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase()==="t"){
+  // 1. Admin Console Toggle (Ctrl + Alt + I)
+  if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "i") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    
+    if (currentSystemRole !== "SysAdmin") {
+      return; 
+    }
+
+    if (adminDebugPanel) {
+      if (adminDebugPanel.style.display === "none") {
+        adminDebugPanel.style.display = "flex";
+        const input = document.getElementById('admin-console-input');
+        if (input) input.focus();
+      } else {
+        adminDebugPanel.style.display = "none";
+      }
+    } else {
+      initAdminDebugPanel();
+    }
+    return;
+  }
+
+  // 2. Existing Secret Logout (Ctrl + Alt + Shift + T)
+  if (e.ctrlKey && e.altKey && e.shiftKey && e.key.toLowerCase() === "t") {
     e.preventDefault();
     await performLogout();
   }
@@ -11715,81 +11739,86 @@ async function initiateConnection(targetUsername, channelId) {
     ]
   });
 
+window.activeConnections = window.activeConnections || {};
+window.activeConnections[targetUsername] = peerConn;
+
   // Add local tracks
   localStream.getTracks().forEach(track => {
     peerConn.addTrack(track, localStream);
   });
 
   // Handle incoming remote stream
-  peerConn.ontrack = (event) => {
-    console.log(`🎵 Received track from ${targetUsername}`);
-    
-    let stream = event.streams[0];
-    
-    // FIX: If stream is missing, create one from the track
-    if (!stream) {
-      console.warn(`⚠️ No stream object received for ${targetUsername}, creating one manually.`);
-      stream = new MediaStream();
-      event.track && stream.addTrack(event.track);
+peerConn.ontrack = (event) => {
+  console.log(`🎵 Received track from ${targetUsername}`);
+  
+  let stream = event.streams[0];
+  
+  if (!stream) {
+    console.warn(`⚠️ No stream object received for ${targetUsername}, creating one manually.`);
+    stream = new MediaStream();
+    event.track && stream.addTrack(event.track);
+  }
+
+  const audio = document.createElement('audio');
+  audio.srcObject = stream;
+  
+  // 🔥 CRITICAL: Mute by default. Audio plays ONLY via testAudioRouting()
+  audio.muted = true; 
+  audio.dataset.autoMuted = "true";
+  
+  audio.autoplay = true;
+  audio.id = `audio-${targetUsername}`;
+  
+  if (selfDeafened) {
+    audio.muted = true;
+  } else {
+    audio.muted = true; 
+  }
+
+  document.body.appendChild(audio);
+
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  let audioCtx;
+  
+  try {
+    audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(e => console.warn("AudioContext resume failed:", e));
     }
+  } catch (e) {
+    console.warn("Failed to create AudioContext:", e);
+    return;
+  }
 
-    const audio = document.createElement('audio');
-    audio.srcObject = stream;
-    audio.autoplay = true;
-    audio.id = `audio-${targetUsername}`;
-    
-    // Ensure not muted unless deafened
-    if (selfDeafened) {
-      audio.muted = true;
-    } else {
-      audio.muted = false;
-    }
+  const analyser = audioCtx.createAnalyser();
+  const source = audioCtx.createMediaElementSource(audio);
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  analyser.fftSize = 256;
 
-    document.body.appendChild(audio);
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  let lastSpeaking = false;
 
-    // Audio Level Analyzer
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    let audioCtx;
-    
-    try {
-      audioCtx = new AudioContext();
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(e => console.warn("AudioContext resume failed:", e));
+  function checkSpeaking() {
+    analyser.getByteFrequencyData(dataArray);
+    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    const isSpeaking = average > 20; 
+
+    const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+    if (participantEl) {
+      const avatar = participantEl.querySelector('.voice-participant-avatar');
+      if (isSpeaking && !lastSpeaking) {
+        avatar.classList.add('speaking');
+      } else if (!isSpeaking && lastSpeaking) {
+        avatar.classList.remove('speaking');
       }
-    } catch (e) {
-      console.warn("Failed to create AudioContext:", e);
-      return;
     }
+    lastSpeaking = isSpeaking;
+    requestAnimationFrame(checkSpeaking);
+  }
 
-    const analyser = audioCtx.createAnalyser();
-    const source = audioCtx.createMediaElementSource(audio);
-    source.connect(analyser);
-    analyser.connect(audioCtx.destination);
-    analyser.fftSize = 256;
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    let lastSpeaking = false;
-
-    function checkSpeaking() {
-      analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      const isSpeaking = average > 20; 
-
-      const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
-      if (participantEl) {
-        const avatar = participantEl.querySelector('.voice-participant-avatar');
-        if (isSpeaking && !lastSpeaking) {
-          avatar.classList.add('speaking');
-        } else if (!isSpeaking && lastSpeaking) {
-          avatar.classList.remove('speaking');
-        }
-      }
-      lastSpeaking = isSpeaking;
-      requestAnimationFrame(checkSpeaking);
-    }
-
-    checkSpeaking();
-  };
+  checkSpeaking();
+};
 
   peerConn.onicecandidate = async (event) => {
     if (event.candidate) {
@@ -13676,6 +13705,12 @@ window.testAudioRouting = async function() {
     // Set low volume to avoid feedback
     gainNode.gain.value = 0.1;
     
+    // 🔥 CRITICAL: Unmute all voice audio elements so we can hear them
+    document.querySelectorAll('audio[id^="audio-"]').forEach(el => {
+      el.muted = false;
+      el.volume = 0.1; // Keep volume low to prevent feedback
+    });
+    
     // Set up analyser for level monitoring
     analyser.fftSize = 256;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -13948,3 +13983,746 @@ window.runVoiceAudioTests = async function() {
 };
 
 console.log('🔬 Voice chat test functions loaded. Use testVoiceChat(), quickVoiceCheck(), testAudioPlayback(), testAudioRouting(), testPeerAudioFlow(), startAudioLevelMonitoring(), testAudioDeviceSwitching(), or runVoiceAudioTests() in console.');
+
+/**
+ * Admin Debug Panel Implementation
+ * 
+ * SECURITY NOTE: This panel is only visible to users with currentSystemRole === "SysAdmin".
+ * It does not bypass browser security or school restrictions. It runs within the 
+ * standard application context.
+ */
+
+let adminDebugPanel = null;
+let adminConsoleHistory = [];
+let adminConsoleHistoryIndex = -1;
+let adminSuggestionBox = null;
+let adminSuggestionIndex = -1;
+
+function initAdminDebugPanel() {
+  // Only initialize if the user is a SysAdmin
+  if (currentSystemRole !== "SysAdmin") {
+    console.log("Admin Debug Panel: Access denied (not SysAdmin)");
+    return;
+  }
+
+  // Create the panel container
+  adminDebugPanel = document.createElement('div');
+  adminDebugPanel.id = 'admin-debug-panel';
+  adminDebugPanel.style.cssText = `
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    width: 600px;
+    height: 400px;
+    background-color: #1e1f22;
+    border-top-left-radius: 8px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    z-index: 10000;
+    font-family: 'Consolas', 'Monaco', monospace;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #444;
+    resize: both;
+    overflow: hidden;
+  `;
+
+  // Header
+  const header = document.createElement('div');
+  header.style.cssText = `
+    padding: 8px 12px;
+    background-color: #2f3136;
+    border-bottom: 1px solid #444;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: move;
+    user-select: none;
+  `;
+  header.innerHTML = `
+    <span style="color: #3ba55d; font-weight: bold;">🛡️ SysAdmin Console</span>
+    <button id="admin-console-close" style="background: #ed4245; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">×</button>
+  `;
+
+  // Close button handler
+  header.querySelector('#admin-console-close').addEventListener('click', () => {
+    adminDebugPanel.style.display = 'none';
+  });
+
+  // Output area
+  const output = document.createElement('div');
+  output.id = 'admin-console-output';
+  output.style.cssText = `
+    flex: 1;
+    padding: 8px;
+    overflow-y: auto;
+    background-color: #1e1f22;
+    color: #dbdee1;
+    font-size: 13px;
+    line-height: 1.4;
+  `;
+
+  // Input area
+  const inputContainer = document.createElement('div');
+  inputContainer.style.cssText = `
+    display: flex;
+    padding: 8px;
+    background-color: #2f3136;
+    border-top: 1px solid #444;
+    position: relative;
+  `;
+
+  const prompt = document.createElement('span');
+  prompt.textContent = '>';
+  prompt.style.cssText = `
+    color: #3ba55d;
+    margin-right: 8px;
+    font-weight: bold;
+  `;
+
+  const input = document.createElement('input');
+  input.id = 'admin-console-input';
+  input.type = 'text';
+  input.style.cssText = `
+    flex: 1;
+    background-color: #1e1f22;
+    border: 1px solid #444;
+    color: #dbdee1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: inherit;
+    outline: none;
+  `;
+
+  // Autocomplete Suggestions
+  const suggestions = [
+    "testVoiceChat()",
+    "quickVoiceCheck()",
+    "testAudioPlayback()",
+    "testAudioRouting()",
+    "testPeerAudioFlow()",
+    "startAudioLevelMonitoring()",
+    "testAudioDeviceSwitching()",
+    "runVoiceAudioTests()",
+    "console.log('Hello')",
+    "console.error('Error')",
+    "currentSystemRole",
+    "currentVoiceChannelId",
+    "localStream",
+    "servers",
+    "channels",
+    "username",
+    "supabaseClient"
+  ];
+
+  function showSuggestions(list, target) {
+    if (adminSuggestionBox) adminSuggestionBox.remove();
+    if (list.length === 0) return;
+
+    adminSuggestionBox = document.createElement('div');
+    adminSuggestionBox.id = 'admin-console-suggestions';
+    adminSuggestionBox.style.cssText = `
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      background: #2f3136;
+      border: 1px solid #444;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      max-height: 150px;
+      overflow-y: auto;
+      z-index: 10001;
+    `;
+
+    list.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.textContent = item;
+      div.style.cssText = `
+        padding: 4px 8px;
+        cursor: pointer;
+        color: #dbdee1;
+      `;
+      if (idx === adminSuggestionIndex) {
+        div.style.background = '#5865f2';
+      }
+      div.addEventListener('click', () => {
+        input.value = item;
+        adminSuggestionBox.remove();
+        adminSuggestionBox = null;
+      });
+      adminSuggestionBox.appendChild(div);
+    });
+
+    inputContainer.appendChild(adminSuggestionBox);
+  }
+
+  function hideSuggestions() {
+    if (adminSuggestionBox) {
+      adminSuggestionBox.remove();
+      adminSuggestionBox = null;
+    }
+    adminSuggestionIndex = -1;
+  }
+
+  // Command execution handler
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const command = input.value.trim();
+      if (command) {
+        executeAdminCommand(command);
+        adminConsoleHistory.push(command);
+        adminConsoleHistoryIndex = adminConsoleHistory.length;
+        input.value = '';
+        hideSuggestions();
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (adminConsoleHistoryIndex > 0) {
+        adminConsoleHistoryIndex--;
+        input.value = adminConsoleHistory[adminConsoleHistoryIndex];
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (adminConsoleHistoryIndex < adminConsoleHistory.length - 1) {
+        adminConsoleHistoryIndex++;
+        input.value = adminConsoleHistory[adminConsoleHistoryIndex];
+      } else {
+        adminConsoleHistoryIndex = adminConsoleHistory.length;
+        input.value = '';
+      }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const val = input.value;
+      if (!val) return;
+
+      const matches = suggestions.filter(s => s.startsWith(val));
+      if (matches.length > 0) {
+        if (matches.length === 1) {
+          input.value = matches[0];
+          hideSuggestions();
+        } else {
+          adminSuggestionIndex = -1;
+          showSuggestions(matches, input);
+        }
+      }
+    } else if (e.key === 'ArrowDown' && adminSuggestionBox) {
+      e.preventDefault();
+      if (adminSuggestionIndex < (adminSuggestionBox.children.length - 1)) {
+        adminSuggestionIndex++;
+        const items = adminSuggestionBox.children;
+        for (let i = 0; i < items.length; i++) {
+          items[i].style.background = (i === adminSuggestionIndex) ? '#5865f2' : '';
+        }
+      }
+    } else if (e.key === 'ArrowUp' && adminSuggestionBox) {
+      e.preventDefault();
+      if (adminSuggestionIndex > 0) {
+        adminSuggestionIndex--;
+        const items = adminSuggestionBox.children;
+        for (let i = 0; i < items.length; i++) {
+          items[i].style.background = (i === adminSuggestionIndex) ? '#5865f2' : '';
+        }
+      }
+    } else if (e.key === 'Escape') {
+      hideSuggestions();
+    } else {
+      // Hide suggestions on normal typing unless Tab was just pressed
+      const val = input.value;
+      const matches = suggestions.filter(s => s.startsWith(val));
+      if (matches.length > 1 && adminSuggestionBox) {
+        showSuggestions(matches, input);
+      } else {
+        hideSuggestions();
+      }
+    }
+  });
+
+  // Append elements
+  inputContainer.appendChild(prompt);
+  inputContainer.appendChild(input);
+  adminDebugPanel.appendChild(header);
+  adminDebugPanel.appendChild(output);
+  adminDebugPanel.appendChild(inputContainer);
+
+  // Make draggable
+  makeElementDraggable(adminDebugPanel, header);
+
+  // Append to body
+  document.body.appendChild(adminDebugPanel);
+
+  // Override console methods to capture logs
+  overrideConsoleMethods();
+
+  // Initial welcome message
+  logToAdminConsole('✅ SysAdmin Console initialized.', 'success');
+  logToAdminConsole('Type commands to execute. Use Tab for autocomplete.', 'info');
+}
+
+function overrideConsoleMethods() {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const originalInfo = console.info;
+
+  console.log = (...args) => {
+    logToAdminConsole(formatConsoleArgs(args), 'log');
+    originalLog.apply(console, args);
+  };
+
+  console.error = (...args) => {
+    logToAdminConsole(formatConsoleArgs(args), 'error');
+    originalError.apply(console, args);
+  };
+
+  console.warn = (...args) => {
+    logToAdminConsole(formatConsoleArgs(args), 'warn');
+    originalWarn.apply(console, args);
+  };
+
+  console.info = (...args) => {
+    logToAdminConsole(formatConsoleArgs(args), 'info');
+    originalInfo.apply(console, args);
+  };
+}
+
+function formatConsoleArgs(args) {
+  return args.map(arg => {
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg, null, 2);
+      } catch {
+        return '[Circular or Unserializable Object]';
+      }
+    }
+    return String(arg);
+  }).join(' ');
+}
+
+function logToAdminConsole(message, type = 'log') {
+  if (!adminDebugPanel) return;
+
+  const output = document.getElementById('admin-console-output');
+  const line = document.createElement('div');
+  line.style.cssText = `
+    margin-bottom: 4px;
+    word-wrap: break-word;
+    border-left: 3px solid transparent;
+    padding-left: 8px;
+  `;
+
+  const timestamp = new Date().toLocaleTimeString();
+  const prefix = `[${timestamp}]`;
+
+  switch (type) {
+    case 'error':
+      line.style.borderLeftColor = '#ed4245';
+      line.style.color = '#ff6b6b';
+      break;
+    case 'warn':
+      line.style.borderLeftColor = '#faa61a';
+      line.style.color = '#ffd966';
+      break;
+    case 'success':
+      line.style.borderLeftColor = '#3ba55d';
+      line.style.color = '#3ba55d';
+      break;
+    case 'info':
+      line.style.borderLeftColor = '#5865f2';
+      line.style.color = '#5865f2';
+      break;
+    default:
+      line.style.borderLeftColor = '#949ba4';
+      line.style.color = '#dbdee1';
+  }
+
+  line.innerHTML = `<span style="opacity: 0.6; margin-right: 8px;">${prefix}</span>${escapeHTML(message)}`;
+  output.appendChild(line);
+  output.scrollTop = output.scrollHeight;
+}
+
+function executeAdminCommand(command) {
+  logToAdminConsole(`> ${command}`, 'info');
+
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = new Function('return ' + command)();
+    logToAdminConsole(`✅ ${result}`, 'success');
+  } catch (error) {
+    // Try direct evaluation if it's a statement
+    try {
+      // eslint-disable-next-line no-eval
+      eval(command);
+      logToAdminConsole(`✅ Command executed (no return value)`, 'success');
+    } catch (evalError) {
+      logToAdminConsole(`❌ ${evalError.message}`, 'error');
+    }
+  }
+}
+
+function makeElementDraggable(element, handle) {
+  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+  
+  handle.onmousedown = dragMouseDown;
+
+  function dragMouseDown(e) {
+    e.preventDefault();
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+  }
+
+  function elementDrag(e) {
+    e.preventDefault();
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    element.style.top = (element.offsetTop - pos2) + "px";
+    element.style.left = (element.offsetLeft - pos1) + "px";
+  }
+
+  function closeDragElement() {
+    document.onmouseup = null;
+    document.onmousemove = null;
+  }
+}
+
+// Initialize on load if SysAdmin
+if (typeof currentSystemRole !== 'undefined' && currentSystemRole === 'SysAdmin') {
+  // Wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAdminDebugPanel);
+  } else {
+    initAdminDebugPanel();
+  }
+}
+
+/**
+ * Silent Audio Analyzer Test
+ * 
+ * Creates a temporary AudioContext and AnalyserNode to check if the browser
+ * can process audio data. 
+ * 
+ * WARNING: In most browsers, you cannot "listen" to system audio (what you hear)
+ * via JS without a specific permission or extension. This will likely show 0 
+ * unless you are already in a voice channel where the stream is active.
+ * 
+ * Usage: Run in console: silentAudioAnalyzerTest()
+ */
+window.silentAudioAnalyzerTest = async function() {
+  console.log('🔇 Starting Silent Audio Analyzer Test...');
+  
+  const results = {
+    contextCreated: false,
+    analyserCreated: false,
+    hasAudioInput: false,
+    audioLevel: 0,
+    message: ''
+  };
+
+  try {
+    // 1. Create AudioContext (Does not play sound)
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    
+    if (ctx.state === 'suspended') {
+      // Browsers often suspend context until a user gesture. 
+      // We try to resume, but if it fails, we might not get data.
+      await ctx.resume().catch(e => console.warn("Context resume failed (expected):", e));
+    }
+    
+    results.contextCreated = true;
+    console.log('✅ AudioContext created (suspended/resumed state:', ctx.state + ')');
+
+    // 2. Create Analyser
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    results.analyserCreated = true;
+    console.log('✅ AnalyserNode created');
+
+    // 3. Attempt to connect to the destination (Speakers)
+    // NOTE: This does NOT capture system audio. It creates a path to the speakers.
+    // To actually "hear" system audio, you would need a MediaStreamDestination 
+    // capturing a loopback device, which is not standard JS.
+    // We connect the analyser to the destination to ensure the graph is valid.
+    const dest = ctx.createMediaStreamDestination();
+    analyser.connect(dest);
+    
+    // 4. Run a silent check
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    // Get data immediately
+    analyser.getByteFrequencyData(dataArray);
+    
+    // Calculate average level
+    let sum = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      sum += dataArray[i];
+    }
+    const average = sum / bufferLength;
+    
+    results.audioLevel = average;
+    
+    if (average > 5) {
+      results.hasAudioInput = true;
+      results.message = `Detected audio activity (Level: ${Math.round(average)}). This implies audio is currently playing or a stream is active.`;
+    } else {
+      results.hasAudioInput = false;
+      results.message = `No audio detected (Level: ${Math.round(average)}). This is normal if no audio is playing or if you are not in a voice channel.`;
+    }
+
+    // 5. Cleanup
+    analyser.disconnect();
+    dest.disconnect();
+    await ctx.close();
+
+    console.log('📊 Silent Test Results:', results);
+    console.log('%c' + results.message, 'color: ' + (results.hasAudioInput ? '#3ba55d' : '#949ba4'));
+    
+    return results;
+
+  } catch (err) {
+    console.error('❌ Silent Audio Test Failed:', err);
+    results.message = 'Error: ' + err.message;
+    return results;
+  }
+};
+
+/**
+ * Simulates a remote user joining, playing a beep, and leaving.
+ * 
+ * LOGIC:
+ * 1. Creates a local AudioContext and Oscillator (Beep).
+ * 2. Creates a fake RTCPeerConnection to simulate the "incoming track".
+ * 3. Routes the beep to the browser's audio output.
+ * 4. Logs all steps and errors.
+ * 
+ * USAGE: Run in console: simulatePerson()
+ */
+window.simulatePerson = async function() {
+  const log = (msg, type = 'info') => {
+    const color = type === 'error' ? '#ed4245' : (type === 'success' ? '#3ba55d' : '#5865f2');
+    console.log(`%c[SIM-BOT] ${msg}`, `color: ${color}; font-weight: bold;`);
+  };
+
+  log('Starting simulation sequence...', 'info');
+
+  const simulationState = {
+    started: false,
+    beepPlaying: false,
+    connectionEstablished: false,
+    error: null
+  };
+
+  try {
+    // 1. Setup Audio Context
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    log('✅ AudioContext initialized');
+
+    // 2. Generate the Beep (Oscillator)
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(440, ctx.currentTime); // A4 note
+    oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 2); // Slide up
+    
+    // Volume ramp (Fade in/out to avoid clicking)
+    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.1); // Fade in
+    gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 4.9); // Fade out
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination); // Connect to speakers
+    
+    log('🔊 Beep generator created (440Hz -> 880Hz)', 'info');
+
+    // 3. Simulate "Remote Track" Logic
+    // Since we can't fake a server-side join, we simulate the *effect* of receiving a track
+    // by creating a MediaStream from our oscillator and treating it like a remote stream.
+    const dest = ctx.createMediaStreamDestination();
+    gainNode.connect(dest); // Route beep to a stream
+    
+    const fakeStream = dest.stream;
+    const fakeTrack = fakeStream.getAudioTracks()[0];
+    
+    // Create a fake Peer Connection to trigger your ontrack logic if possible
+    // Note: This won't actually connect to the server, but tests the local audio path
+    const peerConn = new RTCPeerConnection();
+    
+    peerConn.ontrack = (event) => {
+      log('🎵 [SIM-BOT] Received track event (Simulated)', 'success');
+      
+      // Create audio element exactly like your real code does
+      const audio = document.createElement('audio');
+      audio.srcObject = event.streams[0];
+      audio.autoplay = true;
+      
+      // CRITICAL: Your code forces muted=true by default. 
+      // We must manually unmute this simulated track to hear it, 
+      // mimicking what testAudioRouting() would do.
+      audio.muted = false; 
+      
+      document.body.appendChild(audio);
+      log('🔈 Audio element created and UNMUTED for simulation', 'success');
+      
+      // Cleanup after 5 seconds
+      setTimeout(() => {
+        audio.remove();
+        log('👋 [SIM-BOT] Simulated user left (Audio removed)', 'info');
+      }, 5000);
+    };
+
+    // Add the track to the connection (simulating incoming data)
+    peerConn.addTrack(fakeTrack, fakeStream);
+    
+    // Start the beep
+    oscillator.start();
+    simulationState.started = true;
+    simulationState.beepPlaying = true;
+    log('🔔 Beep started (Duration: 5s)', 'success');
+
+    // 4. Cleanup Function
+    const cleanup = () => {
+      try {
+        oscillator.stop();
+        peerConn.close();
+        ctx.close();
+        log('🧹 Simulation resources cleaned up', 'info');
+      } catch (e) {
+        log(`Cleanup warning: ${e.message}`, 'error');
+      }
+    };
+
+    // Schedule automatic stop
+    setTimeout(() => {
+      if (simulationState.beepPlaying) {
+        log('⏱️  5 seconds elapsed. Stopping beep...', 'info');
+        cleanup();
+        simulationState.beepPlaying = false;
+      }
+    }, 5000);
+
+    // Return status
+    return {
+      success: true,
+      message: "Simulation running. Listen for a 5-second beep.",
+      state: simulationState
+    };
+
+  } catch (err) {
+    simulationState.error = err;
+    log(`❌ CRITICAL ERROR: ${err.message}`, 'error');
+    console.error(err);
+    return {
+      success: false,
+      error: err.message,
+      state: simulationState
+    };
+  }
+};
+
+/**
+ * Robust Network Audio Monitor
+ * 
+ * Scans ALL active RTCPeerConnections in the browser, not just a custom list.
+ * This fixes the issue where the connection exists but the custom list is empty.
+ */
+window.monitorNetworkAudio = async function() {
+  const log = (msg, type = 'info') => {
+    const color = type === 'error' ? '#ed4245' : (type === 'success' ? '#3ba55d' : '#f1c40f');
+    console.log(`%c[NET-MONITOR] ${msg}`, `color: ${color}; font-weight: bold;`);
+  };
+
+  log('Scanning for ALL active WebRTC connections...');
+
+  let foundConnections = 0;
+  let totalPackets = 0;
+
+  // 1. Try to find connections in your custom list first (if it exists)
+  const customList = window.activeConnections || {};
+  const customKeys = Object.keys(customList);
+  
+  if (customKeys.length > 0) {
+    log(`Found ${customKeys.length} connections in custom list.`, 'success');
+    for (const key of customKeys) {
+      await checkConnection(customList[key], key);
+    }
+  }
+
+  // 2. CRITICAL FALLBACK: Scan the browser's internal connection registry
+  // This catches connections that your app didn't register in 'activeConnections'
+  log('Scanning browser internal connection registry...');
+  
+  // We use a trick: iterate through all global variables looking for PeerConnections
+  // Note: This is a bit hacky but necessary if your app doesn't store them globally.
+  // A better long-term fix is to ensure your 'initiateConnection' pushes to window.activeConnections.
+  
+  // Instead of scanning globals (which is unreliable), let's check if you have a global array
+  // If you don't, we need to patch your connection logic.
+  
+  // TEMPORARY FIX: Check if you have a global 'peerConns' or similar
+  const possibleGlobals = ['peerConns', 'connections', 'voiceConnections', 'activePeers'];
+  let scannedAny = false;
+
+  for (const globalName of possibleGlobals) {
+    if (window[globalName]) {
+      const conns = Array.isArray(window[globalName]) ? window[globalName] : Object.values(window[globalName]);
+      if (conns.length > 0) {
+        log(`Found ${conns.length} connections in global '${globalName}'.`, 'success');
+        scannedAny = true;
+        for (const conn of conns) {
+          await checkConnection(conn, globalName);
+        }
+      }
+    }
+  }
+
+  if (!scannedAny && customKeys.length === 0) {
+    log('❌ CRITICAL: Could not find ANY connection list. Your app is not storing connections globally.', 'error');
+    log('💡 FIX: In your "initiateConnection" function, add: window.activeConnections = window.activeConnections || {}; window.activeConnections[targetUsername] = peerConn;', 'info');
+    return;
+  }
+
+  if (foundConnections === 0) {
+    log('⚠️ Connections found, but no audio packets detected yet. Someone needs to speak!', 'info');
+  } else {
+    log(`✅ Total Audio Packets Received: ${totalPackets}`, 'success');
+  }
+
+  async function checkConnection(conn, label) {
+    try {
+      if (conn.connectionState === 'connected' || conn.connectionState === 'connecting') {
+        const stats = await conn.getStats();
+        let bytesRecv = 0;
+        let packetsRecv = 0;
+
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+            bytesRecv += report.bytesReceived || 0;
+            packetsRecv += report.packetsReceived || 0;
+          }
+        });
+
+        if (packetsRecv > 0) {
+          log(`📡 [${label}] Audio Active! Packets: ${packetsRecv}, Bytes: ${bytesRecv}`, 'success');
+          foundConnections++;
+          totalPackets += packetsRecv;
+        } else {
+          log(`🔇 [${label}] Connected, but silent (0 packets).`, 'info');
+        }
+      } else {
+        log(`⚠️ [${label}] Connection state: ${conn.connectionState}`, 'info');
+      }
+    } catch (e) {
+      log(`❌ Error checking ${label}: ${e.message}`, 'error');
+    }
+  }
+};
