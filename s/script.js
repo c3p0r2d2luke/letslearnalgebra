@@ -73,34 +73,6 @@ async function unlockAudioContext() {
 // Call this immediately when the user joins a voice channel
 // We will hook this into joinVoiceChannel below.
 
-/*-------------Debugging trick to make console logs into alerts
-async function catchConsoleLogsAsAlerts() {
-  const methods = ["log", "warn", "error", "info", "debug"];
-
-  methods.forEach((method) => {
-    const original = console[method];
-
-    console[method] = function (...args) {
-      let message = args.map(arg => {
-        try {
-          if (typeof arg === "object") {
-            return JSON.stringify(arg, null, 2);
-          }
-          return String(arg);
-        } catch {
-          return "[Unserializable Object]";
-        }
-      }).join(" ");
-
-      alert(`[${method.toUpperCase()}]\n\n${message}`);
-
-      original.apply(console, args);
-    };
-  });
-}
-
-catchConsoleLogsAsAlerts();*/
-
 let _loaderHidden = false;
 
 function showLoader() {
@@ -883,6 +855,16 @@ async function handleAuthSuccess(user) {
   // 5. Load the App (This will now see the username in localStorage)
   await loadUser(); 
   subscribeToGlobalMentions();
+
+    // ── TUTORIAL: show only on first-ever login ──
+  // We check whether this auth_id has ever been seen before.
+  // If userData was just created (no previous login), it's a new user.
+  const isNewUser = !localStorage.getItem("lla_seen_before_" + user.id);
+  if (isNewUser) {
+    localStorage.setItem("lla_seen_before_" + user.id, "1");
+    // Small delay so the app has finished rendering before we spotlight things
+    setTimeout(() => startTutorial(), 800);
+  }
 }
 
 async function doSignUp() {
@@ -14782,7 +14764,7 @@ const TUTORIAL_STEPS = [
   {
     selector: ".server-sidebar",
     title: "Your Servers",
-    body: "Each icon here is a server — like a classroom or club. Click one to open it, or hit <b>+</b> to create your own.",
+    body: "Each icon here is a server — like a classroom or club. Click one to open it.",
     position: "right",
   },
   {
@@ -14800,15 +14782,15 @@ const TUTORIAL_STEPS = [
   {
     selector: "#messageInput",
     title: "Send a Message",
-    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with 📎.",
+    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with 📎 if you're and admin.",
     position: "top",
   },
-  {
+  /*{
     selector: "#memberList",
     title: "Members",
     body: "See who's online in this server. Right-click (or long-press on mobile) a member to send a DM or view their profile.",
     position: "left",
-  },
+  },*/
   {
     selector: "#openSettingsBtn",
     title: "Settings",
@@ -14945,3 +14927,151 @@ function startTutorial() {
     overlay.remove();
   }
 }
+
+function removeLocalStorageKey(key) {
+  if (!key) {
+    console.warn("⚠️ No key provided. Nothing removed.");
+    return;
+  }
+
+  if (localStorage.getItem(key) !== null) {
+    localStorage.removeItem(key);
+    console.log(`✅ Removed key: "${key}"`);
+  } else {
+    console.log(`ℹ️ Key "${key}" did not exist.`);
+  }
+}
+
+// ======================== ULTIMATE MOBILE SIMULATION ========================
+// Shortcut: Ctrl + Alt + M
+// Forces BOTH CSS media queries AND JavaScript mobile logic to activate
+
+let isMobileSim = false;
+let originalWindowWidth = window.innerWidth;
+let originalWindowHeight = window.innerHeight;
+
+function toggleMobileSimulation() {
+  const body = document.body;
+  const html = document.documentElement;
+
+  if (isMobileSim) {
+    // --- RESTORE DESKTOP ---
+    isMobileSim = false;
+    
+    // 1. Restore window dimensions (this triggers CSS media queries)
+    window.resizeTo(originalWindowWidth, originalWindowHeight);
+    
+    // 2. Wait for resize to complete, then force JS to re-check
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+      
+      // 3. Clean up any manual overrides
+      body.classList.remove('mobile-sim-active');
+      html.style.width = '';
+      html.style.height = '';
+      body.style.width = '';
+      body.style.margin = '';
+      body.style.overflowX = '';
+      
+      // 4. Remove banner
+      const banner = document.getElementById('mobile-sim-banner');
+      if (banner) banner.remove();
+      
+      console.log('✅ Restored to desktop view');
+    }, 300);
+
+  } else {
+    // --- ENTER MOBILE SIMULATION ---
+    isMobileSim = true;
+    
+    // 1. Save current dimensions
+    originalWindowWidth = window.innerWidth;
+    originalWindowHeight = window.innerHeight;
+    
+    // 2. Resize window to phone dimensions (forces CSS media queries)
+    window.resizeTo(375, 667); // iPhone SE size
+    
+    // 3. Add visual styling for the simulation frame
+    body.classList.add('mobile-sim-active');
+    html.style.width = '375px';
+    html.style.height = '667px';
+    body.style.width = '375px';
+    body.style.margin = '0 auto';
+    body.style.overflowX = 'hidden';
+    body.style.backgroundColor = '#1e1f22';
+    
+    // 4. Add banner
+    const banner = document.createElement('div');
+    banner.id = 'mobile-sim-banner';
+    banner.textContent = '📱 MOBILE SIMULATION (Ctrl+Alt+M to exit)';
+    banner.style.cssText = `
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ed4245;
+      color: white;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      z-index: 10002;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      pointer-events: none;
+    `;
+    document.body.appendChild(banner);
+    
+    // 5. Force JS to re-evaluate mobile state
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+      
+      // 6. Manually trigger mobile-specific UI changes if needed
+      // (Adjust selectors based on your app's structure)
+      const sidebar = document.querySelector('.server-sidebar, .channel-sidebar');
+      if (sidebar) {
+        sidebar.classList.add('mobile-hidden');
+        sidebar.style.display = 'none';
+      }
+      
+      const hamburger = document.querySelector('.hamburger-menu, .mobile-toggle');
+      if (hamburger) {
+        hamburger.style.display = 'block';
+      }
+      
+      console.log('✅ Mobile simulation activated');
+    }, 350);
+  }
+}
+
+// Attach key listener
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.altKey && (e.key === 'm' || e.key === 'M')) {
+    e.preventDefault();
+    toggleMobileSimulation();
+  }
+});
+
+// Add CSS for smooth animation
+const style = document.createElement('style');
+style.textContent = `
+  body.mobile-sim-active {
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    z-index: 10000;
+    box-shadow: 0 0 60px rgba(0,0,0,0.6);
+  }
+  
+  /* Ensure mobile elements are visible */
+  body.mobile-sim-active .hamburger-menu,
+  body.mobile-sim-active .mobile-toggle {
+    display: block !important;
+  }
+  
+  body.mobile-sim-active .server-sidebar,
+  body.mobile-sim-active .channel-sidebar {
+    display: none !important;
+  }
+`;
+document.head.appendChild(style);
+
+console.log('✅ Ultimate Mobile Simulation ready. Press Ctrl+Alt+M to toggle.');
