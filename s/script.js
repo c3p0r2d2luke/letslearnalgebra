@@ -14018,6 +14018,14 @@ function initAdminDebugPanel() {
     return;
   }
 
+  // 2. MOBILE CHECK: Skip initialization on small screens
+  // Checks if screen width is less than 768px OR if the device has a coarse pointer (touch)
+  if (window.innerWidth <= 768 || window.matchMedia("(pointer: coarse)").matches) {
+    console.log("Admin Debug Panel: Skipped on mobile device.");
+    return;
+  }
+
+
   // Create the panel container
   adminDebugPanel = document.createElement('div');
   adminDebugPanel.id = 'admin-debug-panel';
