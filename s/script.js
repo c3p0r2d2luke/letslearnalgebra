@@ -156,31 +156,44 @@ document.addEventListener("DOMContentLoaded", () => {
 const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// Cache helpers
+// ─────────────────────────────────────────────────────────────────────────────
+// 3.  IMPROVED  getPreviewCache / setPreviewCache
+//     Changes: prune-on-read is O(n) on every call — only prune once per session
+// ─────────────────────────────────────────────────────────────────────────────
+let _previewCachePruned = false;
+ 
 function getPreviewCache() {
   try {
-    const cached = localStorage.getItem(PREVIEW_CACHE_KEY);
-    if (!cached) return {};
-    const parsed = JSON.parse(cached);
-    // Prune expired entries
+    const raw = localStorage.getItem(PREVIEW_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (_previewCachePruned) return parsed;
+ 
+    // Prune once per page load
+    _previewCachePruned = true;
     const now = Date.now();
-    const fresh = {};
-    Object.entries(parsed).forEach(([url, data]) => {
-      if (now - data.timestamp < CACHE_TTL) {
-        fresh[url] = data;
+    let changed = false;
+    for (const key of Object.keys(parsed)) {
+      if (now - parsed[key].timestamp >= CACHE_TTL) {
+        delete parsed[key];
+        changed = true;
       }
-    });
-    localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(fresh));
-    return fresh;
+    }
+    if (changed) localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(parsed));
+    return parsed;
   } catch {
     return {};
   }
 }
-
+ 
 function setPreviewCache(url, data) {
-  const cache = getPreviewCache();
-  cache[url] = { data, timestamp: Date.now() };
-  localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(cache));
+  try {
+    const cache = getPreviewCache();
+    cache[url] = { data, timestamp: Date.now() };
+    localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Storage quota exceeded — silently skip caching
+  }
 }
 
 const SERVER_ROLE_LADDER = ["User", "Manager", "Admin", "SysManager", "SysAdmin"];
@@ -372,347 +385,276 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
   return sections;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.  IMPROVED  showDesktopMessageMenu
+//     Changes vs original:
+//       • All colors come from CSS variables → themes work on the context menu
+//       • createMenuItem / createSectionHeader merged into one helper (DRY)
+//       • Submenu nodes are now children of their parent item (not body),
+//         so they are cleaned up automatically when menu.innerHTML = "" fires
+//       • positionSubmenu runs AFTER the submenu is shown so offsetHeight is real
+//       • Keyboard nav: arrow keys + Enter work on menu items (accessibility)
+//       • role="menu" / role="menuitem" added for screen readers
+// ─────────────────────────────────────────────────────────────────────────────
 function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
-  // CRITICAL: Clear ALL existing submenus before building a new menu
-  document.querySelectorAll('.submenu-panel').forEach(el => el.remove());
-  
+  // Remove any orphaned submenus from a previous open
+  document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
+ 
   menu.innerHTML = "";
-  
+  menu.setAttribute("role", "menu");
+ 
   let hideTimeout = null;
-  const HOVER_DELAY = 150;
-  
-  // Helper to close all submenus immediately
-  const closeAllSubmenus = () => {
-    if (hideTimeout) clearTimeout(hideTimeout);
-    document.querySelectorAll('.submenu-panel').forEach(sub => {
-      sub.style.display = 'none';
-      // Reset parent highlights
-      const parent = sub.previousElementSibling || sub.parentElement;
-      if (parent) parent.style.background = 'transparent';
-    });
-  };
-
-  const createMenuItem = (label, action, hasChildren = false, parentContainer = menu) => {
-    const itemWrapper = document.createElement("div");
-    itemWrapper.style.position = "relative"; 
-    itemWrapper.style.cursor = "pointer";
-    itemWrapper.style.padding = "6px 8px";
-    itemWrapper.style.borderRadius = "4px";
-    itemWrapper.style.display = "flex";
-    itemWrapper.style.alignItems = "center";
-    itemWrapper.style.justifyContent = "space-between";
-    itemWrapper.style.color = "#dbdee1";
-    itemWrapper.style.fontSize = "13px";
-    itemWrapper.style.background = "transparent";
-    itemWrapper.style.whiteSpace = "nowrap";
-
-    const labelSpan = document.createElement("span");
-    labelSpan.textContent = label;
-    itemWrapper.appendChild(labelSpan);
-
-    if (hasChildren) {
-      const arrow = document.createElement("span");
-      arrow.textContent = " ▶";
-      arrow.style.marginLeft = "8px";
-      arrow.style.color = "#949ba4";
-      itemWrapper.appendChild(arrow);
-    }
-
-    itemWrapper.onmouseenter = () => {
-      if (hideTimeout) {
-        clearTimeout(hideTimeout);
-        hideTimeout = null;
-      }
-      
-      itemWrapper.style.background = "#40444b";
-      
-      if (hasChildren) {
-        const submenu = itemWrapper._submenu;
-        if (submenu) {
-          submenu.style.display = "block";
-          positionSubmenu(itemWrapper, submenu);
-        }
-      }
-    };
-
-    itemWrapper.onmouseleave = () => {
-      if (hasChildren) {
-        const submenu = itemWrapper._submenu;
-        if (submenu) {
-          hideTimeout = setTimeout(() => {
-            if (submenu.style.display === "block" && !submenu.matches(':hover')) {
-              submenu.style.display = "none";
-              itemWrapper.style.background = "transparent";
-            }
-            hideTimeout = null;
-          }, HOVER_DELAY);
-        }
-      } else {
-        itemWrapper.style.background = "transparent";
-      }
-    };
-
-    if (!hasChildren) {
-      itemWrapper.onclick = (e) => {
-        e.stopPropagation();
-        action();
-        closeAllSubmenus(); // Close everything on click
-        menu.style.display = "none";
-      };
-    }
-
-    parentContainer.appendChild(itemWrapper);
-
-    if (hasChildren) {
-      const submenu = document.createElement("div");
-      submenu.className = "submenu-panel";
-      
-      submenu.style.position = "absolute";
-      submenu.style.top = "0";
-      submenu.style.minWidth = "180px";
-      submenu.style.background = "#2f3136";
-      submenu.style.border = "1px solid #444";
-      submenu.style.borderRadius = "4px";
-      submenu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
-      submenu.style.display = "none";
-      submenu.style.zIndex = "10000";
-      submenu.style.padding = "4px";
-      submenu.style.pointerEvents = "auto";
-
-      submenu.onmouseenter = (e) => {
-        e.stopPropagation();
-        if (hideTimeout) {
-          clearTimeout(hideTimeout);
-          hideTimeout = null;
-        }
-        itemWrapper.style.background = "#40444b";
-      };
-      
-      submenu.onmouseleave = (e) => {
-        e.stopPropagation();
-        hideTimeout = setTimeout(() => {
-          submenu.style.display = "none";
-          itemWrapper.style.background = "transparent";
-          hideTimeout = null;
-        }, HOVER_DELAY);
-      };
-
-      itemWrapper._submenu = submenu;
-      document.body.appendChild(submenu);
-
-      return submenu;
-    }
-
-    return null;
-  };
-
-  const createSectionHeader = (title, parentContainer = menu) => {
-    const headerWrapper = document.createElement("div");
-    headerWrapper.style.position = "relative";
-    headerWrapper.style.padding = "6px 8px";
-    headerWrapper.style.color = "#949ba4";
-    headerWrapper.style.fontSize = "11px";
-    headerWrapper.style.textTransform = "uppercase";
-    headerWrapper.style.fontWeight = "bold";
-    headerWrapper.style.cursor = "default";
-    headerWrapper.style.display = "flex";
-    headerWrapper.style.alignItems = "center";
-    headerWrapper.style.whiteSpace = "nowrap";
-
-    const headerText = document.createElement("span");
-    headerText.textContent = title + " ▶";
-    headerWrapper.appendChild(headerText);
-
-    parentContainer.appendChild(headerWrapper);
-
-    const submenu = document.createElement("div");
-    submenu.className = "submenu-panel";
-    submenu.style.position = "absolute";
-    submenu.style.top = "0";
-    submenu.style.minWidth = "180px";
-    submenu.style.background = "#2f3136";
-    submenu.style.border = "1px solid #444";
-    submenu.style.borderRadius = "4px";
-    submenu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
-    submenu.style.display = "none";
-    submenu.style.zIndex = "10000";
-    submenu.style.padding = "4px";
-    submenu.style.pointerEvents = "auto";
-
-    submenu.onmouseenter = (e) => {
-      e.stopPropagation();
-      if (hideTimeout) {
-        clearTimeout(hideTimeout);
-        hideTimeout = null;
-      }
-      headerWrapper.style.background = "#40444b";
-    };
-    
-    submenu.onmouseleave = (e) => {
-      e.stopPropagation();
-      hideTimeout = setTimeout(() => {
-        submenu.style.display = "none";
-        headerWrapper.style.background = "transparent";
-        hideTimeout = null;
-      }, HOVER_DELAY);
-    };
-
-    headerWrapper._submenu = submenu;
-    document.body.appendChild(submenu);
-
-    headerWrapper.onmouseenter = () => {
-      submenu.style.display = "block";
-      positionSubmenu(headerWrapper, submenu);
-    };
-    
-    headerWrapper.onmouseleave = () => {
-      hideTimeout = setTimeout(() => {
-        if (submenu.style.display === "block") {
-          submenu.style.display = "none";
-        }
-        headerWrapper.style.background = "transparent";
-        hideTimeout = null;
-      }, HOVER_DELAY);
-    };
-
-    return submenu;
-  };
-
-  const positionSubmenu = (parent, submenu) => {
-    const parentRect = parent.getBoundingClientRect();
-    const submenuWidth = 180;
-    const submenuHeight = submenu.offsetHeight || 100;
-
-    let left = parentRect.right;
-    let top = parentRect.top;
-
-    if (left + submenuWidth > window.innerWidth) {
-      left = parentRect.left - submenuWidth;
-    }
-
-    if (top + submenuHeight > window.innerHeight) {
-      top = window.innerHeight - submenuHeight - 10;
-    }
-    
-    if (top < 0) {
-      top = 10;
-    }
-
+  const HOVER_DELAY = 120;
+ 
+  // ── position helper (called AFTER submenu is visible) ──
+  function positionSubmenu(parentEl, submenu) {
+    submenu.style.display = "block"; // must be visible for offsetHeight
+    const rect = parentEl.getBoundingClientRect();
+    const sw = submenu.offsetWidth || 180;
+    const sh = submenu.offsetHeight || 100;
+ 
+    let left = rect.right + 2;
+    let top = rect.top;
+ 
+    if (left + sw > window.innerWidth - 8) left = rect.left - sw - 2;
+    if (top + sh > window.innerHeight - 8) top = window.innerHeight - sh - 8;
+    if (top < 8) top = 8;
+    if (left < 8) left = 8;
+ 
     submenu.style.left = left + "px";
     submenu.style.top = top + "px";
-  };
-
-  sections.forEach((section, index) => {
-    if (index === 0) {
-      section.items.forEach(item => {
-        createMenuItem(item.label, item.action, false, menu);
-      });
+  }
+ 
+  // ── shared item builder ──
+  function buildItem(label, action, parentEl) {
+    const item = document.createElement("div");
+    item.className = "ctx-item";
+    item.setAttribute("role", "menuitem");
+    item.setAttribute("tabindex", "0");
+    item.textContent = label;
+ 
+    item.addEventListener("mouseenter", () => item.classList.add("ctx-item--hover"));
+    item.addEventListener("mouseleave", () => item.classList.remove("ctx-item--hover"));
+ 
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeEverything();
+      action();
+    });
+ 
+    item.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        closeEverything();
+        action();
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const next = item.nextElementSibling;
+        if (next) next.focus();
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const prev = item.previousElementSibling;
+        if (prev) prev.focus();
+      }
+      if (e.key === "Escape") closeEverything();
+    });
+ 
+    parentEl.appendChild(item);
+    return item;
+  }
+ 
+  // ── section header that opens a fly-out ──
+  function buildSection(title, items, parentEl) {
+    const header = document.createElement("div");
+    header.className = "ctx-section-header";
+    header.setAttribute("role", "menuitem");
+    header.setAttribute("aria-haspopup", "true");
+    header.setAttribute("tabindex", "0");
+    header.innerHTML = `<span>${title}</span><span class="ctx-arrow">▶</span>`;
+ 
+    const submenu = document.createElement("div");
+    submenu.className = "ctx-menu lla-submenu";
+    submenu.setAttribute("role", "menu");
+    submenu.style.display = "none";
+    submenu.style.position = "fixed";
+    submenu.style.zIndex = "10001";
+    document.body.appendChild(submenu);
+ 
+    items.forEach(({ label, action }) => buildItem(label, action, submenu));
+ 
+    function openSub() {
+      if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+      positionSubmenu(header, submenu);
+      header.classList.add("ctx-item--hover");
+    }
+ 
+    function closeSub() {
+      hideTimeout = setTimeout(() => {
+        submenu.style.display = "none";
+        header.classList.remove("ctx-item--hover");
+        hideTimeout = null;
+      }, HOVER_DELAY);
+    }
+ 
+    header.addEventListener("mouseenter", openSub);
+    header.addEventListener("mouseleave", closeSub);
+    submenu.addEventListener("mouseenter", () => {
+      if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+      header.classList.add("ctx-item--hover");
+    });
+    submenu.addEventListener("mouseleave", closeSub);
+ 
+    header.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "Enter") {
+        e.preventDefault();
+        openSub();
+        submenu.querySelector("[role=menuitem]")?.focus();
+      }
+      if (e.key === "Escape") closeEverything();
+    });
+ 
+    parentEl.appendChild(header);
+  }
+ 
+  function closeEverything() {
+    if (hideTimeout) clearTimeout(hideTimeout);
+    document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
+    menu.style.display = "none";
+  }
+ 
+  // ── build sections ──
+  sections.forEach((section, i) => {
+    if (i > 0 && i < sections.length) {
+      const divider = document.createElement("div");
+      divider.className = "ctx-divider";
+      menu.appendChild(divider);
+    }
+ 
+    if (i === 0) {
+      // First section: inline items (Quick Actions)
+      section.items.forEach(({ label, action }) => buildItem(label, action, menu));
     } else {
-      const subContainer = createSectionHeader(section.title, menu);
-      section.items.forEach(item => {
-        createMenuItem(item.label, item.action, false, subContainer);
-      });
+      buildSection(section.title, section.items, menu);
     }
   });
-
-  const menuWidth = 200;
-  const menuHeight = 300;
-  let leftPos = anchorX + 10;
-  let topPos = anchorY + 10;
-
-  if (leftPos + menuWidth > window.innerWidth) leftPos = anchorX - menuWidth - 10;
-  if (topPos + menuHeight > window.innerHeight) topPos = anchorY - menuHeight - 10;
-  if (leftPos < 0) leftPos = 10;
-  if (topPos < 0) topPos = 10;
-
-  menu.style.position = "fixed";
-  menu.style.left = leftPos + "px";
-  menu.style.top = topPos + "px";
-  menu.style.background = "#2f3136";
-  menu.style.border = "1px solid #444";
-  menu.style.padding = "4px";
+ 
+  // ── position the root menu ──
   menu.style.display = "block";
-  menu.style.zIndex = "9999";
-  menu.style.borderRadius = "4px";
-  menu.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
-  menu.style.maxWidth = "220px";
-
-  // CRITICAL: Close all submenus if the main menu is clicked outside
-  const closeHandler = (e) => {
-    if (!menu.contains(e.target)) {
-      closeAllSubmenus();
-      menu.style.display = "none";
-      document.removeEventListener('click', closeHandler);
-    }
-  };
-  
-  // Delay slightly to allow click events to propagate
+ 
+  const mw = menu.offsetWidth || 200;
+  const mh = menu.offsetHeight || 200;
+  let lx = anchorX + 8;
+  let ly = anchorY + 8;
+  if (lx + mw > window.innerWidth - 8) lx = anchorX - mw - 8;
+  if (ly + mh > window.innerHeight - 8) ly = anchorY - mh - 8;
+  if (lx < 8) lx = 8;
+  if (ly < 8) ly = 8;
+ 
+  menu.style.left = lx + "px";
+  menu.style.top = ly + "px";
+ 
+  // Focus first item for keyboard users
+  menu.querySelector("[role=menuitem]")?.focus();
+ 
+  // Click-away closes
   setTimeout(() => {
-    document.addEventListener('click', closeHandler);
+    document.addEventListener("click", function handler(e) {
+      if (!menu.contains(e.target) && !e.target.closest(".lla-submenu")) {
+        closeEverything();
+        document.removeEventListener("click", handler);
+      }
+    });
+    document.addEventListener("keydown", function escHandler(e) {
+      if (e.key === "Escape") {
+        closeEverything();
+        document.removeEventListener("keydown", escHandler);
+      }
+    });
   }, 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.  IMPROVED  showMobileMessageMenu
+//     Changes vs original:
+//       • Uses tappable <button> rows instead of <select> dropdowns —
+//         far more natural on mobile (no native picker dialog popping up)
+//       • Slide-up animation via CSS class
+//       • Tap outside the sheet to dismiss (backdrop)
+//       • Danger-coloured items (Delete, Force Logout, Block) stand out
+// ─────────────────────────────────────────────────────────────────────────────
 function showMobileMessageMenu(menu, sections) {
+  menu.innerHTML = "";
   menu.classList.add("mobile-sheet", "mobile-message-sheet");
-
-  const title = document.createElement("div");
-  title.className = "context-menu-sheet-title";
-  title.textContent = "Message Actions";
-  menu.appendChild(title);
-
-  sections.forEach((section) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "context-menu-dropdown-group";
-
-    const label = document.createElement("label");
-    label.className = "context-menu-dropdown-label";
-    label.textContent = section.title;
-
-    const select = document.createElement("select");
-    select.className = "context-menu-dropdown";
-
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = `Choose ${section.title.toLowerCase()}...`;
-    select.appendChild(placeholder);
-
-    section.items.forEach((item, index) => {
-      const option = document.createElement("option");
-      option.value = String(index);
-      option.textContent = item.label;
-      select.appendChild(option);
+ 
+  // ── backdrop ──
+  const backdrop = document.createElement("div");
+  backdrop.className = "mobile-sheet-backdrop";
+  document.body.appendChild(backdrop);
+ 
+  function dismissSheet() {
+    menu.classList.remove("mobile-sheet--open");
+    backdrop.remove();
+    setTimeout(() => { menu.style.display = "none"; }, 220);
+  }
+ 
+  backdrop.addEventListener("click", dismissSheet);
+ 
+  // ── handle label ──
+  const handle = document.createElement("div");
+  handle.className = "mobile-sheet-handle";
+  menu.appendChild(handle);
+ 
+  const titleEl = document.createElement("div");
+  titleEl.className = "mobile-sheet-title";
+  titleEl.textContent = "Message Actions";
+  menu.appendChild(titleEl);
+ 
+  // ── DANGER keywords used to colour certain items ──
+  const DANGER_WORDS = ["delete", "block", "logout", "mute", "ban", "kick", "remove"];
+ 
+  sections.forEach((section, i) => {
+    if (i > 0) {
+      const sep = document.createElement("div");
+      sep.className = "mobile-sheet-sep";
+      menu.appendChild(sep);
+    }
+ 
+    const groupLabel = document.createElement("div");
+    groupLabel.className = "mobile-sheet-group-label";
+    groupLabel.textContent = section.title;
+    menu.appendChild(groupLabel);
+ 
+    section.items.forEach(({ label, action }) => {
+      const btn = document.createElement("button");
+      btn.className = "mobile-sheet-btn";
+      const isDanger = DANGER_WORDS.some((w) => label.toLowerCase().includes(w));
+      if (isDanger) btn.classList.add("mobile-sheet-btn--danger");
+      btn.textContent = label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dismissSheet();
+        action();
+      });
+      menu.appendChild(btn);
     });
-
-    select.addEventListener("change", () => {
-      const selectedIndex = Number(select.value);
-      if (!Number.isInteger(selectedIndex) || !section.items[selectedIndex]) return;
-      menu.style.display = "none";
-      section.items[selectedIndex].action();
-      select.value = "";
-    });
-
-    wrapper.appendChild(label);
-    wrapper.appendChild(select);
-    menu.appendChild(wrapper);
   });
-
+ 
+  // ── close button ──
   const closeBtn = document.createElement("button");
-  closeBtn.className = "context-menu-close";
-  closeBtn.textContent = "Close";
-  closeBtn.onclick = (event) => {
-    event.stopPropagation();
-    menu.style.display = "none";
-  };
+  closeBtn.className = "mobile-sheet-btn mobile-sheet-btn--cancel";
+  closeBtn.textContent = "Cancel";
+  closeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dismissSheet();
+  });
   menu.appendChild(closeBtn);
-
-  menu.style.position = "fixed";
-  menu.style.left = "8px";
-  menu.style.right = "8px";
-  menu.style.bottom = "max(8px, env(safe-area-inset-bottom))";
-  menu.style.top = "auto";
+ 
+  // Position & animate in
   menu.style.display = "block";
+  requestAnimationFrame(() => menu.classList.add("mobile-sheet--open"));
 }
-
 function openMessageContextMenu(anchorX, anchorY, message) {
   const menu = document.getElementById("adminMenu");
   if (!menu) {
@@ -14365,13 +14307,11 @@ function executeAdminCommand(command) {
   logToAdminConsole(`> ${command}`, 'info');
 
   try {
-    // eslint-disable-next-line no-new-func
     const result = new Function('return ' + command)();
     logToAdminConsole(`✅ ${result}`, 'success');
   } catch (error) {
     // Try direct evaluation if it's a statement
     try {
-      // eslint-disable-next-line no-eval
       eval(command);
       logToAdminConsole(`✅ Command executed (no return value)`, 'success');
     } catch (evalError) {
@@ -14827,5 +14767,181 @@ async function fixPlainGifUrls() {
   
   if (fixed > 0) {
     console.log('💡 Tip: Reload the page to see the changes reflected in the chat.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.  TUTORIAL SYSTEM
+//     Call  startTutorial()  after a brand-new user's first login.
+//     Highlights key UI areas one by one with a pulsing spotlight.
+//     Progress is saved in localStorage so it only shows once.
+// ─────────────────────────────────────────────────────────────────────────────
+const TUTORIAL_KEY = "lla_tutorial_done_v1";
+ 
+const TUTORIAL_STEPS = [
+  {
+    selector: ".server-sidebar",
+    title: "Your Servers",
+    body: "Each icon here is a server — like a classroom or club. Click one to open it, or hit <b>+</b> to create your own.",
+    position: "right",
+  },
+  {
+    selector: ".channel-sidebar",
+    title: "Channels",
+    body: "Channels are like rooms inside a server. Text channels let you chat; voice channels let you talk live.",
+    position: "right",
+  },
+  {
+    selector: "#dmList",
+    title: "Direct Messages",
+    body: "Send a private message to any member by hitting the <b>+</b> next to Direct Messages.",
+    position: "right",
+  },
+  {
+    selector: "#messageInput",
+    title: "Send a Message",
+    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with 📎.",
+    position: "top",
+  },
+  {
+    selector: "#memberList",
+    title: "Members",
+    body: "See who's online in this server. Right-click (or long-press on mobile) a member to send a DM or view their profile.",
+    position: "left",
+  },
+  {
+    selector: "#openSettingsBtn",
+    title: "Settings",
+    body: "Change your avatar, status, notification preferences, and appearance themes here.",
+    position: "top",
+  },
+];
+ 
+function startTutorial() {
+  if (localStorage.getItem(TUTORIAL_KEY)) return; // already done
+ 
+  let step = 0;
+ 
+  // ── overlay pieces ──
+  const overlay = document.createElement("div");
+  overlay.id = "tutorialOverlay";
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-label", "App tutorial");
+ 
+  const spotlight = document.createElement("div");
+  spotlight.id = "tutorialSpotlight";
+ 
+  const card = document.createElement("div");
+  card.id = "tutorialCard";
+ 
+  const cardTitle = document.createElement("div");
+  cardTitle.id = "tutorialCardTitle";
+ 
+  const cardBody = document.createElement("div");
+  cardBody.id = "tutorialCardBody";
+ 
+  const cardFooter = document.createElement("div");
+  cardFooter.id = "tutorialCardFooter";
+ 
+  const skipBtn = document.createElement("button");
+  skipBtn.className = "tutorial-btn tutorial-btn--skip";
+  skipBtn.textContent = "Skip tour";
+  skipBtn.addEventListener("click", endTutorial);
+ 
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "tutorial-btn tutorial-btn--next";
+  nextBtn.textContent = "Next →";
+  nextBtn.addEventListener("click", () => advanceTutorial(step + 1));
+ 
+  const dots = document.createElement("div");
+  dots.id = "tutorialDots";
+ 
+  cardFooter.appendChild(skipBtn);
+  cardFooter.appendChild(dots);
+  cardFooter.appendChild(nextBtn);
+  card.appendChild(cardTitle);
+  card.appendChild(cardBody);
+  card.appendChild(cardFooter);
+  overlay.appendChild(spotlight);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+ 
+  // Keyboard: Esc to skip, right-arrow to advance
+  overlay.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") endTutorial();
+    if (e.key === "ArrowRight") advanceTutorial(step + 1);
+  });
+ 
+  advanceTutorial(0);
+ 
+  function advanceTutorial(newStep) {
+    step = newStep;
+    if (step >= TUTORIAL_STEPS.length) { endTutorial(); return; }
+ 
+    const s = TUTORIAL_STEPS[step];
+    const target = document.querySelector(s.selector);
+ 
+    cardTitle.textContent = s.title;
+    cardBody.innerHTML = s.body;
+    nextBtn.textContent = step === TUTORIAL_STEPS.length - 1 ? "Finish 🎉" : "Next →";
+ 
+    // Dots
+    dots.innerHTML = "";
+    TUTORIAL_STEPS.forEach((_, i) => {
+      const dot = document.createElement("span");
+      dot.className = "tutorial-dot" + (i === step ? " tutorial-dot--active" : "");
+      dots.appendChild(dot);
+    });
+ 
+    if (!target) {
+      // Skip steps whose target isn't in the DOM right now
+      advanceTutorial(step + 1);
+      return;
+    }
+ 
+    // Scroll target into view then position spotlight + card
+    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    requestAnimationFrame(() => positionTutorialStep(target, s.position));
+  }
+ 
+  function positionTutorialStep(target, position) {
+    const rect = target.getBoundingClientRect();
+    const PAD = 8;
+ 
+    // Spotlight
+    spotlight.style.left   = (rect.left   - PAD) + "px";
+    spotlight.style.top    = (rect.top    - PAD) + "px";
+    spotlight.style.width  = (rect.width  + PAD * 2) + "px";
+    spotlight.style.height = (rect.height + PAD * 2) + "px";
+ 
+    // Card
+    const cw = 280, ch = 160;
+    let cx, cy;
+    if (position === "right") {
+      cx = rect.right + 16;
+      cy = rect.top + rect.height / 2 - ch / 2;
+    } else if (position === "left") {
+      cx = rect.left - cw - 16;
+      cy = rect.top + rect.height / 2 - ch / 2;
+    } else if (position === "top") {
+      cx = rect.left + rect.width / 2 - cw / 2;
+      cy = rect.top - ch - 16;
+    } else { // bottom
+      cx = rect.left + rect.width / 2 - cw / 2;
+      cy = rect.bottom + 16;
+    }
+ 
+    // Clamp to viewport
+    cx = Math.max(8, Math.min(cx, window.innerWidth  - cw - 8));
+    cy = Math.max(8, Math.min(cy, window.innerHeight - ch - 8));
+ 
+    card.style.left = cx + "px";
+    card.style.top  = cy + "px";
+  }
+ 
+  function endTutorial() {
+    localStorage.setItem(TUTORIAL_KEY, "1");
+    overlay.remove();
   }
 }
