@@ -1963,8 +1963,7 @@ async function refreshUnreadMentionCounts() {
       .select("username, content, channel_id, inserted_at")
       .in("channel_id", channelIds)
       .neq("username", username)
-      .order("inserted_at", { ascending: false })
-      .limit(200);
+      .order("inserted_at", { ascending: false });
 
     // 2. Apply the filter: Prefer ID, fallback to Time
     if (lastMessageId && lastMessageId > 0) {
@@ -2882,7 +2881,6 @@ async function loadDirectConversations() {
         .select("conversation_id, username, content, inserted_at")
         .in("conversation_id", conversationIds)
         .order("inserted_at", { ascending: false })
-        .limit(200)
     ]);
 
     if (membersError) throw membersError;
@@ -3090,8 +3088,7 @@ async function loadDirectMessages(conversationId = currentDmConversationId) {
     .from("dm_messages")
     .select("*")
     .eq("conversation_id", conversationId)
-    .order("inserted_at", { ascending: true })
-    .limit(100);
+    .order("inserted_at", { ascending: true });
 
   if (error) {
     messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
@@ -3607,7 +3604,6 @@ async function setMemberServerRole(targetMember, nextRole) {
     .select("id")
     .eq("server_id", currentServerId)
     .or(`name.eq.${cleanedRole},role.eq.${cleanedRole}`)
-    .limit(1)
     .maybeSingle();
 
   const updateData = {
@@ -4131,8 +4127,7 @@ async function loadMessages() {
     .from("messages")
     .select("*")
     .eq("channel_id", currentChannelId)
-    .order("inserted_at", { ascending: true })
-    .limit(50); // Limit initial load for speed
+    .order("inserted_at", { ascending: true });
 
   if (error) {
     messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
@@ -4609,6 +4604,7 @@ async function sendMessage(options = {}) {
   } catch (e) {
     console.error("❌ Failed to send message", e);
   }
+  console.log("Sent good");
 }
 
 // Add this near your sendMessage function
@@ -8886,7 +8882,6 @@ async function refreshServerRole() {
         .select("role_id")
         .eq("server_id", currentServerId)
         .eq("member_id", memberData.id)
-        .limit(1)
         .maybeSingle();
       if (memberRoleLink?.role_id) {
         const { data: linkedRole } = await supabaseClient
@@ -13489,8 +13484,7 @@ window.testVoiceChat = async function() {
       try {
         const { data, error } = await supabaseClient
           .from('voice_room_participants')
-          .select('count')
-          .limit(1);
+          .select('count');
         
         if (error) {
           results.database.error = error.message;
@@ -14692,8 +14686,7 @@ async function fixPlainGifUrls() {
   const { data: messages, error: fetchError } = await supabaseClient
     .from("messages")
     .select("id, content, channel_id")
-    .order("id", { ascending: false })
-    .limit(500);
+    .order("id", { ascending: false });
 
   if (fetchError) {
     console.error('❌ Failed to fetch messages:', fetchError.message);
