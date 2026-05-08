@@ -14758,7 +14758,7 @@ async function fixPlainGifUrls() {
 //     Highlights key UI areas one by one with a pulsing spotlight.
 //     Progress is saved in localStorage so it only shows once.
 // ─────────────────────────────────────────────────────────────────────────────
-const TUTORIAL_KEY = "lla_tutorial_done_v1";
+const TUTORIAL_KEY = "lla_tutorial_done_v2";
  
 const TUTORIAL_STEPS = [
   {
