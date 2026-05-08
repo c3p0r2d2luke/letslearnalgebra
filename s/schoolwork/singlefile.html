@@ -748,7 +748,7 @@ const zonesurls = [
 ];
 let zonesURL = zonesurls[Math.floor(Math.random() * zonesurls.length)];
 const coverURL = "https://cdn.jsdelivr.net/gh/gn-math/covers@main";
-const htmlURL = "https://cdn.jsdelivr.net/npm/gn-math.github.io-main@1.0.4/html-main";
+const htmlURL = "html-main";
 let zones = [];
 let popularityData = {};
 const featuredContainer = document.getElementById('featuredZones');
@@ -765,7 +765,7 @@ async function listZones() {
             shajson = await sharesponse.json();
             sha = shajson[0]['sha'];
             if (sha) {
-                zonesURL = `https://cdn.jsdelivr.net/npm/gn-math.github.io-main@1.0.5/zones.json`;
+                zonesURL = `./zones.json`;
             }
           } catch (error) {
             try {
@@ -773,7 +773,7 @@ async function listZones() {
                 if (secondarysharesponse && secondarysharesponse.status === 200) {
                     sha = (await secondarysharesponse.text()).trim();
                     if (sha) {
-                        zonesURL = `https://cdn.jsdelivr.net/npm/gn-math.github.io-main@1.0.5@${sha}/zones.json`;
+                        zonesURL = `./zones.json`;
                     }
                 }
             } catch(error) {}
