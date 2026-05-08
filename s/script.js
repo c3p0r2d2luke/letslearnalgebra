@@ -11695,8 +11695,8 @@ peerConn.ontrack = (event) => {
   audio.srcObject = stream;
   
   // 🔥 CRITICAL: Mute by default. Audio plays ONLY via testAudioRouting()
-  audio.muted = true; 
-  audio.dataset.autoMuted = "true";
+  audio.muted = false; 
+  audio.dataset.autoMuted = "false";
   
   audio.autoplay = true;
   audio.id = `audio-${targetUsername}`;
@@ -11704,7 +11704,7 @@ peerConn.ontrack = (event) => {
   if (selfDeafened) {
     audio.muted = true;
   } else {
-    audio.muted = true; 
+    audio.muted = false; 
   }
 
   document.body.appendChild(audio);
