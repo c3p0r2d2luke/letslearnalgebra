@@ -15075,3 +15075,191 @@ style.textContent = `
 document.head.appendChild(style);
 
 console.log('✅ Ultimate Mobile Simulation ready. Press Ctrl+Alt+M to toggle.');
+
+const MOBILE_TUTORIAL_STEPS = [
+  {
+    title: "👋 Welcome to LLA Chat!",
+    body: "This quick tour shows you around. Tap <b>Next</b> to continue, or <b>Skip</b> to jump straight in.",
+    highlightId: null,
+  },
+  {
+    title: "📱 Open the Sidebar",
+    body: "Tap the <b>☰ menu button</b> (top-left) to open your servers and channels. Let's open it now.",
+    highlightId: "menuToggle",
+    action: () => {
+      // Programmatically open the sidebar the same way the menu button does
+      const overlay = document.getElementById("sidebarOverlay");
+      const channelSidebar = document.querySelector(".channel-sidebar");
+      const serverSidebar  = document.querySelector(".server-sidebar");
+      if (overlay)       overlay.classList.add("active");
+      if (channelSidebar) channelSidebar.classList.add("open");
+      if (serverSidebar)  serverSidebar.classList.add("open");
+    },
+  },
+  {
+    title: "🗂️ Your Servers",
+    body: "The icons on the far left are <b>servers</b> — like classrooms or clubs. Tap one to open it.",
+    highlightId: "serverList",
+  },
+  {
+    title: "💬 Channels",
+    body: "Inside each server are <b>channels</b>. Text channels let you chat; voice channels let you talk live. Tap any channel name to open it.",
+    highlightId: "channelList",
+    action: () => {
+      // Close sidebar after showing channels so next steps show the chat
+      setTimeout(() => {
+        const overlay = document.getElementById("sidebarOverlay");
+        const channelSidebar = document.querySelector(".channel-sidebar");
+        const serverSidebar  = document.querySelector(".server-sidebar");
+        if (overlay)       overlay.classList.remove("active");
+        if (channelSidebar) channelSidebar.classList.remove("open");
+        if (serverSidebar)  serverSidebar.classList.remove("open");
+      }, 400);
+    },
+  },
+  {
+    title: "✉️ Direct Messages",
+    body: "Want to message someone privately? Tap the <b>+ next to Direct Messages</b> in the sidebar to start a DM.",
+    highlightId: "newDmBtn",
+  },
+  {
+    title: "⌨️ Sending Messages",
+    body: "Type in the <b>message box</b> at the bottom and tap <b>Send</b>. Use <b>📎</b> to attach a file, or type <b>@</b> to mention someone.",
+    highlightId: "messageInput",
+  },
+  {
+    title: "⚙️ Settings",
+    body: "Tap <b>⚙️</b> (bottom-left) to change your avatar, status, notifications, and theme.",
+    highlightId: "openSettingsBtn",
+  },
+  {
+    title: "🎉 You're all set!",
+    body: "That's the tour! Jump in and start chatting. You can always find help in the server settings.",
+    highlightId: null,
+  },
+];
+ 
+function startMobileTutorial() {
+  if (localStorage.getItem(TUTORIAL_KEY)) return;
+ 
+  let step = 0;
+ 
+  // ── Build the sheet ──────────────────────────────────────────────────────
+  const sheet = document.createElement("div");
+  sheet.id = "mobileTutorialSheet";
+ 
+  const handle = document.createElement("div");
+  handle.className = "mts-handle";
+ 
+  const stepCounter = document.createElement("div");
+  stepCounter.className = "mts-counter";
+ 
+  const title = document.createElement("div");
+  title.className = "mts-title";
+ 
+  const body = document.createElement("div");
+  body.className = "mts-body";
+ 
+  const footer = document.createElement("div");
+  footer.className = "mts-footer";
+ 
+  const skipBtn = document.createElement("button");
+  skipBtn.className = "mts-btn mts-btn--skip";
+  skipBtn.textContent = "Skip tour";
+  skipBtn.addEventListener("click", endTutorial);
+ 
+  const dots = document.createElement("div");
+  dots.className = "mts-dots";
+ 
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "mts-btn mts-btn--next";
+  nextBtn.addEventListener("click", () => advanceStep(step + 1));
+ 
+  footer.appendChild(skipBtn);
+  footer.appendChild(dots);
+  footer.appendChild(nextBtn);
+ 
+  sheet.appendChild(handle);
+  sheet.appendChild(stepCounter);
+  sheet.appendChild(title);
+  sheet.appendChild(body);
+  sheet.appendChild(footer);
+  document.body.appendChild(sheet);
+ 
+  // ── Coach-mark highlight element (floats over highlighted element) ──────
+  const coachMark = document.createElement("div");
+  coachMark.id = "mobileTutorialCoachMark";
+  document.body.appendChild(coachMark);
+ 
+  // ── Swipe-down to skip ───────────────────────────────────────────────────
+  let touchStartY = 0;
+  sheet.addEventListener("touchstart", (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
+  sheet.addEventListener("touchend", (e) => {
+    const delta = e.changedTouches[0].clientY - touchStartY;
+    if (delta > 60) endTutorial(); // swipe down 60px = dismiss
+  }, { passive: true });
+ 
+  advanceStep(0);
+ 
+  function advanceStep(newStep) {
+    step = newStep;
+    if (step >= MOBILE_TUTORIAL_STEPS.length) { endTutorial(); return; }
+ 
+    const s = MOBILE_TUTORIAL_STEPS[step];
+ 
+    // Run any side-effect (open sidebar etc.) before showing the step
+    if (s.action) s.action();
+ 
+    // Update text
+    stepCounter.textContent = `${step + 1} of ${MOBILE_TUTORIAL_STEPS.length}`;
+    title.innerHTML = s.title;
+    body.innerHTML  = s.body;
+    nextBtn.textContent = step === MOBILE_TUTORIAL_STEPS.length - 1 ? "Let's go! 🚀" : "Next →";
+ 
+    // Dots
+    dots.innerHTML = "";
+    MOBILE_TUTORIAL_STEPS.forEach((_, i) => {
+      const dot = document.createElement("span");
+      dot.className = "mts-dot" + (i === step ? " mts-dot--active" : "");
+      dots.appendChild(dot);
+    });
+ 
+    // Coach mark
+    updateCoachMark(s.highlightId);
+ 
+    // Slide sheet in
+    sheet.classList.remove("mts-sheet--hidden");
+    requestAnimationFrame(() => sheet.classList.add("mts-sheet--visible"));
+  }
+ 
+  function updateCoachMark(id) {
+    coachMark.classList.remove("mts-coach--visible");
+ 
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+ 
+    // Only highlight if actually visible in viewport
+    const rect = target.getBoundingClientRect();
+    const inView = rect.width > 0 && rect.height > 0 &&
+                   rect.top  >= 0 && rect.top  <= window.innerHeight &&
+                   rect.left >= 0 && rect.left <= window.innerWidth;
+    if (!inView) return;
+ 
+    const PAD = 6;
+    coachMark.style.left   = (rect.left   - PAD) + "px";
+    coachMark.style.top    = (rect.top    - PAD + window.scrollY) + "px";
+    coachMark.style.width  = (rect.width  + PAD * 2) + "px";
+    coachMark.style.height = (rect.height + PAD * 2) + "px";
+ 
+    requestAnimationFrame(() => coachMark.classList.add("mts-coach--visible"));
+  }
+ 
+  function endTutorial() {
+    localStorage.setItem(TUTORIAL_KEY, "1");
+    sheet.classList.remove("mts-sheet--visible");
+    sheet.classList.add("mts-sheet--hidden");
+    coachMark.classList.remove("mts-coach--visible");
+    setTimeout(() => { sheet.remove(); coachMark.remove(); }, 280);
+  }
+}
