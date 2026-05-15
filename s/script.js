@@ -11682,73 +11682,57 @@ window.activeConnections[targetUsername] = peerConn;
   // Handle incoming remote stream
 peerConn.ontrack = (event) => {
   console.log(`🎵 Received track from ${targetUsername}`);
-  
+
   let stream = event.streams[0];
-  
   if (!stream) {
-    console.warn(`⚠️ No stream object received for ${targetUsername}, creating one manually.`);
+    console.warn(`⚠️ No stream for ${targetUsername}, creating manually.`);
     stream = new MediaStream();
-    event.track && stream.addTrack(event.track);
+    if (event.track) stream.addTrack(event.track);
   }
+
+  // Remove any existing audio element for this user
+  const existingAudio = document.getElementById(`audio-${targetUsername}`);
+  if (existingAudio) existingAudio.remove();
 
   const audio = document.createElement('audio');
   audio.srcObject = stream;
-  
-  // 🔥 CRITICAL: Mute by default. Audio plays ONLY via testAudioRouting()
-  audio.muted = false; 
-  audio.dataset.autoMuted = "false";
-  
-  audio.autoplay = true;
   audio.id = `audio-${targetUsername}`;
-  
-  if (selfDeafened) {
-    audio.muted = true;
-  } else {
-    audio.muted = false; 
-  }
-
+  audio.className = 'remote-voice';
+  audio.autoplay = true;
+  audio.muted = selfDeafened;
+  audio.volume = (cachedUserVoiceVolume || 100) / 100;
   document.body.appendChild(audio);
 
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  let audioCtx;
-  
-  try {
-    audioCtx = new AudioContext();
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(e => console.warn("AudioContext resume failed:", e));
-    }
-  } catch (e) {
-    console.warn("Failed to create AudioContext:", e);
-    return;
-  }
+  // Unlock AudioContext and force playback
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  audio.play().catch(err => console.warn(`⚠️ Autoplay blocked for ${targetUsername}:`, err.message));
 
-  const analyser = audioCtx.createAnalyser();
-  const source = audioCtx.createMediaElementSource(audio);
+  // Speaking indicator via MediaStream analyser (does NOT re-route audio)
+  const analyser = ctx.createAnalyser();
+  const source = ctx.createMediaStreamSource(stream);
   source.connect(analyser);
-  analyser.connect(audioCtx.destination);
   analyser.fftSize = 256;
-
-  const dataArray = new Uint8Array(analyser.frequencyBinCount);
-  let lastSpeaking = false;
+  const freqData = new Uint8Array(analyser.frequencyBinCount);
+  let wasSpeaking = false;
 
   function checkSpeaking() {
-    analyser.getByteFrequencyData(dataArray);
-    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-    const isSpeaking = average > 20; 
-
-    const participantEl = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
-    if (participantEl) {
-      const avatar = participantEl.querySelector('.voice-participant-avatar');
-      if (isSpeaking && !lastSpeaking) {
-        avatar.classList.add('speaking');
-      } else if (!isSpeaking && lastSpeaking) {
-        avatar.classList.remove('speaking');
-      }
+    if (!currentPeerConnections.has(targetUsername)) {
+      try { ctx.close(); } catch {}
+      return;
     }
-    lastSpeaking = isSpeaking;
+    analyser.getByteFrequencyData(freqData);
+    const avg = freqData.reduce((a, b) => a + b, 0) / freqData.length;
+    const isSpeaking = avg > 20;
+    const tile = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+    if (tile) {
+      const avatar = tile.querySelector('.voice-participant-avatar');
+      if (avatar) avatar.classList.toggle('speaking', isSpeaking);
+    }
+    wasSpeaking = isSpeaking;
     requestAnimationFrame(checkSpeaking);
   }
-
   checkSpeaking();
 };
 
