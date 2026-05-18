@@ -5,13 +5,11 @@ const searchBar = document.getElementById('searchBar');
 const sortOptions = document.getElementById('sortOptions');
 // https://www.jsdelivr.com/tools/purge
 const zonesurls = [
-    "./zones.json",
-    "./zones.json",
     "./zones.json"
 ];
 let zonesURL = zonesurls[Math.floor(Math.random() * zonesurls.length)];
 const coverURL = "https://raw.githubusercontent.com/gn-math/covers/main";
-const htmlURL = "https://raw.githubusercontent.com/gn-math/html/main";
+const htmlURL = "https://lla.ipv64.net/s/schoolwork/html-main";
 let zones = [];
 let popularityData = {};
 const featuredContainer = document.getElementById('featuredZones');

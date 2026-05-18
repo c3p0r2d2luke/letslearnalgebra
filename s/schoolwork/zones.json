@@ -1,11 +1,5 @@
 [
   {
-    "id": -1,
-    "name": "[!] SUGGEST GAMES .gg/D4c9VFYWyU",
-    "cover": "{COVER_URL}/dc.png",
-    "url": "https://discord.gg/D4c9VFYWyU"
-  },
-  {
     "id": 0,
     "name": "Bowmasters",
     "cover": "{COVER_URL}/0.png",
@@ -5259,18 +5253,6 @@
     "url": "{HTML_URL}/595.html",
     "author": "scriptwelder",
     "authorLink": "https://scriptwelder.itch.io/waterworks" 
-  },
-  {
-    "id": 596,
-    "name": "[!] COMMENTS",
-    "cover": "{COVER_URL}/596-uu.png",
-    "url": "{HTML_URL}/596-u.html",
-    "author": "gn-math",
-    "authorLink": "https://gn-math.github.io",
-    "featured": true,
-    "special": [
-      "tools"
-    ]
   },
   {
     "id": 597,
