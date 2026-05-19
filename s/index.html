@@ -48,50 +48,27 @@
             transform: scale(1.05);
         }
 
-        /* The Chaos Container (Hidden initially) */
-        #chaos-container {
-            display: none; /* Hidden until button click or URL parameter */
+        /* The Snowflake Container */
+        #snowflake-container {
+            display: none;
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             background-color: #000;
-            color: #fff;
-            font-family: Arial, sans-serif;
-            text-align: center;
             overflow: hidden;
             z-index: 9999;
+            pointer-events: none; /* Allows clicking through if needed, though it will be laggy */
         }
 
-        .container {
+        .snowflake {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-
-        h1 {
-            font-size: 3em;
-            margin: 0;
-            padding: 0;
-            animation: blink 0.5s infinite alternate;
-        }
-
-        @keyframes blink {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-
-        .face {
-            font-size: 5em;
-            margin: 20px 0;
-            animation: spin 2s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            top: -20px;
+            color: #fff;
+            font-size: 1.5em;
+            user-select: none;
+            will-change: transform;
         }
     </style>
 </head>
@@ -100,168 +77,101 @@
     <!-- Landing Page -->
     <div id="landing-page">
         <h2>Welcome to the Experience</h2>
-        <button id="start-btn">Continue to page</button>
+        <button id="start-btn">Start Snowstorm</button>
     </div>
 
-    <!-- Chaos Content -->
-    <div id="chaos-container">
-        <div class="container">
-            <h1>you are an idiot</h1>
-            <div class="face">🤪</div>
-        </div>
-    </div>
+    <!-- Snowflake Container -->
+    <div id="snowflake-container"></div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
         const landingPage = document.getElementById('landing-page');
-        const chaosContainer = document.getElementById('chaos-container');
-        let chaosStarted = false;
+        const container = document.getElementById('snowflake-container');
         
-        // Check if we should show the idiot page directly
-        const urlParams = new URLSearchParams(window.location.search);
-        const showIdiot = urlParams.get('idiot') === 'true';
+        // ---------------------------------------------------------
+        // CONFIGURATION: CHANGE THIS NUMBER TO ADJUST LAG
+        // 2000 = Smooth
+        // 10000 = Laggy
+        // 50000 = Heavy Lag / Browser Freeze
+        // 100000+ = Likely Crash
+        // ---------------------------------------------------------
+        const SNOWFLAKE_COUNT = 500000000000000000; 
+        
+        let animationFrameId;
 
-        // Function to start all the chaos
-        function startChaos() {
-            if (chaosStarted) return;
-            chaosStarted = true;
-
-            // Hide landing page, show chaos
+        function startSnowstorm() {
+            // Hide landing page
             landingPage.style.display = 'none';
-            chaosContainer.style.display = 'block';
-            document.body.style.overflow = 'hidden'; // Prevent scrolling
+            container.style.display = 'block';
+            document.body.style.overflow = 'hidden';
 
-            // 1. Play Sound (Now allowed because of click)
-            const audio = new Audio('https://www.myinstants.com/media/sounds/idiot-sound.mp3');
-            audio.loop = true;
-            audio.volume = 1.0;
-            audio.play().catch(e => console.log("Audio play failed:", e));
+            console.log(`Generating ${SNOWFLAKE_COUNT} snowflakes... This may freeze your browser.`);
 
-            // 2. Start the chaos functions
-            setTimeout(openBouncingWindows, 100);
-            
-            // 3. Set up the traps
-            window.onbeforeunload = function() {
-                openBouncingWindows();
-                return "You can't escape, idiot!";
-            };
+            // Create elements in batches to prevent immediate total lockup
+            // We use a DocumentFragment for better performance during insertion
+            const fragment = document.createDocumentFragment();
+            const snowflakes = [];
 
-            window.onunload = function() {
-                for (let i = 0; i < 10; i++) {
-                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
-                }
-            };
+            for (let i = 0; i < SNOWFLAKE_COUNT; i++) {
+                const el = document.createElement('div');
+                el.classList.add('snowflake');
+                el.textContent = '❄';
+                
+                // Randomize initial position and size
+                const x = Math.random() * window.innerWidth;
+                const y = Math.random() * window.innerHeight;
+                const size = Math.random() * 2 + 0.5; // 0.5em to 2.5em
+                const speed = Math.random() * 2 + 0.5;
+                const drift = (Math.random() - 0.5) * 2;
 
-            document.onclick = function() {
-                for (let i = 0; i < 5; i++) {
-                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
-                }
-            };
+                el.style.left = `${x}px`;
+                el.style.top = `${y}px`;
+                el.style.fontSize = `${size}em`;
+                
+                // Store physics data directly on the element to avoid a separate array lookup
+                el.dataset.speed = speed;
+                el.dataset.drift = drift;
+                el.dataset.y = y;
 
-            let mouseMoveCount = 0;
-            document.onmousemove = function() {
-                mouseMoveCount++;
-                if (mouseMoveCount % 50 === 0) {
-                    window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
-                }
-            };
-
-            // Background flash
-            setInterval(function() {
-                chaosContainer.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
-            }, 2000);
-
-            // Periodic windows
-            setInterval(function() {
-                window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
-            }, 5000);
-
-            // Fullscreen attempt
-            setInterval(function() {
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(e => {});
-                }
-            }, 15000);
-
-            // Random alerts
-            setInterval(function() {
-                const messages = [
-                    "YOU ARE AN IDIOT!",
-                    "CAN'T ESCAPE, IDIOT!",
-                    "HAHAHAHAHA!",
-                    "IDIOT IDIOT IDIOT!",
-                    "YOU'LL NEVER CLOSE THESE WINDOWS!"
-                ];
-                alert(messages[Math.floor(Math.random() * messages.length)]);
-            }, 20000);
-
-            // Clipboard spam
-            setInterval(function() {
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText("I AM AN IDIOT").catch(e => {});
-                }
-            }, 25000);
-        }
-
-        // Start chaos immediately if the URL parameter is set
-        if (showIdiot) {
-            startChaos();
-        }
-
-        // Add event listener to the start button
-        startBtn.addEventListener('click', startChaos);
-
-        function openBouncingWindows() {
-            // Note: Browsers will block most of these unless pop-ups are allowed for this site
-            for (let i = 0; i < 15; i++) {
-                setTimeout(() => {
-                    const width = 300 + Math.random() * 200;
-                    const height = 300 + Math.random() * 200;
-                    const left = Math.random() * (screen.width - width);
-                    const top = Math.random() * (screen.height - height);
-                    
-                    const newWindow = window.open(window.location.href + '?idiot=true', '_blank', `width=${width},height=${height},left=${left},top=${top}`);
-                    
-                    if (newWindow) {
-                        let dx = (Math.random() - 0.5) * 20;
-                        let dy = (Math.random() - 0.5) * 20;
-                        let x = left;
-                        let y = top;
-                        
-                        const bounceInterval = setInterval(() => {
-                            x += dx;
-                            y += dy;
-                            
-                            if (x <= 0 || x >= screen.width - width) {
-                                dx = -dx;
-                                newWindow.document.body.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
-                            }
-                            if (y <= 0 || y >= screen.height - height) {
-                                dy = -dy;
-                                newWindow.document.body.style.backgroundColor = `rgb(${Math.random()*255},${Math.random()*255},${Math.random()*255})`;
-                            }
-                            
-                            newWindow.moveTo(x, y);
-                            
-                            if (Math.random() < 0.05) {
-                                newWindow.resizeTo(
-                                    width + (Math.random() - 0.5) * 100,
-                                    height + (Math.random() - 0.5) * 100
-                                );
-                            }
-                        }, 30);
-                        
-                        newWindow.onbeforeunload = () => clearInterval(bounceInterval);
-                        
-                        newWindow.onunload = () => {
-                            for (let j = 0; j < 3; j++) {
-                                window.open(window.location.href + '?idiot=true', '_blank', 'width=300,height=300');
-                            }
-                        };
-                    }
-                }, i * 300);
+                fragment.appendChild(el);
             }
+
+            container.appendChild(fragment);
+            console.log("Snowflakes added. Starting animation loop...");
+
+            // Animation Loop
+            function animate() {
+                const flakes = container.children;
+                const height = window.innerHeight;
+                const width = window.innerWidth;
+
+                for (let i = 0; i < flakes.length; i++) {
+                    const flake = flakes[i];
+                    let y = parseFloat(flake.dataset.y);
+                    let drift = parseFloat(flake.dataset.drift);
+                    let speed = parseFloat(flake.dataset.speed);
+
+                    // Update position
+                    y += speed;
+                    drift += Math.sin(y * 0.05) * 0.5; // Wiggle effect
+
+                    // Reset if out of bounds
+                    if (y > height) {
+                        y = -20;
+                        drift = (Math.random() - 0.5) * 2;
+                    }
+
+                    flake.style.transform = `translate(${drift}px, ${y - parseFloat(flake.style.top)}px)`;
+                    flake.dataset.y = y;
+                }
+
+                animationFrameId = requestAnimationFrame(animate);
+            }
+
+            animate();
         }
+
+        startBtn.addEventListener('click', startSnowstorm);
     </script>
 </body>
 </html>
