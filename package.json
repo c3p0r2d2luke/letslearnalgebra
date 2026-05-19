@@ -23,6 +23,7 @@
     "eslint": "^10.0.3"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.144",
     "axios": "^1.16.1",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
