@@ -7087,24 +7087,49 @@ function executeScripts(container) {
   scripts.forEach(oldScript => {
     const newScript = document.createElement("script");
 
-    // Copy attributes (like src, defer, async, type)
+    // 1. Copy all attributes EXCEPT 'defer' (which is useless for dynamic scripts)
     for (let attr of oldScript.attributes) {
-      if (attr.name !== "defer") { // defer has no meaning once appended to DOM
+      if (attr.name !== "defer") {
         newScript.setAttribute(attr.name, attr.value);
       }
     }
 
-    // Copy inline script content
+    // 2. Handle Inline Scripts
     if (!oldScript.src) {
       newScript.textContent = oldScript.textContent;
-    }
-
-    // Append to body so external src scripts actually load (replaceChild
-    // alone does not reliably trigger network fetches for src scripts)
-    if (oldScript.src) {
-      document.body.appendChild(newScript);
-    } else {
+      // Inline scripts MUST be replaced in place to run
       oldScript.parentNode.replaceChild(newScript, oldScript);
+    } 
+    // 3. Handle External Scripts (GoFundMe, etc.)
+    else {
+      // A. Create a clone to track if it loads
+      const tempScript = newScript.cloneNode();
+      
+      // B. Set up success/failure handlers BEFORE appending
+      tempScript.onload = () => {
+        console.log(`✅ External script loaded: ${oldScript.src}`);
+        // Optional: Remove the temporary tracking script if you want
+        // tempScript.remove(); 
+      };
+      tempScript.onerror = (e) => {
+        console.error(`❌ External script failed: ${oldScript.src}`, e);
+        // If you have an admin console, log it there too
+        if (typeof appendLine === 'function' && typeof activeFilters !== 'undefined') {
+           appendLine(adminConsoleOutput, activeFilters, { 
+             type: "ERROR", 
+             parts: [`💥 GoFundMe/External Script Failed: ${oldScript.src}`], 
+             raw: e 
+           });
+        }
+      };
+
+      // C. Append the NEW script to the body (triggers network request)
+      document.body.appendChild(tempScript);
+
+      // D. CRITICAL: Remove the OLD script tag immediately to prevent conflicts
+      // If we don't remove this, the browser might think the script is "already there"
+      // or the widget logic might fail to find the container.
+      oldScript.remove(); 
     }
   });
 }
@@ -14171,20 +14196,84 @@ function initAdminDebugPanel() {
   }
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
-  const SUGGESTIONS = [
-    "servers","channels","username","currentRole","currentSystemRole","currentServerId",
-    "currentChannelId","serverMembers","supabaseClient","messagesMap","userPermissions",
-    "document.title","document.cookie","window.location.href",
-    "localStorage","sessionStorage","navigator.userAgent",
-    "testVoiceChat()","quickVoiceCheck()","testAudioPlayback()",
-    "leaveVoiceChannel()","joinVoiceChannel()","currentVoiceChannelId",
-    "availableThemes","loadThemesAndApply()","refreshServerRole()",
-    "loadServerMembers()","loadMessages()","loadServers()",
-    "supabaseClient.auth.getUser()","supabaseClient.auth.getSession()",
-    "performance.memory","performance.now()",
-    "document.querySelectorAll('audio').length",
-    "currentPeerConnections.size","voiceParticipantState",
-  ];
+const SUGGESTIONS = [
+  // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
+  "servers",
+  "channels",
+  "username",
+  "currentRole",
+  "currentSystemRole",
+  "currentServerId",
+  "currentChannelId",
+  "serverMembers",
+  "messagesMap",
+  "userPermissions",
+  "voiceParticipantState",
+  "currentPeerConnections.size",
+  "currentVoiceChannelId",
+  "availableThemes",
+
+  // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
+  "loadServers()",
+  "loadServerMembers()",
+  "loadMessages()",
+  "renderChannelList()",
+  "subscribeToCurrentChannel()",
+  "refreshServerRole()",
+  "refreshUnreadMentionCounts()",
+  "markServerMentionsRead(currentServerId)",
+  "toggleMobileSimulation()",
+  "startTutorial()",
+
+  // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
+  "forceLogout('target_username')",
+  "globalMuteUser('target_username', 60)",
+  "globalUnmuteUser('target_username')",
+  "deleteUser('target_username')",
+  "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
+  "promote('target_username', 'Admin')",
+  "changeName('target_username')",
+  "userInfo('target_username')",
+  "transferOwnership()",
+
+  // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
+  "fixPlainGifUrls()",
+  "deleteKeyword('spam_word')",
+  "exportChat()",
+  "censorContent('test text')",
+  "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
+
+  // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
+  "testVoiceChat()",
+  "quickVoiceCheck()",
+  "runVoiceAudioTests()",
+  "simulatePerson()",
+  "monitorNetworkAudio()",
+  "silentAudioAnalyzerTest()",
+  "testAudioPlayback()",
+  "testAudioRouting()",
+  "startAudioLevelMonitoring()",
+  "leaveVoiceChannel()",
+  "joinVoiceChannel()",
+
+  // --- 🎨 THEMES & UI ---
+  "loadThemesAndApply()",
+  "selectTheme('theme_id_here')",
+  "document.querySelectorAll('audio').length",
+
+  // --- 🌐 BROWSER & NETWORK (Native) ---
+  "document.title",
+  "document.cookie",
+  "window.location.href",
+  "localStorage",
+  "sessionStorage",
+  "navigator.userAgent",
+  "performance.memory",
+  "performance.now()",
+  "supabaseClient",
+  "supabaseClient.auth.getUser()",
+  "supabaseClient.auth.getSession()"
+];
 
   function updateAutocomplete(val) {
     if (!val) { hideAutocomplete(); return; }
@@ -14451,121 +14540,143 @@ function shortenUrl(url) {
   }
 }
 
+// ── ULTIMATE NETWORK & EMBED MONITOR ────────────────────────────────────────
 function interceptFetch(output, activeFilters) {
-  // ── 1. In-page fetch intercept ────────────────────────────────────────────
-  const origFetch = window.fetch;
-  window.fetch = async function(...args) {
-    const url = typeof args[0] === "string" ? args[0]
-      : (args[0]?.url || String(args[0]));
-    const method = (args[1]?.method || args[0]?.method || "GET").toUpperCase();
-    const start = performance.now();
-    const shortUrl = shortenUrl(url);
-
-    appendLine(output, activeFilters, {
-      type: "NET",
-      parts: [`⬆ ${method} ${shortUrl}`],
-      raw: null, dimmed: true
+  // 1. Patch Fetch (Global)
+  const originalFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const url = args[0];
+    const method = args[1]?.method || 'GET';
+    appendLine(output, activeFilters, { 
+      type: "NET", 
+      parts: [`🌐 Fetch: ${method} ${typeof url === 'string' ? url : url.url}`], 
+      raw: null 
     });
-
     try {
-      const res = await origFetch.apply(this, args);
-      const ms = Math.round(performance.now() - start);
-      const ok = res.ok;
-      appendLine(output, activeFilters, {
-        type: ok ? "NET" : "ERROR",
-        parts: [`${ok ? "✓" : "✗"} ${method} ${shortUrl}  →  ${res.status} ${res.statusText}  ${ms}ms`],
-        raw: null
+      const res = await originalFetch.apply(this, args);
+      appendLine(output, activeFilters, { 
+        type: "NET", 
+        parts: [`✅ ${res.status} ${res.statusText}`], 
+        raw: res 
       });
       return res;
     } catch (err) {
-      const ms = Math.round(performance.now() - start);
-      appendLine(output, activeFilters, {
-        type: "ERROR",
-        parts: [`✗ ${method} ${shortUrl}  →  FAILED ${ms}ms  ${err.message}`],
-        raw: null
+      appendLine(output, activeFilters, { 
+        type: "ERROR", 
+        parts: [`❌ Fetch Failed: ${err.message}`], 
+        raw: err 
       });
       throw err;
     }
   };
 
-  // ── 2. XMLHttpRequest intercept ───────────────────────────────────────────
-  const OrigXHR = window.XMLHttpRequest;
-  window.XMLHttpRequest = function() {
-    const xhr = new OrigXHR();
-    let _method = "", _url = "", _start = 0;
-    const origOpen = xhr.open;
-    xhr.open = function(method, url, ...rest) {
-      _method = method; _url = url; _start = performance.now();
-      appendLine(output, activeFilters, {
-        type: "NET",
-        parts: [`⬆ XHR ${_method.toUpperCase()} ${shortenUrl(_url)}`],
-        raw: null, dimmed: true
-      });
-      return origOpen.apply(xhr, [method, url, ...rest]);
-    };
-    xhr.addEventListener("loadend", () => {
-      const ms = Math.round(performance.now() - _start);
-      const ok = xhr.status >= 200 && xhr.status < 400;
-      appendLine(output, activeFilters, {
-        type: ok ? "NET" : "ERROR",
-        parts: [`${ok ? "✓" : "✗"} XHR ${_method.toUpperCase()} ${shortenUrl(_url)}  →  ${xhr.status}  ${ms}ms`],
-        raw: null
-      });
+  // 2. Patch XHR (Global)
+  const originalXHROpen = XMLHttpRequest.prototype.open;
+  const originalXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    appendLine(output, activeFilters, { 
+      type: "NET", 
+      parts: [`🌐 XHR: ${method.toUpperCase()} ${url}`], 
+      raw: null 
     });
-    return xhr;
+    return originalXHROpen.apply(this, [method, url, ...rest]);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    return originalXHRSend.apply(this, [body]);
   };
 
-  // ── 3. Service Worker BroadcastChannel — catches EVERYTHING ───────────────
-  // This includes: iframe requests, image loads, script loads, font loads,
-  // CSS loads, requests from embedded widgets (GoFundMe, etc.)
-  try {
-    const bc = new BroadcastChannel("sw-network-log");
-    bc.onmessage = ev => {
-      const d = ev.data;
-      if (!d || !d.url) return;
+  // 3. CSP Violation Listener (Crucial for embeds!)
+  document.addEventListener('securitypolicyviolation', (e) => {
+    appendLine(output, activeFilters, { 
+      type: "ERROR", 
+      parts: [`🚫 CSP BLOCKED: ${e.blockedURI} (Directive: ${e.violatedDirective})`], 
+      raw: e 
+    });
+  });
 
-      // Skip the service worker's own heartbeat messages
-      if (d.url.includes("sw.js")) return;
+  // 4. Global Error & Promise Rejection Monitor
+  window.addEventListener('error', (e) => {
+    if (e.message.toLowerCase().includes('gofundme') || e.filename?.includes('gofundme')) {
+      appendLine(output, activeFilters, { 
+        type: "ERROR", 
+        parts: [`💥 GoFundMe Error: ${e.message}`, `  at ${e.filename}:${e.lineno}`], 
+        raw: e 
+      });
+    }
+  });
 
-      const short = shortenUrl(d.url);
-      const dest = d.initiatorType && d.initiatorType !== "other" ? ` [${d.initiatorType}]` : "";
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = String(e.reason);
+    if (msg.includes('gofundme') || msg.includes('embed')) {
+      appendLine(output, activeFilters, { 
+        type: "ERROR", 
+        parts: [`💥 GoFundMe Promise Rejection: ${msg}`], 
+        raw: e.reason 
+      });
+    }
+  });
 
-      if (d.phase === "request") {
-        // Show request start — useful for knowing WHAT is being requested
-        appendLine(output, activeFilters, {
-          type: "NET",
-          parts: [`⬆ SW ${d.method} ${short}${dest}`],
-          raw: null, dimmed: true
-        });
-      } else if (d.phase === "response") {
-        const ok = d.ok;
-        appendLine(output, activeFilters, {
-          type: ok ? "NET" : "ERROR",
-          parts: [`${ok ? "✓" : "✗"} SW ${d.method} ${short}${dest}  →  ${d.status} ${d.statusText}  ${d.ms}ms${d.redirected ? " (redirected)" : ""}`],
-          raw: null
-        });
-      } else if (d.phase === "error") {
-        appendLine(output, activeFilters, {
-          type: "ERROR",
-          parts: [`✗ SW ${d.method} ${short}${dest}  →  FAILED ${d.ms}ms  ${d.error}`],
-          raw: null
+  // 5. Iframe Observer (Detects creation & src changes)
+  const iframeObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.tagName === 'IFRAME') {
+          const src = node.src || '(no src)';
+          appendLine(output, activeFilters, { 
+            type: "NET", 
+            parts: [`📺 Iframe Created: ${src}`], 
+            raw: node 
+          });
+          
+          // Try to attach a load listener (will fail for cross-origin, but we log the attempt)
+          try {
+            node.addEventListener('load', () => {
+              appendLine(output, activeFilters, { 
+                type: "INFO", 
+                parts: [`✅ Iframe Loaded: ${src}`], 
+                raw: null 
+              });
+            });
+            node.addEventListener('error', () => {
+              appendLine(output, activeFilters, { 
+                type: "ERROR", 
+                parts: [`❌ Iframe Failed to Load: ${src}`], 
+                raw: null 
+              });
+            });
+          } catch (err) {
+            appendLine(output, activeFilters, { 
+              type: "WARN", 
+              parts: [`⚠️ Cannot monitor iframe events (Cross-Origin): ${src}`], 
+              raw: null 
+            });
+          }
+        }
+      });
+    });
+  });
+  iframeObserver.observe(document.body, { childList: true, subtree: true });
+
+  // 6. Auto-Diagnose GoFundMe Embed on Load
+  setTimeout(() => {
+    const embed = document.querySelector('.gfm-embed');
+    if (embed) {
+      const iframe = embed.querySelector('iframe');
+      appendLine(output, activeFilters, { 
+        type: "INFO", 
+        parts: [`🔍 GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`], 
+        raw: null 
+      });
+      
+      if (!iframe) {
+        appendLine(output, activeFilters, { 
+          type: "WARN", 
+          parts: [`⚠️ No iframe found inside .gfm-embed! Script might not have loaded.`], 
+          raw: null 
         });
       }
-    };
-
-    // Confirm the channel is open
-    appendLine(output, activeFilters, {
-      type: "INFO",
-      parts: ["🔌 Service Worker network channel open — all requests (including iframes) will be logged"],
-      raw: null
-    });
-  } catch (e) {
-    appendLine(output, activeFilters, {
-      type: "WARN",
-      parts: ["⚠ BroadcastChannel unavailable — SW network logging disabled: " + e.message],
-      raw: null
-    });
-  }
+    }
+  }, 1000); // Wait 1s for script to load
 }
 
 function formatArg(a) {
