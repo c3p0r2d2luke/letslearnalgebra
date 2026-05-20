@@ -12394,12 +12394,32 @@ async function selectTheme(themeId) {
 // string instead of a parsed object) into a plain object.
 function _normalizeThemeVars(raw) {
   if (!raw) return null;
+  let obj;
   if (typeof raw === "string") {
-    try { return JSON.parse(raw); }
+    try { obj = JSON.parse(raw); }
     catch (err) { console.warn("Bad theme JSON, ignoring:", err.message, raw); return null; }
+  } else if (typeof raw === "object") {
+    obj = raw;
+  } else {
+    return null;
   }
-  if (typeof raw === "object") return raw;
-  return null;
+  // Normalize keys: some themes store "accent" instead of "--accent".
+  // Re-key anything that looks like a CSS var name but is missing the "--" prefix.
+  const CSS_VAR_NAMES = new Set([
+    "bg-main","bg-secondary","bg-tertiary","bg-hover","bg-elevated","bg-deepest",
+    "bg-modal","bg-input","body-bg-from","body-bg-to",
+    "text-main","text-muted","text-link","text-on-accent",
+    "accent","accent-strong","danger","success","warning","surface-border"
+  ]);
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!k.startsWith("--") && CSS_VAR_NAMES.has(k)) {
+      out["--" + k] = v;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 // Many themes only define a small core palette (--bg-main, --bg-secondary,
