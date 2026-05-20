@@ -14159,7 +14159,7 @@ function initAdminDebugPanel() {
 
     try {
       // Use indirect eval so it runs in global scope with access to all vars
-      const result = (0, eval)(cmd); // eslint-disable-line no-eval
+      const result = (0, eval)(cmd);
       if (result !== undefined) {
         appendLine(output, activeFilters, { type: "LOG", parts: [null], raw: result, prefix: "◀ " });
       }
