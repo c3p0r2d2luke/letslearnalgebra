@@ -2656,7 +2656,8 @@ async function subscribeToCurrentChannel() {
       },
       (payload) => {
         console.log("📩 Realtime message event:", payload.eventType);
-        handleRealtimeMessage(payload.new || payload.old, payload.eventType);
+        const msg = payload.eventType === "DELETE" ? payload.old : (payload.new || payload.old);
+        handleRealtimeMessage(msg, payload.eventType);
       }
     )
     .subscribe((status) => {
@@ -3141,7 +3142,8 @@ async function subscribeToCurrentDmConversation(conversationId = currentDmConver
         filter: `conversation_id=eq.${conversationId}`
       },
       async (payload) => {
-        await handleRealtimeDmMessage(payload.new || payload.old, payload.eventType);
+        const msg = payload.eventType === "DELETE" ? payload.old : (payload.new || payload.old);
+        await handleRealtimeDmMessage(msg, payload.eventType);
       }
     )
     .subscribe();
@@ -4526,35 +4528,19 @@ async function sendMessage(options = {}) {
     }
   }
 
-   // --- FIXED: NON-BLOCKING IP LOGGING ---
+  // --- IP LOGGING ---
   let ip = "unknown";
-
-  // 1. Try to fetch IP asynchronously WITHOUT blocking the message send
-  fetch("https://api.ipify.org?format=json", { 
-    signal: AbortSignal.timeout(2000) // Hard 2-second timeout
-  })
-  .then(res => res.ok ? res.json() : null)
-  .then(data => {
-    if (data?.ip) {
-      ip = data.ip;
-      // Update DB in the background (fire and forget)
-      supabaseClient
-        .from("users")
-        .update({ ip: ip })
-        .eq("username", username)
-        .then(() => console.log("✅ IP updated to:", ip))
-        .catch(err => console.warn("⚠️ IP update failed:", err.message));
+  try {
+    const ipRes = await fetch("https://api.ipify.org?format=json", {
+      signal: AbortSignal.timeout(3000)
+    });
+    if (ipRes.ok) {
+      const ipData = await ipRes.json();
+      if (ipData?.ip) ip = ipData.ip;
     }
-  })
-  .catch(err => {
-    // Silently fail if IP fetch fails; message still sends
-    console.warn("⚠️ Could not fetch IP:", err.message);
-  });
-
-  // 2. Proceed with message sending immediately (don't wait for IP)
-  // The 'ip' variable might still be "unknown" here, which is fine.
-  // The background fetch will update the DB later.
-  // -----------------------------------------------------------
+  } catch {
+    // silently fall back to "unknown" so the message still sends
+  }
 
   try {
     const messageData = {
@@ -4839,18 +4825,16 @@ function createMessageElement(msg) {
       // Helper: Strip the raw URL text from the HTML
       const stripUrlFromBody = () => {
         const escapedUrl = escapeHTML(url);
-        let html = contentDiv.innerHTML || "";
-        
-        // Remove the raw URL text (escaped)
+        // Zero-width spaces (\u200B) may have been inserted by the long-word
+        // breaker in formatMessageContent, so normalize them away before searching.
+        let html = (contentDiv.innerHTML || "").replace(/\u200B/g, "");
+
         if (html.includes(escapedUrl)) {
           html = html.split(escapedUrl).join("");
-        } 
-        // Remove the raw URL text (unescaped, just in case)
-        else if (html.includes(url)) {
+        } else if (html.includes(url)) {
           html = html.split(url).join("");
         }
-        
-        // Clean up any leftover whitespace
+
         contentDiv.innerHTML = html.trim();
       };
 
@@ -4925,8 +4909,8 @@ function createMessageElement(msg) {
 
 // ------------------------ Realtime Handler ------------------------
 async function handleRealtimeMessage(newMsg, eventType) {
-  if (newMsg.channel_id !== currentChannelId) return;
   if (!newMsg) return;
+  if (newMsg.channel_id !== currentChannelId) return;
 
   if (eventType === "INSERT") {
     await loadAvatarMapForUsernames([newMsg.username]);
@@ -6181,11 +6165,24 @@ async function userInfo(author) {
       }
     }
 
+    // IP lives on the messages rows, not the users row — grab it from the most recent message
+    let lastIp = "Unknown";
+    const { data: ipRow } = await supabaseClient
+      .from("messages")
+      .select("ip")
+      .eq("username", author)
+      .not("ip", "is", null)
+      .neq("ip", "unknown")
+      .order("inserted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (ipRow?.ip) lastIp = ipRow.ip;
+
     alert(
       `👤 User: ${author}\n` +
       `🎭 System Role: ${data.system_role || "User"}\n` +
       serverStatusLine +
-      `🌐 Last IP: ${data.ip || "Unknown"}\n` +
+      `🌐 Last IP: ${lastIp}\n` +
       `💬 Messages: ${msgCount}`
     );
   } catch (err) {
@@ -8312,7 +8309,7 @@ function renderMemberList() {
         ${avatarHtml}
         <div class="member-info">
           <div class="member-name">${escapeHTML(displayName(m.username))}</div>
-          ${ch ? `<div class="member-channel"># ${escapeHTML(ch.name)}</div>` : ""}
+          ${ch ? `<div class="member-channel">${ch.channel_type === "voice" ? "🎤" : "#"} ${escapeHTML(ch.name)}</div>` : ""}
         </div>
         ${isSpecialRole ? `<span class="member-role-badge ${roleStr}" ${m.role_color ? `style="background:${escapeHTML(m.role_color)};"` : ""}>${escapeHTML(m.role)}</span>` : ""}
       `;
@@ -11906,6 +11903,9 @@ async function joinVoiceChannel(channelId) {
     currentVoiceChannelId = channelId;
     selfMuted = false;
     selfDeafened = false;
+
+    // Update channel_presence so the members tab shows this voice channel
+    updateChannelPresence(channelId);
 
     subscribeToVoiceSignaling(channelId);
     subscribeToVoiceRoom(channelId);
