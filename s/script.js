@@ -375,8 +375,9 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   menu.innerHTML = "";
   menu.setAttribute("role", "menu");
  
-  let hideTimeout = null;
+let hideTimeout = null;
   const HOVER_DELAY = 120;
+  let _openSubmenu = null; // track currently visible submenu
  
   // ── position helper (called AFTER submenu is visible) ──
   function positionSubmenu(parentEl, submenu) {
@@ -458,7 +459,13 @@ function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
  
     function openSub() {
       if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+      // Close any previously open submenu before opening this one
+      if (_openSubmenu && _openSubmenu !== submenu) {
+        _openSubmenu.style.display = "none";
+        _openSubmenu = null;
+      }
       positionSubmenu(header, submenu);
+      _openSubmenu = submenu;
       header.classList.add("ctx-item--hover");
     }
  
@@ -4736,6 +4743,7 @@ function createMessageElement(msg) {
 
   // 1. Clean content for display (remove the internal marker if it exists)
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+  const hasNoEmbed = msg.content.includes(NO_EMBED_PHRASE);
   const timestamp = msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
   // --- REPLY CONTEXT ---
@@ -4853,7 +4861,7 @@ function createMessageElement(msg) {
 
       const appendLinkPreview = () => {
         // Only show preview if we haven't already embedded a GIF
-        if (cleanContent.includes(NO_EMBED_PHRASE)) return;
+        if (hasNoEmbed) return;
         
         const previewContainer = document.createElement("div");
         previewContainer.className = "link-preview-container";
@@ -4873,7 +4881,7 @@ function createMessageElement(msg) {
       if (gifUrl) {
         // It's a direct GIF/Image -> Show ONLY the image
         appendInlineGif(gifUrl);
-      } else if (isLikelyGifPageUrl(url) && !cleanContent.includes(NO_EMBED_PHRASE)) {
+      } else if (isLikelyGifPageUrl(url) && !hasNoEmbed) {
         // It's a page URL (like tenor.com/view/...) -> Try to resolve to media
         const placeholder = document.createElement("div");
         placeholder.className = "gif-resolving";
@@ -7079,16 +7087,25 @@ function executeScripts(container) {
   scripts.forEach(oldScript => {
     const newScript = document.createElement("script");
 
-    // Copy attributes (like src)
+    // Copy attributes (like src, defer, async, type)
     for (let attr of oldScript.attributes) {
-      newScript.setAttribute(attr.name, attr.value);
+      if (attr.name !== "defer") { // defer has no meaning once appended to DOM
+        newScript.setAttribute(attr.name, attr.value);
+      }
     }
 
     // Copy inline script content
-    newScript.textContent = oldScript.textContent;
+    if (!oldScript.src) {
+      newScript.textContent = oldScript.textContent;
+    }
 
-    // Replace old script with new one (this executes it)
-    oldScript.parentNode.replaceChild(newScript, oldScript);
+    // Append to body so external src scripts actually load (replaceChild
+    // alone does not reliably trigger network fetches for src scripts)
+    if (oldScript.src) {
+      document.body.appendChild(newScript);
+    } else {
+      oldScript.parentNode.replaceChild(newScript, oldScript);
+    }
   });
 }
 
@@ -13907,278 +13924,666 @@ console.log('🔬 Voice chat test functions loaded. Use testVoiceChat(), quickVo
  * standard application context.
  */
 
+// ======================== ENHANCED ADMIN DEBUG CONSOLE ========================
 let adminDebugPanel = null;
 let adminConsoleHistory = [];
 let adminConsoleHistoryIndex = -1;
-let adminSuggestionBox = null;
-let adminSuggestionIndex = -1;
+let _consoleIntercepted = false;
 
 function initAdminDebugPanel() {
-  // Only initialize if the user is a SysAdmin
-  if (currentSystemRole !== "SysAdmin") {
-    console.log("Admin Debug Panel: Access denied (not SysAdmin)");
-    return;
-  }
+  if (currentSystemRole !== "SysAdmin") return;
+  if (window.innerWidth <= 768 || window.matchMedia("(pointer: coarse)").matches) return;
+  if (adminDebugPanel) return;
 
-  // 2. MOBILE CHECK: Skip initialization on small screens
-  // Checks if screen width is less than 768px OR if the device has a coarse pointer (touch)
-  if (window.innerWidth <= 768 || window.matchMedia("(pointer: coarse)").matches) {
-    console.log("Admin Debug Panel: Skipped on mobile device.");
-    return;
-  }
-
-
-  // Create the panel container
-  adminDebugPanel = document.createElement('div');
-  adminDebugPanel.id = 'admin-debug-panel';
-  adminDebugPanel.style.cssText = `
-    position: fixed;
-    bottom: 0;
-    right: 0;
-    width: 600px;
-    height: 400px;
-    background-color: #1e1f22;
-    border-top-left-radius: 8px;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
-    z-index: 10000;
-    font-family: 'Consolas', 'Monaco', monospace;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid #444;
-    resize: both;
-    overflow: hidden;
-  `;
-
-  // Header
-  const header = document.createElement('div');
-  header.style.cssText = `
-    padding: 8px 12px;
-    background-color: #2f3136;
-    border-bottom: 1px solid #444;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: move;
-    user-select: none;
-  `;
-  header.innerHTML = `
-    <span style="color: #3ba55d; font-weight: bold;">🛡️ SysAdmin Console</span>
-    <button id="admin-console-close" style="background: #ed4245; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">×</button>
-  `;
-
-  // Close button handler
-  header.querySelector('#admin-console-close').addEventListener('click', () => {
-    adminDebugPanel.style.display = 'none';
+  // ── Build DOM ──────────────────────────────────────────────────────────────
+  adminDebugPanel = document.createElement("div");
+  adminDebugPanel.id = "admin-debug-panel";
+  Object.assign(adminDebugPanel.style, {
+    position: "fixed", bottom: "0", right: "0",
+    width: "700px", height: "420px",
+    background: "#1e1f22", border: "1px solid #3a3d44",
+    borderTopLeftRadius: "10px", boxShadow: "0 -4px 32px rgba(0,0,0,0.6)",
+    zIndex: "10000", fontFamily: "'Consolas','Monaco','Courier New',monospace",
+    display: "flex", flexDirection: "column", overflow: "hidden", resize: "both"
   });
 
-  // Output area
-  const output = document.createElement('div');
-  output.id = 'admin-console-output';
-  output.style.cssText = `
-    flex: 1;
-    padding: 8px;
-    overflow-y: auto;
-    background-color: #1e1f22;
-    color: #dbdee1;
-    font-size: 13px;
-    line-height: 1.4;
-  `;
+  // ── Toolbar ────────────────────────────────────────────────────────────────
+  const toolbar = document.createElement("div");
+  Object.assign(toolbar.style, {
+    display: "flex", alignItems: "center", gap: "6px",
+    padding: "6px 10px", background: "#2b2d31",
+    borderBottom: "1px solid #3a3d44", flexShrink: "0", userSelect: "none"
+  });
 
-  // Input area
-  const inputContainer = document.createElement('div');
-  inputContainer.style.cssText = `
-    display: flex;
-    padding: 8px;
-    background-color: #2f3136;
-    border-top: 1px solid #444;
-    position: relative;
-  `;
+  const title = document.createElement("span");
+  title.textContent = "🛡️ SysAdmin Console";
+  Object.assign(title.style, { color: "#3ba55d", fontWeight: "bold", fontSize: "13px", marginRight: "auto", cursor: "move" });
 
-  const prompt = document.createElement('span');
-  prompt.textContent = '>';
-  prompt.style.cssText = `
-    color: #3ba55d;
-    margin-right: 8px;
-    font-weight: bold;
-  `;
+  // Filter buttons
+  const filters = ["ALL", "LOG", "WARN", "ERROR", "INFO", "NET"];
+  const filterBtns = {};
+  const activeFilters = new Set(["ALL"]);
 
-  const input = document.createElement('input');
-  input.id = 'admin-console-input';
-  input.type = 'text';
-  input.style.cssText = `
-    flex: 1;
-    background-color: #1e1f22;
-    border: 1px solid #444;
-    color: #dbdee1;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-family: inherit;
-    outline: none;
-  `;
-
-  // Autocomplete Suggestions
-  const suggestions = [
-    "testVoiceChat()",
-    "quickVoiceCheck()",
-    "testAudioPlayback()",
-    "testAudioRouting()",
-    "testPeerAudioFlow()",
-    "startAudioLevelMonitoring()",
-    "testAudioDeviceSwitching()",
-    "runVoiceAudioTests()",
-    "console.log('Hello')",
-    "console.error('Error')",
-    "currentSystemRole",
-    "currentVoiceChannelId",
-    "localStream",
-    "servers",
-    "channels",
-    "username",
-    "supabaseClient"
-  ];
-
-  function showSuggestions(list, target) {
-    if (adminSuggestionBox) adminSuggestionBox.remove();
-    if (list.length === 0) return;
-
-    adminSuggestionBox = document.createElement('div');
-    adminSuggestionBox.id = 'admin-console-suggestions';
-    adminSuggestionBox.style.cssText = `
-      position: absolute;
-      bottom: 100%;
-      left: 0;
-      right: 0;
-      background: #2f3136;
-      border: 1px solid #444;
-      border-bottom: none;
-      border-radius: 4px 4px 0 0;
-      max-height: 150px;
-      overflow-y: auto;
-      z-index: 10001;
-    `;
-
-    list.forEach((item, idx) => {
-      const div = document.createElement('div');
-      div.textContent = item;
-      div.style.cssText = `
-        padding: 4px 8px;
-        cursor: pointer;
-        color: #dbdee1;
-      `;
-      if (idx === adminSuggestionIndex) {
-        div.style.background = '#5865f2';
-      }
-      div.addEventListener('click', () => {
-        input.value = item;
-        adminSuggestionBox.remove();
-        adminSuggestionBox = null;
-      });
-      adminSuggestionBox.appendChild(div);
+  filters.forEach(f => {
+    const btn = document.createElement("button");
+    btn.textContent = f;
+    btn.dataset.filter = f;
+    Object.assign(btn.style, {
+      padding: "2px 8px", fontSize: "11px", border: "1px solid #444",
+      borderRadius: "4px", cursor: "pointer", fontFamily: "inherit",
+      background: f === "ALL" ? "#5865f2" : "#2b2d31",
+      color: f === "ALL" ? "#fff" : "#949ba4", transition: "all 0.15s"
     });
-
-    inputContainer.appendChild(adminSuggestionBox);
-  }
-
-  function hideSuggestions() {
-    if (adminSuggestionBox) {
-      adminSuggestionBox.remove();
-      adminSuggestionBox = null;
-    }
-    adminSuggestionIndex = -1;
-  }
-
-  // Command execution handler
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const command = input.value.trim();
-      if (command) {
-        executeAdminCommand(command);
-        adminConsoleHistory.push(command);
-        adminConsoleHistoryIndex = adminConsoleHistory.length;
-        input.value = '';
-        hideSuggestions();
-      }
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (adminConsoleHistoryIndex > 0) {
-        adminConsoleHistoryIndex--;
-        input.value = adminConsoleHistory[adminConsoleHistoryIndex];
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (adminConsoleHistoryIndex < adminConsoleHistory.length - 1) {
-        adminConsoleHistoryIndex++;
-        input.value = adminConsoleHistory[adminConsoleHistoryIndex];
-      } else {
-        adminConsoleHistoryIndex = adminConsoleHistory.length;
-        input.value = '';
-      }
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      const val = input.value;
-      if (!val) return;
-
-      const matches = suggestions.filter(s => s.startsWith(val));
-      if (matches.length > 0) {
-        if (matches.length === 1) {
-          input.value = matches[0];
-          hideSuggestions();
-        } else {
-          adminSuggestionIndex = -1;
-          showSuggestions(matches, input);
-        }
-      }
-    } else if (e.key === 'ArrowDown' && adminSuggestionBox) {
-      e.preventDefault();
-      if (adminSuggestionIndex < (adminSuggestionBox.children.length - 1)) {
-        adminSuggestionIndex++;
-        const items = adminSuggestionBox.children;
-        for (let i = 0; i < items.length; i++) {
-          items[i].style.background = (i === adminSuggestionIndex) ? '#5865f2' : '';
-        }
-      }
-    } else if (e.key === 'ArrowUp' && adminSuggestionBox) {
-      e.preventDefault();
-      if (adminSuggestionIndex > 0) {
-        adminSuggestionIndex--;
-        const items = adminSuggestionBox.children;
-        for (let i = 0; i < items.length; i++) {
-          items[i].style.background = (i === adminSuggestionIndex) ? '#5865f2' : '';
-        }
-      }
-    } else if (e.key === 'Escape') {
-      hideSuggestions();
-    } else {
-      // Hide suggestions on normal typing unless Tab was just pressed
-      const val = input.value;
-      const matches = suggestions.filter(s => s.startsWith(val));
-      if (matches.length > 1 && adminSuggestionBox) {
-        showSuggestions(matches, input);
-      } else {
-        hideSuggestions();
-      }
-    }
+    btn.addEventListener("click", () => toggleFilter(f, btn));
+    filterBtns[f] = btn;
+    toolbar.appendChild(btn);
   });
 
-  // Append elements
-  inputContainer.appendChild(prompt);
-  inputContainer.appendChild(input);
-  adminDebugPanel.appendChild(header);
+  // Clear / close
+  const clearBtn = makeToolbarBtn("Clear", "#ed4245");
+  clearBtn.addEventListener("click", clearConsole);
+
+  const closeBtn = makeToolbarBtn("✕", "#555");
+  closeBtn.addEventListener("click", () => { adminDebugPanel.style.display = "none"; });
+
+  toolbar.insertBefore(title, toolbar.firstChild);
+  toolbar.appendChild(clearBtn);
+  toolbar.appendChild(closeBtn);
+
+  // ── Output area ────────────────────────────────────────────────────────────
+  const output = document.createElement("div");
+  output.id = "admin-console-output";
+  Object.assign(output.style, {
+    flex: "1", overflowY: "auto", overflowX: "hidden",
+    padding: "6px 0", background: "#1e1f22",
+    fontSize: "12px", lineHeight: "1.5", fontFamily: "inherit"
+  });
+
+  // ── Input row ──────────────────────────────────────────────────────────────
+  const inputRow = document.createElement("div");
+  Object.assign(inputRow.style, {
+    display: "flex", alignItems: "center", gap: "6px",
+    padding: "6px 10px", background: "#2b2d31",
+    borderTop: "1px solid #3a3d44", flexShrink: "0", position: "relative"
+  });
+
+  const promptLabel = document.createElement("span");
+  promptLabel.textContent = "❯";
+  promptLabel.style.cssText = "color:#3ba55d;font-weight:bold;font-size:14px;flex-shrink:0;";
+
+  const inputEl = document.createElement("input");
+  inputEl.id = "admin-console-input";
+  Object.assign(inputEl.style, {
+    flex: "1", background: "#1e1f22", border: "1px solid #3a3d44",
+    borderRadius: "4px", color: "#dbdee1", padding: "4px 8px",
+    fontFamily: "inherit", fontSize: "12px", outline: "none"
+  });
+  inputEl.placeholder = "Run any JS… try: document.title, fetch(), supabaseClient, servers";
+  inputEl.addEventListener("focus", () => { inputEl.style.borderColor = "#5865f2"; });
+  inputEl.addEventListener("blur",  () => { inputEl.style.borderColor = "#3a3d44"; });
+
+  const runBtn = makeToolbarBtn("Run ▶", "#3ba55d");
+  runBtn.addEventListener("click", () => runCommand());
+
+  // Autocomplete dropdown
+  const autocompleteBox = document.createElement("div");
+  Object.assign(autocompleteBox.style, {
+    display: "none", position: "absolute", bottom: "100%", left: "32px", right: "60px",
+    background: "#2b2d31", border: "1px solid #5865f2", borderRadius: "6px",
+    maxHeight: "160px", overflowY: "auto", zIndex: "10002", fontSize: "12px"
+  });
+
+  inputRow.appendChild(promptLabel);
+  inputRow.appendChild(inputEl);
+  inputRow.appendChild(runBtn);
+  inputRow.appendChild(autocompleteBox);
+
+  adminDebugPanel.appendChild(toolbar);
   adminDebugPanel.appendChild(output);
-  adminDebugPanel.appendChild(inputContainer);
-
-  // Make draggable
-  makeElementDraggable(adminDebugPanel, header);
-
-  // Append to body
+  adminDebugPanel.appendChild(inputRow);
   document.body.appendChild(adminDebugPanel);
 
-  // Override console methods to capture logs
-  overrideConsoleMethods();
+  // ── Drag to move ──────────────────────────────────────────────────────────
+  let drag = null;
+  title.addEventListener("mousedown", e => {
+    drag = { x: e.clientX - adminDebugPanel.offsetLeft, y: e.clientY - adminDebugPanel.offsetTop };
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!drag) return;
+    adminDebugPanel.style.left = (e.clientX - drag.x) + "px";
+    adminDebugPanel.style.top  = (e.clientY - drag.y) + "px";
+    adminDebugPanel.style.bottom = "auto"; adminDebugPanel.style.right = "auto";
+  });
+  document.addEventListener("mouseup", () => { drag = null; });
 
-  // Initial welcome message
-  logToAdminConsole('✅ SysAdmin Console initialized.', 'success');
-  logToAdminConsole('Type commands to execute. Use Tab for autocomplete.', 'info');
+  // ── Keyboard handler ──────────────────────────────────────────────────────
+  inputEl.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); runCommand(); return; }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (adminConsoleHistoryIndex > 0) inputEl.value = adminConsoleHistory[--adminConsoleHistoryIndex];
+      hideAutocomplete(); return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (adminConsoleHistoryIndex < adminConsoleHistory.length - 1)
+        inputEl.value = adminConsoleHistory[++adminConsoleHistoryIndex];
+      else { adminConsoleHistoryIndex = adminConsoleHistory.length; inputEl.value = ""; }
+      hideAutocomplete(); return;
+    }
+    if (e.key === "Tab") { e.preventDefault(); applyFirstAutocomplete(); return; }
+    if (e.key === "Escape") { hideAutocomplete(); return; }
+    setTimeout(() => updateAutocomplete(inputEl.value), 0);
+  });
+  inputEl.addEventListener("input", () => updateAutocomplete(inputEl.value));
+  document.addEventListener("click", e => {
+    if (!inputRow.contains(e.target)) hideAutocomplete();
+  });
+
+  // ── Intercept ALL console output ──────────────────────────────────────────
+  interceptConsole(output, activeFilters);
+
+  // ── Intercept window errors ────────────────────────────────────────────────
+  window.addEventListener("error", ev => {
+    appendLine(output, activeFilters, {
+      type: "ERROR",
+      parts: [`🔴 Uncaught ${ev.message}`, `  at ${ev.filename}:${ev.lineno}:${ev.colno}`],
+      raw: null
+    });
+  });
+
+  window.addEventListener("unhandledrejection", ev => {
+    const msg = ev.reason instanceof Error
+      ? ev.reason.stack || ev.reason.message
+      : String(ev.reason);
+    appendLine(output, activeFilters, { type: "ERROR", parts: [`🔴 Unhandled Promise Rejection: ${msg}`], raw: null });
+  });
+
+  // ── Intercept fetch (network tab) ─────────────────────────────────────────
+  interceptFetch(output, activeFilters);
+
+  // ── Welcome message ───────────────────────────────────────────────────────
+  appendLine(output, activeFilters, { type: "INFO",  parts: ["🛡️  SysAdmin Console — full browser-console replacement"], raw: null });
+  appendLine(output, activeFilters, { type: "INFO",  parts: ["   All errors, warnings, network requests and console output captured."], raw: null });
+  appendLine(output, activeFilters, { type: "INFO",  parts: ["   Use Tab for autocomplete. Arrow keys for history. Click any object to expand."], raw: null });
+
+  // ── Helper functions (scoped) ─────────────────────────────────────────────
+
+  function makeToolbarBtn(label, bg) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    Object.assign(b.style, {
+      padding: "2px 9px", fontSize: "11px", border: "none", borderRadius: "4px",
+      cursor: "pointer", fontFamily: "inherit", background: bg, color: "#fff", flexShrink: "0"
+    });
+    return b;
+  }
+
+  function toggleFilter(f, btn) {
+    if (f === "ALL") {
+      activeFilters.clear(); activeFilters.add("ALL");
+      Object.values(filterBtns).forEach(b => { b.style.background = "#2b2d31"; b.style.color = "#949ba4"; });
+      btn.style.background = "#5865f2"; btn.style.color = "#fff";
+    } else {
+      activeFilters.delete("ALL");
+      filterBtns["ALL"].style.background = "#2b2d31"; filterBtns["ALL"].style.color = "#949ba4";
+      if (activeFilters.has(f)) {
+        activeFilters.delete(f);
+        btn.style.background = "#2b2d31"; btn.style.color = "#949ba4";
+      } else {
+        activeFilters.add(f);
+        btn.style.background = typeColor(f); btn.style.color = "#fff";
+      }
+      if (activeFilters.size === 0) { activeFilters.add("ALL"); filterBtns["ALL"].style.background = "#5865f2"; filterBtns["ALL"].style.color = "#fff"; }
+    }
+    // Re-apply filter to all existing rows
+    output.querySelectorAll(".console-row").forEach(row => {
+      const t = row.dataset.type;
+      row.style.display = (activeFilters.has("ALL") || activeFilters.has(t)) ? "flex" : "none";
+    });
+  }
+
+  function clearConsole() { output.innerHTML = ""; }
+
+  function runCommand() {
+    const cmd = inputEl.value.trim();
+    if (!cmd) return;
+    adminConsoleHistory.push(cmd);
+    adminConsoleHistoryIndex = adminConsoleHistory.length;
+    inputEl.value = "";
+    hideAutocomplete();
+
+    // Echo input
+    appendLine(output, activeFilters, { type: "LOG", parts: ["❯ " + cmd], raw: null, dimmed: true });
+
+    try {
+      // Use indirect eval so it runs in global scope with access to all vars
+      const result = (0, eval)(cmd); // eslint-disable-line no-eval
+      if (result !== undefined) {
+        appendLine(output, activeFilters, { type: "LOG", parts: [null], raw: result, prefix: "◀ " });
+      }
+    } catch (err) {
+      appendLine(output, activeFilters, { type: "ERROR", parts: ["✖ " + err.message], raw: null });
+    }
+
+    output.scrollTop = output.scrollHeight;
+  }
+
+  // ── Autocomplete ──────────────────────────────────────────────────────────
+  const SUGGESTIONS = [
+    "servers","channels","username","currentRole","currentSystemRole","currentServerId",
+    "currentChannelId","serverMembers","supabaseClient","messagesMap","userPermissions",
+    "document.title","document.cookie","window.location.href",
+    "localStorage","sessionStorage","navigator.userAgent",
+    "testVoiceChat()","quickVoiceCheck()","testAudioPlayback()",
+    "leaveVoiceChannel()","joinVoiceChannel()","currentVoiceChannelId",
+    "availableThemes","loadThemesAndApply()","refreshServerRole()",
+    "loadServerMembers()","loadMessages()","loadServers()",
+    "supabaseClient.auth.getUser()","supabaseClient.auth.getSession()",
+    "performance.memory","performance.now()",
+    "document.querySelectorAll('audio').length",
+    "currentPeerConnections.size","voiceParticipantState",
+  ];
+
+  function updateAutocomplete(val) {
+    if (!val) { hideAutocomplete(); return; }
+    const matches = SUGGESTIONS.filter(s => s.toLowerCase().startsWith(val.toLowerCase()) && s !== val);
+    if (!matches.length) { hideAutocomplete(); return; }
+    autocompleteBox.innerHTML = "";
+    matches.slice(0, 10).forEach((m, i) => {
+      const item = document.createElement("div");
+      item.textContent = m;
+      Object.assign(item.style, {
+        padding: "4px 10px", cursor: "pointer",
+        color: i === 0 ? "#fff" : "#dbdee1",
+        background: i === 0 ? "rgba(88,101,242,0.3)" : "transparent"
+      });
+      item.addEventListener("mousedown", e => { e.preventDefault(); inputEl.value = m; hideAutocomplete(); inputEl.focus(); });
+      item.addEventListener("mouseover", () => { item.style.background = "rgba(88,101,242,0.2)"; });
+      item.addEventListener("mouseout",  () => { item.style.background = i === 0 ? "rgba(88,101,242,0.3)" : "transparent"; });
+      autocompleteBox.appendChild(item);
+    });
+    autocompleteBox.style.display = "block";
+  }
+
+  function hideAutocomplete() { autocompleteBox.style.display = "none"; autocompleteBox.innerHTML = ""; }
+
+  function applyFirstAutocomplete() {
+    const first = autocompleteBox.querySelector("div");
+    if (first) { inputEl.value = first.textContent; hideAutocomplete(); inputEl.focus(); }
+  }
+}
+
+// ── Shared helpers (outside initAdminDebugPanel so interceptFetch can call appendLine) ──
+
+function typeColor(type) {
+  return { ERROR: "#ed4245", WARN: "#faa61a", INFO: "#5865f2", NET: "#3ba55d", LOG: "#5e6272" }[type] || "#5e6272";
+}
+
+function typeTextColor(type) {
+  return { ERROR: "#ff6b6b", WARN: "#ffd966", INFO: "#7289da", NET: "#57f287", LOG: "#dbdee1" }[type] || "#dbdee1";
+}
+
+function serializeValue(val, depth) {
+  if (depth === undefined) depth = 0;
+  if (val === null) return { text: "null", color: "#949ba4" };
+  if (val === undefined) return { text: "undefined", color: "#949ba4" };
+  if (typeof val === "boolean") return { text: String(val), color: "#f1c40f" };
+  if (typeof val === "number") return { text: String(val), color: "#f1c40f" };
+  if (typeof val === "string") return { text: depth > 0 ? `"${val}"` : val, color: depth > 0 ? "#a8c97f" : "#dbdee1" };
+  if (typeof val === "function") return { text: `ƒ ${val.name || "anonymous"}()`, color: "#c792ea" };
+  if (val instanceof Error) return { text: val.stack || val.message, color: "#ff6b6b" };
+  if (val instanceof Promise) return { text: "Promise {…}", color: "#c792ea" };
+  if (typeof val === "object") {
+    const isArr = Array.isArray(val);
+    try {
+      const keys = isArr ? [...val.keys()] : Object.keys(val).slice(0, 5);
+      const preview = keys.slice(0, 3).map(k => {
+        const v = val[k];
+        const vt = typeof v;
+        const vs = v === null ? "null" : vt === "object" ? (Array.isArray(v) ? "[…]" : "{…}") : vt === "function" ? "ƒ" : String(v).slice(0, 20);
+        return isArr ? vs : `${k}: ${vs}`;
+      }).join(", ");
+      const more = keys.length > 3 ? `, …+${keys.length - 3}` : "";
+      const label = isArr ? `Array(${val.length})` : (val.constructor?.name && val.constructor.name !== "Object" ? val.constructor.name : "Object");
+      return { text: `${label} { ${preview}${more} }`, color: "#c792ea", expandable: true, value: val };
+    } catch { return { text: "[Object]", color: "#949ba4" }; }
+  }
+  return { text: String(val), color: "#dbdee1" };
+}
+
+function buildExpandableTree(val, depth) {
+  if (depth === undefined) depth = 0;
+  const container = document.createElement("div");
+  container.style.cssText = `margin-left:${depth * 14}px; font-family:inherit; font-size:12px;`;
+
+  if (val === null || val === undefined || typeof val !== "object" || val instanceof Promise) {
+    const s = serializeValue(val, depth);
+    const span = document.createElement("span");
+    span.textContent = s.text; span.style.color = s.color;
+    container.appendChild(span); return container;
+  }
+
+  const isArr = Array.isArray(val);
+  const keys = isArr ? [...Array(Math.min(val.length, 100)).keys()] : Object.keys(val).slice(0, 200);
+  const label = isArr ? `Array(${val.length})` : (val.constructor?.name && val.constructor.name !== "Object" ? val.constructor.name : "Object");
+  const open = isArr ? "[" : "{";
+  const close = isArr ? "]" : "}";
+
+  const header = document.createElement("div");
+  header.style.cssText = "display:flex;align-items:center;gap:4px;cursor:pointer;";
+  const arrow = document.createElement("span");
+  arrow.textContent = "▶"; arrow.style.cssText = "color:#949ba4;font-size:10px;width:10px;flex-shrink:0;transition:transform 0.15s;";
+  const headerText = document.createElement("span");
+  headerText.style.color = "#c792ea";
+  headerText.textContent = `${label} ${open}`;
+  if (keys.length > 0) {
+    const preview = keys.slice(0, 3).map(k => {
+      try { const v = val[k]; return isArr ? serializeValue(v, 1).text : `${k}: ${serializeValue(v, 1).text}`; } catch { return "…"; }
+    }).join(", ");
+    const moreCount = keys.length > 3 ? `, +${keys.length - 3} more` : "";
+    const previewSpan = document.createElement("span");
+    previewSpan.textContent = ` ${preview}${moreCount} `;
+    previewSpan.style.color = "#949ba4";
+    headerText.appendChild(previewSpan);
+  }
+  const closeSpan = document.createElement("span");
+  closeSpan.textContent = close; closeSpan.style.color = "#c792ea";
+  headerText.appendChild(closeSpan);
+
+  header.appendChild(arrow); header.appendChild(headerText);
+  container.appendChild(header);
+
+  const body = document.createElement("div");
+  body.style.display = "none";
+  let rendered = false;
+  header.addEventListener("click", () => {
+    const expanded = body.style.display !== "none";
+    body.style.display = expanded ? "none" : "block";
+    arrow.style.transform = expanded ? "" : "rotate(90deg)";
+    if (!rendered && !expanded) {
+      rendered = true;
+      keys.forEach(k => {
+        const row = document.createElement("div");
+        row.style.cssText = `display:flex;gap:6px;margin-left:14px;padding:1px 0;`;
+        const keySpan = document.createElement("span");
+        keySpan.textContent = isArr ? `${k}:` : `${k}:`;
+        keySpan.style.cssText = "color:#9fa8da;flex-shrink:0;";
+        row.appendChild(keySpan);
+        try {
+          const child = buildExpandableTree(val[k], depth + 1);
+          row.appendChild(child);
+        } catch (e) {
+          const err = document.createElement("span");
+          err.textContent = "[Error reading property]"; err.style.color = "#ff6b6b";
+          row.appendChild(err);
+        }
+        body.appendChild(row);
+      });
+      if (keys.length === 200 && !isArr) {
+        const more = document.createElement("div");
+        more.textContent = "  … (truncated at 200 keys)"; more.style.color = "#949ba4"; more.style.marginLeft = "14px";
+        body.appendChild(more);
+      }
+    }
+  });
+  container.appendChild(body);
+  return container;
+}
+
+function appendLine(output, activeFilters, entry) {
+  if (!output) return;
+  const { type, parts, raw, dimmed, prefix } = entry;
+  const row = document.createElement("div");
+  row.className = "console-row";
+  row.dataset.type = type;
+  Object.assign(row.style, {
+    display: (activeFilters && (activeFilters.has("ALL") || activeFilters.has(type))) ? "flex" : "none",
+    alignItems: "flex-start", gap: "8px", padding: "3px 10px",
+    borderBottom: "1px solid rgba(255,255,255,0.03)",
+    opacity: dimmed ? "0.55" : "1"
+  });
+  row.addEventListener("mouseover", () => { row.style.background = "rgba(255,255,255,0.03)"; });
+  row.addEventListener("mouseout",  () => { row.style.background = ""; });
+
+  // Type badge
+  const badge = document.createElement("span");
+  badge.textContent = type;
+  Object.assign(badge.style, {
+    fontSize: "10px", padding: "1px 5px", borderRadius: "3px", flexShrink: "0",
+    background: typeColor(type) + "33", color: typeColor(type),
+    fontWeight: "bold", marginTop: "1px", minWidth: "36px", textAlign: "center"
+  });
+  row.appendChild(badge);
+
+  // Content
+  const content = document.createElement("div");
+  content.style.cssText = "flex:1;min-width:0;word-break:break-word;color:" + typeTextColor(type) + ";";
+
+  if (parts && parts.length > 0) {
+    parts.forEach((p, i) => {
+      if (p === null) return;
+      if (i > 0) content.appendChild(document.createElement("br"));
+      const span = document.createElement("span");
+      span.textContent = p;
+      content.appendChild(span);
+    });
+  }
+
+  if (raw !== undefined && raw !== null) {
+    if (prefix) {
+      const pre = document.createElement("span");
+      pre.textContent = prefix; pre.style.color = "#949ba4";
+      content.appendChild(pre);
+    }
+    const tree = buildExpandableTree(raw, 0);
+    content.appendChild(tree);
+  }
+
+  row.appendChild(content);
+
+  // Timestamp
+  const ts = document.createElement("span");
+  ts.textContent = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  ts.style.cssText = "color:#555;font-size:10px;flex-shrink:0;margin-top:2px;";
+  row.appendChild(ts);
+
+  output.appendChild(row);
+  // Auto-scroll only if already near bottom
+  if (output.scrollHeight - output.scrollTop - output.clientHeight < 80) {
+    output.scrollTop = output.scrollHeight;
+  }
+}
+
+function interceptConsole(output, activeFilters) {
+  if (_consoleIntercepted) return;
+  _consoleIntercepted = true;
+
+  const MAP = { log: "LOG", warn: "WARN", error: "ERROR", info: "INFO", debug: "LOG" };
+  Object.entries(MAP).forEach(([method, type]) => {
+    const orig = console[method].bind(console);
+    console[method] = (...args) => {
+      orig(...args);
+      try {
+        const parts = [];
+        const raws = [];
+        args.forEach(a => {
+          if (a !== null && typeof a === "object" && !(a instanceof Error)) raws.push(a);
+          else parts.push(formatArg(a));
+        });
+        appendLine(output, activeFilters, { type, parts: parts.length ? [parts.join(" ")] : [], raw: raws.length === 1 ? raws[0] : raws.length > 1 ? raws : null });
+      } catch {}
+    };
+  });
+
+  // console.table
+  const origTable = console.table.bind(console);
+  console.table = (data, cols) => {
+    origTable(data, cols);
+    try {
+      appendLine(output, activeFilters, { type: "LOG", parts: ["[table]"], raw: data });
+    } catch {}
+  };
+
+  // console.group / groupEnd
+  ["group","groupCollapsed","groupEnd","time","timeEnd","count","countReset","assert"].forEach(m => {
+    if (!console[m]) return;
+    const orig = console[m].bind(console);
+    console[m] = (...args) => {
+      orig(...args);
+      try {
+        appendLine(output, activeFilters, { type: "LOG", parts: [`[${m}] ` + args.map(formatArg).join(" ")], raw: null, dimmed: true });
+      } catch {}
+    };
+  });
+}
+
+function shortenUrl(url) {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    const path = u.pathname.length > 40 ? u.pathname.slice(0, 37) + "…" : u.pathname;
+    const host = u.hostname.replace("www.", "");
+    return `${host}${path}${u.search ? "?" + u.search.slice(1, 20) + (u.search.length > 21 ? "…" : "") : ""}`;
+  } catch {
+    return url.length > 80 ? url.slice(0, 77) + "…" : url;
+  }
+}
+
+function interceptFetch(output, activeFilters) {
+  // ── 1. In-page fetch intercept ────────────────────────────────────────────
+  const origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const url = typeof args[0] === "string" ? args[0]
+      : (args[0]?.url || String(args[0]));
+    const method = (args[1]?.method || args[0]?.method || "GET").toUpperCase();
+    const start = performance.now();
+    const shortUrl = shortenUrl(url);
+
+    appendLine(output, activeFilters, {
+      type: "NET",
+      parts: [`⬆ ${method} ${shortUrl}`],
+      raw: null, dimmed: true
+    });
+
+    try {
+      const res = await origFetch.apply(this, args);
+      const ms = Math.round(performance.now() - start);
+      const ok = res.ok;
+      appendLine(output, activeFilters, {
+        type: ok ? "NET" : "ERROR",
+        parts: [`${ok ? "✓" : "✗"} ${method} ${shortUrl}  →  ${res.status} ${res.statusText}  ${ms}ms`],
+        raw: null
+      });
+      return res;
+    } catch (err) {
+      const ms = Math.round(performance.now() - start);
+      appendLine(output, activeFilters, {
+        type: "ERROR",
+        parts: [`✗ ${method} ${shortUrl}  →  FAILED ${ms}ms  ${err.message}`],
+        raw: null
+      });
+      throw err;
+    }
+  };
+
+  // ── 2. XMLHttpRequest intercept ───────────────────────────────────────────
+  const OrigXHR = window.XMLHttpRequest;
+  window.XMLHttpRequest = function() {
+    const xhr = new OrigXHR();
+    let _method = "", _url = "", _start = 0;
+    const origOpen = xhr.open;
+    xhr.open = function(method, url, ...rest) {
+      _method = method; _url = url; _start = performance.now();
+      appendLine(output, activeFilters, {
+        type: "NET",
+        parts: [`⬆ XHR ${_method.toUpperCase()} ${shortenUrl(_url)}`],
+        raw: null, dimmed: true
+      });
+      return origOpen.apply(xhr, [method, url, ...rest]);
+    };
+    xhr.addEventListener("loadend", () => {
+      const ms = Math.round(performance.now() - _start);
+      const ok = xhr.status >= 200 && xhr.status < 400;
+      appendLine(output, activeFilters, {
+        type: ok ? "NET" : "ERROR",
+        parts: [`${ok ? "✓" : "✗"} XHR ${_method.toUpperCase()} ${shortenUrl(_url)}  →  ${xhr.status}  ${ms}ms`],
+        raw: null
+      });
+    });
+    return xhr;
+  };
+
+  // ── 3. Service Worker BroadcastChannel — catches EVERYTHING ───────────────
+  // This includes: iframe requests, image loads, script loads, font loads,
+  // CSS loads, requests from embedded widgets (GoFundMe, etc.)
+  try {
+    const bc = new BroadcastChannel("sw-network-log");
+    bc.onmessage = ev => {
+      const d = ev.data;
+      if (!d || !d.url) return;
+
+      // Skip the service worker's own heartbeat messages
+      if (d.url.includes("sw.js")) return;
+
+      const short = shortenUrl(d.url);
+      const dest = d.initiatorType && d.initiatorType !== "other" ? ` [${d.initiatorType}]` : "";
+
+      if (d.phase === "request") {
+        // Show request start — useful for knowing WHAT is being requested
+        appendLine(output, activeFilters, {
+          type: "NET",
+          parts: [`⬆ SW ${d.method} ${short}${dest}`],
+          raw: null, dimmed: true
+        });
+      } else if (d.phase === "response") {
+        const ok = d.ok;
+        appendLine(output, activeFilters, {
+          type: ok ? "NET" : "ERROR",
+          parts: [`${ok ? "✓" : "✗"} SW ${d.method} ${short}${dest}  →  ${d.status} ${d.statusText}  ${d.ms}ms${d.redirected ? " (redirected)" : ""}`],
+          raw: null
+        });
+      } else if (d.phase === "error") {
+        appendLine(output, activeFilters, {
+          type: "ERROR",
+          parts: [`✗ SW ${d.method} ${short}${dest}  →  FAILED ${d.ms}ms  ${d.error}`],
+          raw: null
+        });
+      }
+    };
+
+    // Confirm the channel is open
+    appendLine(output, activeFilters, {
+      type: "INFO",
+      parts: ["🔌 Service Worker network channel open — all requests (including iframes) will be logged"],
+      raw: null
+    });
+  } catch (e) {
+    appendLine(output, activeFilters, {
+      type: "WARN",
+      parts: ["⚠ BroadcastChannel unavailable — SW network logging disabled: " + e.message],
+      raw: null
+    });
+  }
+}
+
+function formatArg(a) {
+  if (a === null) return "null";
+  if (a === undefined) return "undefined";
+  if (typeof a === "string") return a;
+  if (typeof a === "number" || typeof a === "boolean") return String(a);
+  if (a instanceof Error) return a.stack || a.message;
+  try { return JSON.stringify(a, null, 0).slice(0, 300); } catch { return "[Object]"; }
+}
+
+// ── Re-init trigger ──────────────────────────────────────────────────────────
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    if (typeof currentSystemRole !== "undefined" && currentSystemRole === "SysAdmin") initAdminDebugPanel();
+  });
+} else {
+  if (typeof currentSystemRole !== "undefined" && currentSystemRole === "SysAdmin") initAdminDebugPanel();
 }
 
 function overrideConsoleMethods() {
