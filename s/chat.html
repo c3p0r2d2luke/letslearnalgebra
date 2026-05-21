@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Chat</title>
+  <title>Home - Classroom</title>
 
-  <link rel="icon" type="image/x-icon" href="logo.png">
+  <link rel="icon" type="image/x-icon" href="https://ssl.gstatic.com/classroom/favicon.png">
 
   <!-- Preconnect for faster first byte from CDN + Supabase -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -28,6 +28,33 @@
 </head>
 <body>
 
+        <script>
+(function () {
+    // Change this to your image URL
+    const imageUrl = "./wompwomp.png";
+
+    // Create overlay
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.top = "0";
+    overlay.style.left = "0";
+    overlay.style.width = "100vw";
+    overlay.style.height = "100vh";
+    overlay.style.zIndex = "999999";
+    overlay.style.pointerEvents = "none";
+    overlay.style.background = `center / contain no-repeat url('${imageUrl}')`;
+    overlay.style.backgroundColor = "rgba(0,0,0,0.8)";
+
+    // Add to page
+    document.body.appendChild(overlay);
+
+    // Remove after 0.5 seconds
+    setTimeout(() => {
+        overlay.remove();
+    }, 700);
+})();
+</script>
+
 <div id="appLoader"
      style="
        position: fixed;
@@ -38,7 +65,7 @@
        align-items: center;
        justify-content: center;
        gap: 16px;
-       z-index: 999999;
+       z-index: 999998;
        color: white;
        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
      ">
