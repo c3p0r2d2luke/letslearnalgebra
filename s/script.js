@@ -13418,6 +13418,7 @@ window.testVoiceChat = async function() {
     webrtc: {},
     audio: {},
     database: {},
+    voiceState: {},
     summary: []
   };
 
