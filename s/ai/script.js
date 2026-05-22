@@ -4,28 +4,30 @@ const sendButton = document.getElementById("send");
 
 let conversation = [];
 
-// Configure marked.js for markdown rendering
+// 1. Configure Marked to use Highlight.js
 marked.setOptions({
   highlight: function(code, lang) {
     const language = hljs.getLanguage(lang) ? lang : 'plaintext';
     return hljs.highlight(code, { language }).value;
   },
-  breaks: true,
-  gfm: true
+  breaks: true, // Converts \n to <br>
+  gfm: true     // GitHub Flavored Markdown
 });
 
 function addMessage(text, role) {
   const div = document.createElement("div");
   div.className = `message ${role}`;
   
-  // Render markdown for AI messages, plain text for user
   if (role === "ai") {
+    // 2. Parse Markdown to HTML
     div.innerHTML = marked.parse(text);
-    // Apply syntax highlighting to any code blocks
+    
+    // 3. Re-run highlight on the newly created code blocks
     div.querySelectorAll('pre code').forEach((block) => {
       hljs.highlightElement(block);
     });
   } else {
+    // User messages stay plain text to prevent XSS
     div.textContent = text;
   }
 
@@ -45,85 +47,46 @@ function createThinkingIndicator() {
 
 async function sendMessage() {
   const prompt = promptInput.value.trim();
-
   if (!prompt) return;
 
-  // Add user message to UI
   addMessage(prompt, "user");
-
-  // Save to conversation history
-  conversation.push({
-    role: "user",
-    content: prompt
-  });
-
-  // Clear input
+  conversation.push({ role: "user", content: prompt });
   promptInput.value = "";
 
-  // Disable button while loading
   sendButton.disabled = true;
-  sendButton.textContent = "";
-  
-  // Show thinking indicator
+  sendButton.innerHTML = ''; // Clear icon
   createThinkingIndicator();
 
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        messages: conversation
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: conversation })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
-    const aiReply = data?.choices?.[0]?.message?.content || "No response from AI.";
+    const aiReply = data?.choices?.[0]?.message?.content || "No response.";
 
-    // Remove thinking indicator
-    const thinkingIndicator = document.getElementById("thinking-indicator");
-    if (thinkingIndicator) {
-      thinkingIndicator.remove();
-    }
+    const thinking = document.getElementById("thinking-indicator");
+    if (thinking) thinking.remove();
 
-    // Add AI message to conversation history
-    conversation.push({
-      role: "assistant",
-      content: aiReply
-    });
-
-    // Show AI message with markdown rendered
+    conversation.push({ role: "assistant", content: aiReply });
     addMessage(aiReply, "ai");
 
   } catch (error) {
     console.error(error);
-    
-    // Remove thinking indicator
-    const thinkingIndicator = document.getElementById("thinking-indicator");
-    if (thinkingIndicator) {
-      thinkingIndicator.remove();
-    }
-    
-    addMessage("Error communicating with AI server.", "ai");
+    const thinking = document.getElementById("thinking-indicator");
+    if (thinking) thinking.remove();
+    addMessage("Error: Could not connect to server.", "ai");
   } finally {
     sendButton.disabled = false;
-    sendButton.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-      </svg>
-    `;
+    sendButton.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>`;
   }
 }
 
 sendButton.addEventListener("click", sendMessage);
-
 promptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    sendMessage();
-  }
+  if (e.key === "Enter") sendMessage();
 });

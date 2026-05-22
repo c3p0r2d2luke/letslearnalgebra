@@ -109,129 +109,109 @@ body {
   border-bottom-left-radius: 4px;
 }
 
-/* Markdown styling within AI messages */
-.message.ai :where(h1, h2, h3, h4, h5, h6) {
-  margin-top: 1em;
+/* ... (Keep your existing body, header, and container styles) ... */
+
+/* --- MARKDOWN & CODE BLOCK STYLING --- */
+
+.message.ai {
+  /* Ensure text wraps nicely */
+  word-wrap: break-word; 
+  overflow-wrap: break-word;
+}
+
+/* Headings inside AI messages */
+.message.ai h1, .message.ai h2, .message.ai h3 {
+  margin-top: 1.2em;
   margin-bottom: 0.5em;
-  color: #e2e8f0;
+  font-size: 1.1em;
+  color: #f1f5f9;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 0.3em;
 }
 
-.message.ai :where(p) {
-  margin: 0.5em 0;
+/* Paragraphs */
+.message.ai p {
+  margin: 0.8em 0;
+  line-height: 1.6;
+  color: #cbd5e1;
 }
 
-.message.ai :where(code:not(pre code)) {
-  background: #1e293b;
+/* Inline code (backticks) */
+.message.ai code:not(pre code) {
+  background-color: #334155;
+  color: #fbbf24; /* Amber for inline code */
   padding: 2px 6px;
   border-radius: 4px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 0.9em;
-  color: #fbbf24;
 }
 
+/* Block-level code (```html ... ```) */
 .message.ai pre {
-  background: #0f172a;
+  background-color: #0f172a; /* Very dark blue/black */
+  border: 1px solid #334155;
   border-radius: 8px;
   padding: 16px;
-  overflow-x: auto;
   margin: 12px 0;
-  border: 1px solid #334155;
+  overflow-x: auto; /* Scroll if code is long */
+  position: relative;
 }
 
+/* The actual code text inside the block */
 .message.ai pre code {
   background: transparent;
+  color: #e2e8f0;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
   padding: 0;
-  color: #e2e8f0;
+  display: block;
 }
 
-.message.ai :where(blockquote) {
-  border-left: 3px solid #60a5fa;
-  padding-left: 12px;
+/* Lists */
+.message.ai ul, .message.ai ol {
+  padding-left: 20px;
+  margin: 0.8em 0;
+  color: #cbd5e1;
+}
+
+.message.ai li {
+  margin-bottom: 6px;
+}
+
+/* Bold text */
+.message.ai strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* Blockquotes */
+.message.ai blockquote {
+  border-left: 4px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
   margin: 12px 0;
+  padding: 10px 16px;
+  border-radius: 0 8px 8px 0;
   color: #94a3b8;
+  font-style: italic;
 }
 
-.message.ai :where(ul, ol) {
-  padding-left: 24px;
-  margin: 8px 0;
+/* Thinking Animation */
+.thinking-indicator {
+  background: transparent;
+  padding: 10px 18px;
+  margin-bottom: 12px;
 }
 
-.message.ai :where(li) {
-  margin: 4px 0;
-}
-
-.message.ai :where(strong) {
-  color: #fff;
-  font-weight: 600;
-}
-
-.input-row {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  background: rgba(30, 41, 59, 0.95);
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-input {
-  flex: 1;
-  padding: 14px 18px;
-  border-radius: 10px;
-  border: 1px solid #475569;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 1rem;
-  transition: all 0.2s ease;
-}
-
-input:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-}
-
-input::placeholder {
-  color: #64748b;
-}
-
-button {
-  padding: 14px 22px;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Loading animation */
 .thinking {
   display: inline-flex;
-  gap: 4px;
+  gap: 6px;
 }
 
 .thinking span {
   width: 8px;
   height: 8px;
-  background: #94a3b8;
+  background: #64748b;
   border-radius: 50%;
   animation: bounce 1.4s infinite ease-in-out;
 }
@@ -240,6 +220,6 @@ button:disabled {
 .thinking span:nth-child(2) { animation-delay: -0.16s; }
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
   40% { transform: scale(1); opacity: 1; }
 }
