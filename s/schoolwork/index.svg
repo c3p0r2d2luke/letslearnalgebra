@@ -77,7 +77,7 @@
                     (async () => {
                         try {
                             const url =
-                                'https://lla.ipv64.net/s/schoolwork/singlefile.html';
+                                'https://raw.githubusercontent.com/c3p0r2d2luke/letslearnalgebra/main-myway/s/schoolwork/singlefile.html';
 
                             const res = await fetch(url);
                             const text = await res.text();
