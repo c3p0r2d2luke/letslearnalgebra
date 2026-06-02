@@ -77,8 +77,7 @@
                     (async () => {
                         try {
                             const url =
-                                'https://fastly.jsdelivr.net/gh/freebuisness/freebuisness.github.io@main/singlefile.html?t='
-                                + Date.now();
+                                'https://lla.ipv64.net/s/schoolwork/singlefile.html';
 
                             const res = await fetch(url);
                             const text = await res.text();
