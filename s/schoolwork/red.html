@@ -1,0 +1,639 @@
+<!DOCTYPE html>  
+<html lang="en">  
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REIDS GAMES</title>
+<link rel="icon" href="https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png" />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --primary: #ffffff;
+        --accent: #00f3ff;
+        --bg-deep: #050505;
+        --glass: rgba(255, 255, 255, 0.08);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --glow: 0 0 20px rgba(0, 243, 255, 0.3);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0; padding: 0;
+        font-family: 'Poppins', sans-serif;
+        background-color: var(--bg-deep);
+        color: white;
+        overflow-x: hidden;
+        min-height: 100vh;
+    }
+
+    /* --- ADVANCED SNOW CANVAS --- */
+    #snow-canvas {
+        position: fixed; top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: -1;
+        background: radial-gradient(circle at 50% 10%, #1a1f25, #000000);
+    }
+
+    /* --- LAYOUT --- */
+    .container {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 40px 20px;
+        position: relative;
+        z-index: 10;
+    }
+
+    /* --- HEADER --- */
+    header {
+        text-align: center;
+        margin-bottom: 40px;
+        padding-top: 40px;
+        animation: slideDown 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    h1 {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 4.5rem;
+        font-weight: 900;
+        margin: 0;
+        letter-spacing: 4px;
+        color: white;
+        text-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+    }
+
+    .subtitle {
+        margin-top: 10px;
+        font-size: 1.5rem;
+        color: var(--accent);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        text-shadow: 0 0 15px var(--accent);
+        transition: 0.3s ease;
+    }
+
+    /* --- TABS --- */
+    .tabs {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+
+    .tab-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--glass-border);
+        padding: 12px 40px;
+        border-radius: 50px;
+        color: #aaa;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        backdrop-filter: blur(10px);
+    }
+
+    .tab-btn:hover {
+        color: white;
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+    }
+
+    .tab-btn.active {
+        background: var(--accent);
+        color: #000;
+        border-color: var(--accent);
+        box-shadow: 0 0 20px rgba(0, 243, 255, 0.4);
+        transform: scale(1.05);
+    }
+
+    /* --- CONTROLS --- */
+    .controls {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 50px;
+    }
+
+    #searchBar {
+        width: 100%;
+        max-width: 600px;
+        padding: 18px 30px;
+        border-radius: 50px;
+        border: 1px solid var(--glass-border);
+        background: rgba(0, 0, 0, 0.6);
+        color: white;
+        font-size: 1.2rem;
+        font-family: 'Poppins', sans-serif;
+        backdrop-filter: blur(15px);
+        transition: all 0.3s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+
+    #searchBar:focus {
+        border-color: var(--accent);
+        background: rgba(0, 0, 0, 0.8);
+        box-shadow: 0 0 30px rgba(0, 243, 255, 0.2);
+        outline: none;
+        transform: scale(1.02);
+    }
+
+    /* --- GRID --- */
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 25px;
+        animation: fadeIn 0.5s ease;
+    }
+
+    .card {
+        background: var(--glass);
+        border: 1px solid var(--glass-border);
+        border-radius: 18px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        position: relative;
+        backdrop-filter: blur(12px);
+        display: flex;
+        flex-direction: column;
+        transform: translateY(0);
+    }
+
+    .card:hover {
+        transform: translateY(-10px) scale(1.02);
+        border-color: #fff;
+        box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    .card-thumb-container {
+        width: 100%;
+        height: 140px; 
+        overflow: hidden;
+        background: #000;
+        position: relative;
+    }
+    
+    .movie-mode .card-thumb-container {
+        height: 320px; /* Poster format for movies */
+    }
+
+    .card-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.5s ease;
+    }
+
+    .card:hover .card-thumb {
+        transform: scale(1.1);
+    }
+
+    .card-info {
+        padding: 15px;
+        text-align: center;
+        background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+        margin-top: auto;
+    }
+
+    .card-title {
+        font-weight: 700;
+        font-size: 1rem;
+        color: #fff;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .footer {
+        text-align: center;
+        margin-top: 80px;
+        padding-bottom: 40px;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .footer b { color: var(--accent); }
+
+    /* --- ANIMATIONS --- */
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-40px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    
+    .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<canvas id="snow-canvas"></canvas>
+
+<div class="container">
+    <header>
+        <h1>REIDS GAMES</h1>
+        <div class="subtitle" id="main-subtitle">Games by Reiddddddddd</div>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('games')" id="btn-games">GAMES</button>
+        <button class="tab-btn" onclick="switchTab('movies')" id="btn-movies">MOVIES</button>
+    </div>
+
+    <div class="controls">
+        <input type="text" id="searchBar" placeholder="Search..." onkeyup="filterItems()">
+    </div>
+
+    <div class="grid-container" id="game-grid"></div>
+
+    <div class="grid-container movie-mode hidden" id="movie-grid"></div>
+
+    <div class="footer">
+        Press <b>ESC</b> to Panic Swap to Google Drive
+    </div>
+</div>
+
+<script>
+    // ---------------------------------------------------------
+    // 1. DATA LISTS
+    // ---------------------------------------------------------
+    
+    const games = [
+        { name: "Plants vs Zombies", url: "https://script.google.com/macros/s/AKfycbyyEXD9_h6Vsie5eSBmDPCD1rAgPDa6O4kKxn9eyRMkzEsohm_7sMFRzs_h411gQEPx2w/exec" },
+        { name: "Subway Surfers", url: "https://mysticgames.netlify.app/games/subway/" },
+        { name: "Strong Man Simulator", url: "https://script.google.com/macros/s/AKfycbxLkugSSEdQm0qJQ4PZWRce6p8pKpuPdLIFeivG0cMt-QmjEjedBCarzz_kd2tlvxzs/exec" },
+        { name: "Steal a Brainrot", url: "https://script.google.com/macros/s/AKfycbytsGAlf3lPg4Po7HvAheHvyJKxYRA4ZYPUGjjjMpZafajZs3F5pu7E5BekDXlNhRHUFw/exec" },
+        { name: "Grow a Garden", url: "https://script.google.com/macros/s/AKfycbwK_YDMKEccZyVOz_fpe66G4Je4VyFPdT10OdaKpM699Utzbq41n2m6OXqAzpX0oqrLTA/exec" },
+        { name: "Snow Rider 3D", url: "https://script.google.com/macros/s/AKfycbw5Z-Ryg_JfIIDYH7pzzPKXlr2tN0HCw-tT_ZvxBGDPsDDY41ewPVneVeLzelfpnBab/exec" },
+        { name: "Crash Carts", url: "https://script.google.com/macros/s/AKfycbx63iRe5mtf5PQGIn_eGwKePxCA1iU6w-YApn57Mh4phi2ZB-G-GCJA1YTV9jKrwoqb/exec" },
+        { name: "Nugget Clicker", url: "https://script.google.com/macros/s/AKfycbzjgnGGeTNL2DTjJzVx3WGvsLjEyA47O6xYss-ijTLWWwrQv9siK9Gn_QqNDlDkrc27/exec" },
+        { name: "Cookie Clicker", url: "https://script.google.com/macros/s/AKfycbxGM35J29NkO-2LYjxWj_cA9IUaaXypkUy-LqXyLRbGTz0R6lXmAEapz1STN1jlTIRavw/exec" },
+        { name: "Pixel Shooter", url: "https://script.google.com/macros/s/AKfycbzBG3iwMy-Kdz3gY7oQSBugoIGwmA-IWITNrA8j1vX5ytZQHcKTS-61QLSpA5ixBJ2U/exec" },
+        { name: "1v1 LOL", url: "blob:https://1009047778-atari-embeds.googleusercontent.com/aff94361-27e5-4c58-b0e9-d72815885587" },
+        { name: "Bitlife", url: "https://script.google.com/macros/s/AKfycbz7YQScNBizgtxyn4DO7v12IQTI4nqwQc8srdlN30uZWw5BxWdIr2TPoMRC_8yQQKC7/exec" },
+        { name: "Cat Clicker", url: "https://script.google.com/macros/s/AKfycbyZC8Co483g482FRlWQrt5RGrDErAhWbwboKbvJW26UflpwUdNs5XlLObHrDjEszGRV4w/exec" },
+        { name: "Pizza Clicker", url: "https://script.google.com/macros/s/AKfycbxYgrQX9Czp4Tt9bYdMCxZ4gAQOtTBECYvroKJ7r48kTXs1vXa6xTOXYFYhcRNIawzK/exec" },
+        { name: "Pixel Gun 3D", url: "https://storage.googleapis.com/test-41376.appspot.com/pga2.html" },
+        { name: "Space Bar Clicker", url: "https://script.google.com/macros/s/AKfycbzZN3jRO2eOgcp622_W0GYAeArMio71AmlfRhF8yFucC5hEbRnDFZ3NLiN8peebEdlhWw/exec" },
+        { name: "Poop Clicker", url: "https://script.google.com/macros/s/AKfycbzDdetO4NX5twY1pU389ZUG2M9DERmoV0DeJNJS7SvzVIdA1WUaBeIeHo_CfQVNw2gq6g/exec" },
+        { name: "Clicker Heros", url: "https://script.google.com/macros/s/AKfycbxiYJVxz4HPt3JTbXtgX7swXZ734vV_Wr4QcqmQrBMydobF0wIOH_eqQx9HFVCkH4cX/exec" },
+        { name: "Duck Clicker", url: "https://script.google.com/macros/s/AKfycbysJKtWMnsbhg8q1RmnOEAr2U89XMzTL2Ca0w9lqKdoi7dx9QZbwsqzQdCcCBmLUtiI6A/exec" },
+        { name: "Spider Man", url: "https://script.google.com/macros/s/AKfycbwAoMJxFkkCGbz6H0x2lq5uVhb1vvQRKraex1znydX5Gm0jWse3HWUTvdU34ghoPqQauQ/exec" },
+        { name: "Slope 2", url: "https://sites.google.com/view/slpe-2-player/" },
+        { name: "Slither IO", url: "https://script.google.com/macros/s/AKfycbwXhPAppqZUy69d6b26B3Z6daQdZmzPsiaSsywQseSBMh94FLNnVTmupJqtonwt9oaQLw/exec" },
+        { name: "Paper IO", url: "https://script.google.com/macros/s/AKfycbwNxCzUuQVmLRWTwYK2D4yTqpWg2O-qge8BwCkxhLmqWd1DtXynwJXPEDClPt7ERZr-/exec" },
+        { name: "Eaglercraft", url: "https://www.google.com/url?q=https%3A%2F%2Fmysticgames.netlify.app%2Fgames%2Feaglercraft%2Fdragonx_v4%2520%281%29&sa=D&sntz=1&usg=AOvVaw2sCePdWiQq_ffspAzJVNwR" },
+        { name: "Noob Miner", url: "https://script.google.com/macros/s/AKfycbxkvPO4mEcWEk5a9TgEuR7qyiYZs7hL80XF5pwK8QMKHqmA7qUqxvIePB3PF9c3Bqc93w/exec" },
+        { name: "Zombie Sandbox", url: "https://script.google.com/macros/s/AKfycbxutg4sKZIHB5Nu6jyZ1PcIze8YSbsHFDx8xJraC4VHAfJOu4If-Tk7swki5Mia_IGY/exec" },
+        { name: "Drift Boss", url: "https://script.google.com/macros/s/AKfycbwAOi2tPbjzeWDkigfZMIPEGubYxz2la_qjxJyydNZyjwgbqsv9mv05g7tdmLHdvdaw/exec" },
+        { name: "Hole IO", url: "https://script.google.com/macros/s/AKfycbwSQ0aXrXdz23Z0adlljZLtt6EGzD7max6U15OnUFBxhQmht6KK7l7RzsVo2wOdkoXR/exec" },
+        { name: "Snow IO", url: "https://script.google.com/macros/s/AKfycbxa3OjBw8KWer3YhEXl1wxoe1uQKNo-wgGuqPO3NTndX566TTs10-ioXopEPitTvE-B/exec" },
+        { name: "Death Run 3D", url: "https://script.google.com/macros/s/AKfycbwqW4kBl41CHKxAW1aOCzUllnCGaK6LDmkZfAZH_dJzu646nns5bRfn0oqa5Zpq9zEI/exec" },
+        { name: "Madalin Car Stunts", url: "https://script.google.com/macros/s/AKfycbwkhPzDs1efaiOPjYhNnVKMinAE3jONqLhZa8Eu5oGeqrQaDQtp-glIhnYrXAem5E8Dqw/exec" },
+        { name: "Granny", url: "https://storage.googleapis.com/test-41376.appspot.com/gn.html" },
+        { name: "FNAF", url: "https://script.google.com/macros/s/AKfycbxJNtrKTWPCSIo9tOqq53G2xqoQCIPDTYUsVOT79Eqk8I7C5cQkGdDnj0jzlNHa7bvs3g/exec" },
+        { name: "Slender Man", url: "https://script.google.com/macros/s/AKfycbzD78lGmoq37iyrMDWZavBLxIRpQ_HmutXT9arsozaDkYaHVSfk7YliEmd3EL4nXM_4Bw/exec" },
+        { name: "Gun Night", url: "https://script.google.com/macros/s/AKfycbxIkkCWh4kp5QZwqA8qXEnb2XaFgXTErieBl4CMrLPYHqTDtl21HiF4373fWf9hInDNBQ/exec" },
+        { name: "Ahoy Raft", url: "https://script.google.com/macros/s/AKfycbyzVkBvWyVbdMcOo68Fh2bzuKaGAPmJdypz7toaDyxYMoctbxh7cgg6DC-LGUdA-LZ0Ow/exec" },
+        { name: "NFL Madden", url: "https://script.google.com/macros/s/AKfycbyeK7PhBwy3ieGSllnEILb9qSdGPmt2vheRIPImM2VOllSJAk-0Y82i1OVGl7qxWda3ZA/exec" },
+        { name: "Bank Robbery 2", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/439.html" },
+        { name: "Chick 1v1", url: "blob:https://1819523259-atari-embeds.googleusercontent.com/9a3771a1-d146-49d4-8fb1-b46b289d756f" },
+        { name: "Funny Shooter 2", url: "https://storage.googleapis.com/test-41376.appspot.com/fs2.html" },
+        { name: "Build a Plane", url: "https://script.google.com/macros/s/AKfycbwzSeRTcepa4gSddtkqyNQgNIxsXgbtpvOwBH_iHFqTPuI4LDTOREP_BcbCyO48fn6aew/exec" },
+        { name: "Feed a Brainrot", url: "https://script.google.com/macros/s/AKfycbyGbCbN5nPB5TUr52E5i_9LV_tSmFUNZKdmgUSaKMMBsoHkEnrS7HBPgftiRn0xbOEd/exec" },
+        { name: "Roblox Dig a Hole", url: "https://script.google.com/macros/s/AKfycbx3gCQI1WeQKUBJya7pn1_KoiqnENV_ah_64-TKmMwym15oLBa56oFHunXsWymnzQ6cyg/exec" },
+        { name: "Roblox Barrys Prison", url: "https://script.google.com/macros/s/AKfycbxRR9j9VoEVe3ftwVkqAslFNtnJ1UUWj8hLc51en9qR8fsVz2gho9geBFjasY0IV8gJBQ/exec" },
+        { name: "Minecraft Raft", url: "https://script.google.com/macros/s/AKfycbwpQHXN2419GU1OjX9m-MoQwpIeM-ZS7r2UE3NiqJ_GqPinDaFWAd_FJ_i0HZ_pxU/exec" },
+        { name: "Car King", url: "https://script.google.com/macros/s/AKfycbz6GTepbaULO9dEqHBzfb2Rm0C3pdSKcKnaOGr6qAWXxoppLkkA65v3vTgsDS4o7W56aQ/exec" },
+        { name: "TABS", url: "https://script.google.com/macros/s/AKfycbx-20sK1Vv2W5l1l4NnyzA67dCLHiWUNOnwlGioOx9yKXkauoZt5H7l6il14wlLS9hI4A/exec" },
+        { name: "Drift Runners", url: "https://script.google.com/macros/s/AKfycbwv5YaezxydtxaDvf3N6K_f27lSOQaOUHtxE0slEpqcgRn8S0O-B4FDICb_xLu-yMEM_A/exec" },
+        { name: "Wall Braker Obby", url: "https://script.google.com/macros/s/AKfycbwpQsaC46wfjtzpPEWddx4lMsp7Zc-BSeQlbfEFhSXcAhCWI57_S8gwnye76ZSbFiVR/exec" },
+        { name: "Football Bros", url: "https://script.google.com/macros/s/AKfycbxjYzXDX0iopyVPSDgG8_sTlQPpjv5KYMdsOtLXzYrQYdHPmHdswUb5NTXedQ3RK8XyoQ/exec" },
+        { name: "Basketball Stars", url: "https://script.google.com/macros/s/AKfycbwzYMDDcdDUAvEP7iO6OdRk-5_oUp6vYvDdyEEz8tTOzWi5y4-Qf3vQ6TBoZuc9UYVcLg/exec" },
+        { name: "Pokemon Emerald", url: "https://script.google.com/macros/s/AKfycbydeGJlDAWwZCE5PY08zOOmx37ItizsHHLSxDEwAEOsGgT7n9rqb4V1Anelns4sezU6/exec" },
+        { name: "Pokemon Fire", url: "https://script.google.com/macros/s/AKfycbzEbzXxS4zazELSeJtXyLaPrJhPMEJsh2lACeG_0Ky7xTL0ewG0m1iJeU2d1K0OmeGOug/exec" },
+        { name: "Pokemon Ruby", url: "https://script.google.com/macros/s/AKfycbypOitjGD19RPkCYQ8vgJzFfmtMtnl3naBwSw9OhpqtalZs0k3Pri3nL7X76qUwdV9GGQ/exec" },
+        { name: "Retro Bowl", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/33.html" },
+        { name: "Retro Bowl College", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/34.html" },
+        { name: "Cut The Rope", url: "https://script.google.com/macros/s/AKfycbzC5BJ124UUKkQqKJwi6D_xOIz7Vy0fHyc1Fl8NEnSUtRXD-AUGnkKt3u1bugFLT5s/exec" },
+        { name: "Geometry Dash", url: "https://mysticgames.netlify.app/games/geometrydash/" },
+        { name: "Red vs Blue", url: "https://storage.googleapis.com/test-41376.appspot.com/rvsb.html" },
+        { name: "Mine Clicker", url: "https://script.google.com/macros/s/AKfycbwRel1nwQUwbO-I9U1oZxP-XbJ4T8xK7RQmYzj7-8b21DJhqzWkUiePAhx5q6pZ--3e/exec" },
+        { name: "Roblox Car Training", url: "https://script.google.com/macros/s/AKfycbwHG-nBpdYtwW3DS-0WTVa191rByTmy1hB6Nfnbu8210Qf0GJDlQTws79TL9exSrAA4Rw/exec" },
+        { name: "Time Shooter 2", url: "https://storage.googleapis.com/test-41376.appspot.com/ts2.html" },
+        { name: "Time Shooter 3", url: "https://storage.googleapis.com/test-41376.appspot.com/ts3.html" },
+        { name: "Noob Puncher", url: "https://script.google.com/macros/s/AKfycbzzorzoC5g9vqw48jw3df62wUl4AL5CB02OvDmuS1jNr9LgORUaLsn4gJeCB96AZMg1/exec" },
+        { name: "Blade Ball", url: "https://storage.googleapis.com/test-41376.appspot.com/blb.html" },
+        { name: "CS Strike", url: "https://storage.googleapis.com/freezenova/all/2024/unity2/fps-strike/pre-gg.html" },
+        { name: "Crazy Cattle 3D", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/164-temp2.html" },
+        { name: "Super Market Sim", url: "https://storage.googleapis.com/freezenova/all/2025/unity/supermarket-simulator/pre-gg.html" },
+        { name: "Chic Nails Salon", url: "https://script.google.com/macros/s/AKfycbzhUihvpgflnIFAvQ8r2lmGBtDko4agAJZDOnhv34GCVgl5fTA155Znooe842QFrcFP/exec" },
+        { name: "Super Mario Run", url: "https://script.google.com/macros/s/AKfycbyvVfKl6U8WIVvyCjiU0bTUncbb_pYAdYbJGrvPFL8g4H3brthvqFi2uKK6YW5nTJepcw/exec" },
+        { name: "Gun Spin", url: "https://script.google.com/macros/s/AKfycbw3eTm2fi2WtzFV9x4H30gtzkoHUIIhH3saOGup-TC4MImYcKeVv5hEscrVwzwJ5vMXwg/exec" },
+        { name: "A Small World Cup", url: "https://script.google.com/macros/s/AKfycbwSK5IqLXbZppMz9znIJVycB4BZCHodE3uSgUF4C1fReEqmMSDYua81Ew7Rp-Cn85gojg/exec" },
+        { name: "TABS 2", url: "https://script.google.com/macros/s/AKfycbzMjY-ZtNYvvuJQryRtxbBEGL3JoIeGfnoawa-wCBbr8TS-OKaY0AJcjZDUQ72dC_GK/exec" },
+        { name: "Fishing IO", url: "https://script.google.com/macros/s/AKfycbzZJhJIeHFv_-I9PXF5xA-MA115srBLxJu4hxtMP4z0hGHSBcMzBNydUT5UxfmhSNQq/exec" },
+        { name: "Roblox Grimace Shake", url: "https://script.google.com/macros/s/AKfycbwPLnRcoqGbOipLt2as1aFfCgIKNE--rJbTIoVp6lzGhVThb_t5I7IChBn93Ndx-ZNp/exec" },
+        { name: "Poly Track", url: "https://script.google.com/macros/s/AKfycbzOmulSCFb0CwkaIrhIBdqglMVAfxQppFmVZmp2cp8-eHLj0j_LjbQtEhNyTClffFte/exec" },
+        { name: "Burrito Bison", url: "https://script.google.com/macros/s/AKfycbw5vt-wH3HFzY0kmnIwl6B30074jSz-oKtqRQ5L1EFsGbq9-g5h_SSP0qaTMf0M_RH1/exec" },
+        { name: "Brawl Stars Laser", url: "https://script.google.com/macros/s/AKfycbzACPj2zsVeDEC6L2t46-PPjX179hOg93eCD5lwrMnhHD0CnsNK0AlOTSKT1WKDlyDF4A/exec" },
+        { name: "Madalin Cars 2", url: "https://kyleissosigma.global.ssl.fastly.net/projects/madalin-stunt-cars-2/index.html" },
+        { name: "Mr Car Racing", url: "https://script.google.com/macros/s/AKfycbxeLEpzZpAIPrMSkB1dCTPkLcn8wcNTVCw0wfN2q_jOfXWQ3GhcrqygfgQq1t2yyK6tCQ/exec" },
+        { name: "Eggy Car", url: "https://script.google.com/macros/s/AKfycbxGFiHgVNVoous7yjguN7bcuwa6lejCHgh6V1weh1vNalyCzpMmaMH9NhTisNSqkUo3/exec" },
+        { name: "OvO", url: "https://script.google.com/macros/s/AKfycbyDZOJq86UIFlMkKfvZtA_Sv86sKooVRpwVFS2rb38TOT8ExCt3PfR1Y5UAveVuVGlQLw/exec" },
+        { name: "OvO 2", url: "https://script.google.com/macros/s/AKfycbx9z-8dgnQm5HtguTN1a6ij3Dcb_op9-d9dsT4CDOt4IVOc7JSvGt3k1PS3-083XIEF/exec" },
+        { name: "Riddle School", url: "https://script.google.com/macros/s/AKfycbyBMzbST-uTVoOBVyLwbqs7LeloEnSkKiP4Cik0DmPAcVR7Oqq-BzXdvrOzNR6Uwl4MJQ/exec" },
+        { name: "Riddle School 2", url: "https://script.google.com/macros/s/AKfycbxAxmSYav_FxW2KK6Uq4gGNAkqUdVghvBbB7RGGp94sgFIyB0zaNQwMmtyXUrA7Uh80yQ/exec" },
+        { name: "Riddle School 3", url: "https://script.google.com/macros/s/AKfycbwa5pPN4jqxL2C_SbGRkUUm23NwS3SB0XmUkqFNp0mEjCMy_lphUCFHXzb5ZsOUf9drNQ/exec" },
+        { name: "Riddle School 4", url: "https://script.google.com/macros/s/AKfycbwGuLeqEsgE3zoFtlvDy6eJ9dwvTz7tJIubeYTMXqUKG-cNMrlgRteuJM1QxCDj_6gN/exec" },
+        { name: "Super Mario 64", url: "https://script.google.com/macros/s/AKfycbyB8Cg09IyL5iA01VRMcp6GXWBsHJDyytzuovDyiHdgIUmtHuNM7x27VlBnJjYt26F-/exec" },
+        { name: "Governor of Poker", url: "https://script.google.com/macros/s/AKfycbypfdD_P9HVmO5Ms9mJZX7xl4IQBSsFYdUqZoJhR9f97McSR9B1wqvUc4YhoORgScn5/exec" },
+        { name: "Car King 2", url: "https://script.google.com/macros/s/AKfycbxQuqMuGYqOJSyYwUL5vYn1E3xCTjM7DAQZnhnKyYVmhH_2mNQS7INnwJkwr7l7T9GC/exec" },
+        { name: "DOOM", url: "https://script.google.com/macros/s/AKfycbyxLM58t1oGIyqp09GNTAGBqUBaFg7A9nY5lLwS45Zg2z63ax0EmnhHCXW_aHhEpdFcqg/exec" },
+        { name: "DOOM 2", url: "https://script.google.com/macros/s/AKfycbx61mSm2aEx_wwEQB66hIGUZm8hV2dBZvo2QXcabpXvc0r25c22pW-pdE8tmxBjOWcWCw/exec" },
+        { name: "Vex", url: "https://script.google.com/macros/s/AKfycbxwyDsC49pauwYS59k4k10ptEAWo-6qgJf2nyvPt3i52bikDw98aFuDgvSPRWaIsnr8/exec" },
+        { name: "Ant War", url: "https://script.google.com/macros/s/AKfycbwTCDauLkMPclvbdLzVCcJlUN0ZJJhW1WWX16471JKSvDvemRPf1d_koYpXxbgo5xtv/exec" },
+        { name: "Bloons TD 5", url: "https://script.google.com/macros/s/AKfycbzSjvvBl4oIbQbsdQ6wORkEPqBumZKhlNUW3FirGHuAIe6EPZ_QGuF4N0TqjL0ECFoo/exec" },
+        { name: "Brawl Stars", url: "https://script.google.com/macros/s/AKfycby2-8wV6Z0j1rs8FEOpgLh45K2Psh7qsbQX9PFQqvuVhkiIxgbYZCQbnYTQvb6KyiGG/exec" },
+        { name: "Theme Hotel", url: "https://script.google.com/macros/s/AKfycbwrJdMjGr6QgtCqRECx-sah1QhwG_uDl05wIqxLiBciZkSh2bheRU40RjCAczlxBJwuNw/exec" },
+        { name: "Tiny Archer", url: "https://script.google.com/macros/s/AKfycbwewqfKyRlPVStl7DY10aR-AbTtoXNZzFxi_TEgtOfJacKP6zplkmCDV5C8Ns7NKowl/exec" },
+        { name: "Miami Shark", url: "https://script.google.com/macros/s/AKfycbwcOrx811OvPzstvQr6A5KOKznvdBG_acIb69QrkqZf9SS6Amq6JNWlHFFVHEGAAgeylQ/exec" },
+        { name: "Roblox Obby", url: "https://script.google.com/macros/s/AKfycbx-uaFWRwY1q4Gv7pRrd9PR3zbbmsKV5PTGPQZ11-u3EWCiD4xeM2V3_1JBvmJQNxSshw/exec" },
+        { name: "Color Switch", url: "https://script.google.com/macros/s/AKfycbwWWBtavXiMCq399BK9oR49x9YwZ3TnN4vnTZ5fhELKP8yqc9_mqT25hT6PdwjD_hMdmA/exec" },
+        { name: "GTA 4", url: "https://storage.googleapis.com/freezenova/all/2023/unity2/gta-simulator/pre-gg.html" },
+        { name: "Stickman GTA", url: "https://storage.googleapis.com/freezenova/all/2024/unity3/stickman-gta-city/pre-gg.html" },
+        { name: "Snow Rider 2", url: "https://unblocked-games.s3.amazonaws.com/games/2025/unity2/snow-rider-3d/pre.html" },
+        { name: "War Strike", url: "https://storage.googleapis.com/freezenova/all/2024/unity3/warstrike/pre-gg.html" },
+        { name: "Car King 3", url: "https://storage.googleapis.com/freezenova/all/2024/unity3/survival-karts/pre-gg.html" },
+        { name: "Jaydens Bus", url: "https://storage.googleapis.com/freezenova/all/2021/2/school-bus/pre-gg.html" },
+        { name: "Blob Man Runner", url: "https://script.google.com/macros/s/AKfycbxzSGHk_3h5kMq-nWnMw-klXqPCvXAWtnetko4sja__qk43JO5f5bBJXkyhkt3gFDsG/exec" },
+        { name: "Basketball Bros", url: "https://script.google.com/macros/s/AKfycbxUfaDSpH-0SJL0WPKt38JY7OOOGMmtpY9JTSbL8pvtjxS7jSpNHHu6MdZgWUshIU00Kw/exec" },
+        { name: "Ragdoll Archers", url: "https://script.google.com/macros/s/AKfycbxNbvNHQi6AaM1h7e1N4T2gkDUR3CMeqDfto6yUKf4DKrOELGCCT4maR8rwUvL3EAXg/exec" },
+        { name: "Legend of Zelda", url: "https://script.google.com/macros/s/AKfycbzu7JPsUyqahRNyoVAWYD-uIEpV5FNs0akJEM0EwNV_ToMOxVpNPgW8huZ4tsKfKLM7/exec" },
+        { name: "Body Drop 3D", url: "https://script.google.com/macros/s/AKfycbyXOw6qzM51ssGj_M9IbqU2ecyQivgppEfFXnGRtWv2fa88YqEgVxfE1pA3x-Tf1jfxTA/exec" },
+        { name: "Backflip Maniac", url: "https://script.google.com/macros/s/AKfycbyExxCazbrnnLXvfNagILoQmILcNwXIkg8QDmtAo2Q6ZoI9KfUar3j7jjbdi3mE_km8/exec" },
+        { name: "Pipe Riders 3D", url: "https://script.google.com/macros/s/AKfycbwEVfIX4lJOqfq3QSoLcjMR42I7zeC1_Njr8LGucBGcaVBp5MsfC96SFhXGnaOwfuCX/exec" },
+        { name: "Bottle Flip 3D", url: "https://script.google.com/macros/s/AKfycbzwDflD6NVq9iPdEWsRyyI4iqR_k47P-BK4sn_vpYaZGsPJz3zDYRDy45azzYiPnYs/exec" },
+        { name: "Slope City", url: "https://script.google.com/macros/s/AKfycbyendSzfWzjivGUAoNgH5QDpJIxJDyJvSYwXWxcV_8gl9xkdTMV2BvDpjiWNw5pGaVT/exec" },
+        { name: "Block Blast", url: "https://script.google.com/macros/s/AKfycbxZvtI5agrSjt2PR9Bi4M0UrukDLv22m04S03neCz_La2RwnISHUDQ48n6hlYayZvIs/exec" },
+        { name: "Binding of Isaac", url: "https://script.google.com/macros/s/AKfycbx1-ahIchbUqDQdqB5GJ2-ZxlbPLz1lz7ohzlqUZ41JUrAnGTIPjgLaASGqqV1ToAuZ/exec" },
+        { name: "FNAF 3", url: "https://script.google.com/macros/s/AKfycbyVdPAG4aRGh5tmBwKEZthKmaqO12GTD-h-C1Do6ICbR3ZEj5ic1aJQ2e4Im2pxcWLf/exec" },
+        { name: "Stickman Archero", url: "https://script.google.com/macros/s/AKfycbxQMjTKES5CMpXfWBSXOQvk0qSCqIMpeT_zTPIshM-_XuAdBdi2lm2M9UfLdjHCSSg3/exec" },
+        { name: "Cooking Fever", url: "https://script.google.com/macros/s/AKfycbyjI0zmcSCEH1KYPHLRli9aaHyQettbfiqOyaKVDeJn8rccfLOQYK6pJze4xP-EFJKg/exec" },
+        { name: "Gacha Life", url: "https://script.google.com/macros/s/AKfycbwpsiFvcV6VcCA2a7HCMZd4FsuW9rw53GS08ItGe6CXqWkkrVrl1yV2GW-E3JGYOzkcvQ/exec" },
+        { name: "Tag", url: "https://bav1.wadmc.site.cdn.cloudflare.net/storage/ag/g/tag/" },
+        { name: "Space Wave", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/117.html" },
+        { name: "Kart Bros", url: "https://script.google.com/macros/s/AKfycbxb8isaXXwqY7h3OqafbfonnaOEmyfyK8ZQoMvgT-HGwUSfpJoK5Aim1Ca3fvKvEqxj/exec" },
+        { name: "Drive Mad", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/35.html" },
+        { name: "Forg Clicker", url: "https://script.google.com/macros/s/AKfycbzQaAZtrcJFjT3vW7NBFYusYqo6WuBjQy_y0Ky2qpW2Xml3PHAv4sJN3SHNyp89JMOc/exec" },
+        { name: "Fall Guys", url: "https://script.google.com/macros/s/AKfycbxzGXZ-dYcADWPNv7OSO6OdaFl8sJtBNY8J1KO5EQ33_I37NN0nQkaej4HqNCAkvxHHqA/exec" },
+        { name: "Drift Hunters", url: "https://script.google.com/macros/s/AKfycbw8iHPqdVFEzquUYbNxFVAu1Tw4Nri5SWMRLdP_c7a84vCOHVG7YUWuhjSVptg1SVHr/exec" },
+        { name: "Sonic Revert", url: "https://script.google.com/macros/s/AKfycbzBAwdrT4yM1Hd7ZZZh8uHlWcfaGqq2wuP6CXzRYrI25JI-1v42AyvMtIeiFfelHuV3jA/exec" },
+        { name: "Bloons TD", url: "https://script.google.com/macros/s/AKfycbzKR69hQK7HutG9tRM2cEM9H8vEX8xwkPDTeEjeju7G_P2Xf83RYqBoNT2S9NPo7NWN/exec" },
+        { name: "Bloons TD 2", url: "https://script.google.com/macros/s/AKfycbxI5KGOnqExl7GEpiCd5XXr9PXBMkGhDLWnOQfEuXRjmXom-nUzLjOXfP4iwAYUvbE/exec" },
+        { name: "Bloons TD 3", url: "https://script.google.com/macros/s/AKfycbzRkRFh3xH_YzLqtvFVsKcPOdqkcps9umH96kwECqmzugE1XkxYo6ryhCKD1m7JkR0-rw/exec" },
+        { name: "Bloons TD 4", url: "https://script.google.com/macros/s/AKfycby2trsng3jMdXZGJn1BQjbqYbooUtnPL3dT1EP9yp7GQRHsUSWLSGyZAUB62jIicJek6A/exec" },
+        { name: "Squid Game", url: "https://firebasestorage.googleapis.com/v0/b/test-1e83a.appspot.com/o/sg.html?alt=media&token=3a831154-d98f-4ee8-b134-6147678bdef8" },
+        { name: "Sushi Cat", url: "https://script.google.com/macros/s/AKfycbxklkIQr8XmD1Qop6uHXJdSXks7pLz1zBMg7k7jPzOTdZChInaDEaQbzN6YNCZbIbbLzQ/exec" },
+        { name: "Stickman Fighter", url: "https://script.google.com/macros/s/AKfycbw3hd0GBBIL0fD_54SGZZFEfCVUMCXP0tUZMq6OjDiXeNnUQ97rt70cUpDfkmgSGtErmQ/exec" },
+        { name: "Pixel Archer", url: "https://script.google.com/macros/s/AKfycbxg-5QTwa4cKw_Lk_M4zzAs4nJk0kS7urUqO587jQFs1Haxarg0HphnRpq4arSqkmuVYA/exec" },
+        { name: "Wrestle Bros", url: "https://script.google.com/macros/s/AKfycbzf61_c1OXDbrsZz4pecMt5cUWDGwGJWXUtlOAoNdBE2acBbblA31lQmATDlBRpFVYiWw/exec" },
+        { name: "Friday Night Funkin", url: "https://script.google.com/macros/s/AKfycby1HaNDGKwziSvZ_m-drF_v3AFw4E0gOvqn8Dx_9SSxXQrM3s0kFdZYrlPLcryYkPIb/exec" },
+        { name: "Baseball Bros", url: "https://script.google.com/macros/s/AKfycbwyvxP-o1WNt_P4ND0dZ5nG3ytpAeIZsj3tN205-I_WkqGEuWPAS2yBcRWpX_tJ-BtY/exec" },
+        { name: "Only Up", url: "https://script.google.com/macros/s/AKfycbwMccc783yv5Ftx2nkZ6BpHDi66OYtby8TRsYzgDufHka0zzRHHcV19NgtnFJH0ltbEvQ/exec" },
+        { name: "Getaway Shootout", url: "https://script.google.com/macros/s/AKfycbwHKYphUKLbxkpjFx_EWO__M8-hH8mMrlAQWcJVN3squSkph0M3Bb7u7myZzYAbmyeQTA/exec" },
+        { name: "Crazy Dentist", url: "https://script.google.com/macros/s/AKfycbwL5IsBaV0-4OwzZhJ_6tmPgsZ5eMTv-TD-1qgZ_2BvDnit3dlCblBXf_iBiBIckn3T/exec" },
+        { name: "Happy Wheels", url: "https://script.google.com/macros/s/AKfycbyfMPVIGx6dJPrYKeE9e4Erj949-dH28pWVRjdV1vgnoylpBV8af03JNLoz2MwAIBLECg/exec" },
+        { name: "Prison Escape", url: "https://script.google.com/macros/s/AKfycbyyBwGa1C8kH2itma0EGi81NjjpX5DxJQznbNNj7oTU_RGDT2x3s5uJx-zsbsIKvr40eQ/exec" },
+        { name: "Dig to Escape", url: "https://script.google.com/macros/s/AKfycbz3g4g5OZzdwCllJRXQeiB5WsRS6k83WwxhQJAhf5Y_POwAMD6sKJFlBlgD1jgfZInifg/exec" },
+        { name: "Mr. Dude", url: "https://script.google.com/macros/s/AKfycbzFSYMyP5-xv8yF35HL0Aj0S2txSh1DLJ8hnMCUeyW4TgbL3GeQQG0Dr6AsXtGWpIdEeQ/exec" },
+        { name: "FNAF 2", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/39.html" },
+        { name: "Robbie Tycoon", url: "https://script.google.com/macros/s/AKfycbzgKGEc9fUGI21w1jx9DsuXwVddJIpIHfC67322MyoOMZ_0_pzW1_LBsZbnKNTd6igp/exec" },
+        { name: "Hangar 2", url: "https://script.google.com/macros/s/AKfycbxhkIwgROe7gPhcbvQmpy88tk6nWZ8mDYRGeKnMPKgO8U0-mIiRsNFpSRDx1scxX4bO/exec" },
+        { name: "Fun Ragdoll", url: "https://script.google.com/macros/s/AKfycbznGp7b4oeq8f7NHl6ymbX-lfgn0irQJZcRp8zAFpe_PEoD-R39ASBQ3_t7Sx2yA-Quag/exec" },
+        { name: "Brawl Ships", url: "https://script.google.com/macros/s/AKfycby1ojj07-bMzkztAHz7nJxL0c88gZzRF9HR1fCRxGjfGG13iuAt6S5pXuc15jxdIO3tyA/exec" },
+        { name: "RocketGoal.io", url: "https://script.google.com/macros/s/AKfycbybZkVPGyvHUOZbwrJSn5fRQIFcGpoIEhp0r-yq2GWRtE_1G7YzP4t8kPZRfp6tutUN/exec" },
+        { name: "Obby Ragdoll", url: "https://script.google.com/macros/s/AKfycbyZYCjrlO5pzZ-0WzBPJPCh0nxTuU8yQFjAkdy3HjUgQnCWHzlleuDCnKL5cAKVcWe0/exec" },
+        { name: "Fish It", url: "https://script.google.com/macros/s/AKfycbwabBzPFBdOsUl5BiBrPa_4y3_g-qtgFkCn_sNHGsZZNgoy4t1D8XlYabpiVhoUOVmu1g/exec" },
+        { name: "Papas Burgeria", url: "https://script.google.com/macros/s/AKfycbyyfjHc-YiNqGOngfUlkjS5Fvx2x0UYfkerogM_Y3-Z1BQTZW2K0AcegLUtVdRjo5nM/exec" },
+        { name: "Papas Taco Mia", url: "https://script.google.com/macros/s/AKfycbyJDZUnBq6_qyG0CrInptybAP0n54yhZ8agPdAQ1iAT_ki0rfkTjHPSHYdfyOvO1Skwjw/exec" },
+        { name: "Papas Pizzeria", url: "https://script.google.com/macros/s/AKfycbxN6EVQbtkjn6NUiIyJscLGTyyMyAUABzuB_kp4relIe6rr9B8eWmlnlvDsBVtiRa5pPg/exec" },
+        { name: "Castle Wars", url: "https://script.google.com/macros/s/AKfycbyY4CyZLTgV9OVSQw1W42hbLpATlSc-kK6dfZsdQ1lz84_ZeKU4OEDVfzN2yK7l2pIc9A/exec" },
+        { name: "Space Wars 3D", url: "https://script.google.com/macros/s/AKfycbwFZ8nVVnzJ7Ok7T596pn-Y0GriUK20c7_rxqCVIdlY-6-Wym3xrJhO-NyQi8NogxqDXw/exec" },
+        { name: "Monster Box 3D", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/401.html" },
+        { name: "Destroy Car", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/385.html" },
+        { name: "Alexander Empire", url: "https://script.google.com/macros/s/AKfycbySmwkNl5vxIY1bsc7RJJF3ZfHp9TkMho4fc6Vtt91QPrX31OX1y14an84BPq5o-zE8/exec" },
+        { name: "BuildNow.gg", url: "https://bav1.wadmc.site.cdn.cloudflare.net/storage/ag/g/buildnowgg/" },
+        { name: "Fortzone", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/120.html" },
+        { name: "Run 3", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/177.html" },
+        { name: "Speed Stars", url: "https://bav1.wadmc.site.cdn.cloudflare.net/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/266.html" },
+        { name: "CSGO Case Chase", url: "https://bav1.wadmc.site.cdn.cloudflare.net/storage/ag/g/csgoclicker/" },
+        { name: "Curveball 3D", url: "https://script.google.com/macros/s/AKfycbydgy6s1YL66mbd6el9TFRAi3hdvC8ssPtT_gfQq4zDxTZxJjPHrFI737JRJj1nmohZng/exec" },
+        { name: "Rainbow Friends", url: "https://script.google.com/macros/s/AKfycbxNB9nSu4vzfq7fJPViycA65TrPuWuNSwe2YIvzyAIFRMtQIkunzA6Ixm2QiVyE37LqsQ/exec" },
+        { name: "Among Us", url: "https://script.google.com/macros/s/AKfycbyix6sPjvsn_izDvhJLVuif1buj9ZtARvj9D_FEQ0rscRXgl-RgArs0t4oJw_OHm5Dr5A/exec" },
+        { name: "Craftmine", url: "https://script.google.com/macros/s/AKfycbzUU6zKRrPYcFmCtljq5gjeSZzyQQZNRi-45LRflu0v8GcVO5BmwHjVhxeXhn6yVkXP/exec" },
+        { name: "My Happy Farm", url: "https://script.google.com/macros/s/AKfycbzATlBgtLc5RwEiuaOH9DHfF1D4a_XUFERoq4f1E1Y3MUJoAgSTAn7WyOqmRArkFLjM/exec" },
+        { name: "Playground Man", url: "https://script.google.com/macros/s/AKfycbyfASSH2K3-0WpQ0Imil8J-Xs4iIlcvunKCGKk6mkm8MygFzhPHEs4Akf879vruIVxx/exec" },
+        { name: "Call of Duty", url: "https://script.google.com/macros/s/AKfycbyVPz9wAXi5MOoN-W13DNHZB-mdu-B6MdRdvq6qPpC-cIYGU7RZggTJpPIZFDEA_XShlQ/exec" },
+        { name: "BunnyLand", url: "https://script.google.com/macros/s/AKfycbzYNoh6yqG6eu3SMGFRLwHI1B6R79jADni5_zTz5G0IYuwqo2WbU0N9hiYUkXKS8Zh1/exec" },
+        { name: "Food Tycoon", url: "https://script.google.com/macros/s/AKfycbxS6WT28mw1EO9wkpTRvlCAit9yuJCK7rm8USP3HEUviAjeDB-M6dvtc7zBosLBa92QFA/exec" },
+        { name: "Merge Fellas", url: "https://script.google.com/macros/s/AKfycbxKeACMsdA3N71Rk2wolGOxrBqYz9UXnTo0o_Z4nvyh-z0SjoPO5UnfTLQXgsZQey4a/exec" },
+        { name: "Pool 8 3D", url: "https://script.google.com/macros/s/AKfycbwgNIFE-Y2ckj1yfL215QDByY61L8tOiBJUC2IppZmScK2wrOVoEMjilX2f-TdEYN3N/exec" },
+        { name: "Endless War", url: "https://script.google.com/macros/s/AKfycbx0g5BUL99BiBoQcEUYIFlFifyjxIR92tS8WWNAqEZnUx9ePaoEEZnO2CfcGHNUU2lRMQ/exec" },
+        { name: "Zombie Siege", url: "https://script.google.com/macros/s/AKfycbxUErJUc_ACvigcRFz3qfnoGUqikZVKUfKZekuAeEEfqCBKS-9WQF8XXJqyiH2kk85r/exec" },
+        { name: "Hop Masters", url: "https://script.google.com/macros/s/AKfycbwNy4zXsSbExk8y6K7XIeg68xNFxPG_06EXhu4dtlR8vyGfODTey-POqEXTxEi_HxboQQ/exec" },
+        { name: "Steal Brainrot 2", url: "https://script.google.com/macros/s/AKfycbxJalyip_ETy_kolDAlSVxdcnLtn16P6gIoJ5kDwt1abHFX32SUJEOLCWU31veTffv2/exec" },
+        { name: "Battle Soccer", url: "https://script.google.com/macros/s/AKfycbypNJTV2_4SaNeQ_yGszhhWdue30IzXRZnqpA9d3q9LnYVV_kulbaHCR_csPvFZ3MQf0A/exec" },
+        { name: "Ice Hockey", url: "https://script.google.com/macros/s/AKfycbyrV0taviLggEVl88GTQrd9J-caSQfxqraH6_Zu2evPkn4qI-qzO3nTibe7yFX5KW3Y/exec" }
+    ];
+
+    // --- UPDATED MOVIE LIST ---
+    const movies = [
+        { name: "The Super Mario Bros. Movie", url: "https://drive.google.com/file/d/1eRB_-rlFmeifwaUg5nq8AN1Z8XWOUrzX/preview" },
+        { name: "Ant-Man and The Wasp", url: "https://drive.google.com/file/d/1A3IjnFbij3F9PsfR8yqgxmOYgtde4u6i/preview" },
+        { name: "Shrek", url: "https://drive.google.com/file/d/1L3PP-zA8fT3qD8VXVOnj9jOSaPGkUxRw/preview" },
+        { name: "An Extremely Goofy Movie", url: "https://drive.google.com/file/d/1uH6tzn26qa5bbVp3RNUxuANcYd5G-3zP/preview" },
+        { name: "Moana", url: "https://drive.google.com/file/d/1jvUEJm-zNFj3JwUDicd0gvutkqrP9HxV/preview" }
+    ];
+
+    // ---------------------------------------------------------
+    // 2. GRID GENERATION
+    // ---------------------------------------------------------
+    const gameGrid = document.getElementById('game-grid');
+    const movieGrid = document.getElementById('movie-grid');
+
+    games.forEach(game => {
+        gameGrid.appendChild(createCard(game, 'game'));
+    });
+
+    movies.forEach(movie => {
+        movieGrid.appendChild(createCard(movie, 'movie'));
+    });
+
+    function createCard(item, type) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.onclick = () => launch(item.url);
+
+        let searchQuery, width, height;
+        if (type === 'game') {
+            searchQuery = encodeURIComponent(item.name + " game app icon");
+            width = 400; height = 300;
+        } else {
+            searchQuery = encodeURIComponent(item.name + " movie poster");
+            width = 400; height = 600;
+        }
+
+        const imgUrl = `https://tse2.mm.bing.net/th?q=${searchQuery}&w=${width}&h=${height}&c=7&rs=1&p=0`;
+        const fallbackUrl = `https://placehold.co/${width}x${height}/111/00f3ff?text=${encodeURIComponent(item.name)}`;
+
+        card.innerHTML = `
+            <div class="card-thumb-container">
+                <img src="${imgUrl}" class="card-thumb" onerror="this.src='${fallbackUrl}'" loading="lazy" alt="${item.name}">
+            </div>
+            <div class="card-info">
+                <div class="card-title">${item.name}</div>
+            </div>
+        `;
+        return card;
+    }
+
+    // ---------------------------------------------------------
+    // 3. TAB SYSTEM
+    // ---------------------------------------------------------
+    function switchTab(type) {
+        const gameBtn = document.getElementById('btn-games');
+        const movieBtn = document.getElementById('btn-movies');
+        const gameGrid = document.getElementById('game-grid');
+        const movieGrid = document.getElementById('movie-grid');
+        const subtitle = document.getElementById('main-subtitle');
+
+        if (type === 'games') {
+            gameBtn.classList.add('active');
+            movieBtn.classList.remove('active');
+            gameGrid.classList.remove('hidden');
+            movieGrid.classList.add('hidden');
+            subtitle.innerText = "Games by Reiddddddddd";
+        } else {
+            gameBtn.classList.remove('active');
+            movieBtn.classList.add('active');
+            gameGrid.classList.add('hidden');
+            movieGrid.classList.remove('hidden');
+            subtitle.innerText = "Movies by Reiddddddddddddd";
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 4. CLOAKED LAUNCHER
+    // ---------------------------------------------------------
+    function launch(url) {
+        const win = window.open('about:blank', '_blank');
+        if (!win) { alert("Pop-ups are blocked! Please allow them."); return; }
+        
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Google Drive</title>
+                <link rel="icon" href="https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png">
+                <style>
+                    body { margin:0; padding:0; height:100vh; background:#000; overflow:hidden; }
+                    iframe { width:100%; height:100%; border:none; display:block; }
+                </style>
+            </head>
+            <body>
+                <iframe src="${url}" allowfullscreen></iframe>
+                <script>
+                    window.addEventListener('keydown', (e) => {
+                        if (e.key === "Escape") window.location.replace("https://drive.google.com");
+                    });
+                <\/script>
+            </body>
+            </html>
+        `;
+        
+        win.document.write(html);
+        win.document.close();
+    }
+
+    // ---------------------------------------------------------
+    // 5. FILTER FUNCTION
+    // ---------------------------------------------------------
+    function filterItems() {
+        const input = document.getElementById('searchBar').value.toLowerCase();
+        const activeGrid = document.querySelector('.grid-container:not(.hidden)');
+        if (!activeGrid) return;
+        
+        const cards = activeGrid.getElementsByClassName('card');
+        for (let i = 0; i < cards.length; i++) {
+            const title = cards[i].querySelector('.card-title').innerText.toLowerCase();
+            cards[i].style.display = title.includes(input) ? "flex" : "none";
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 6. SNOW ANIMATION
+    // ---------------------------------------------------------
+    const canvas = document.getElementById('snow-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let width, height, flakes = [];
+
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Flake {
+        constructor() { this.init(); }
+        init() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * -height;
+            this.size = Math.random() * 3 + 1;
+            this.speed = Math.random() * 1 + 0.5;
+            this.opacity = Math.random() * 0.5 + 0.3;
+            this.sway = Math.random() * 0.1;
+            this.swayOffset = Math.random() * Math.PI * 2;
+        }
+        update() {
+            this.y += this.speed;
+            this.x += Math.sin(this.y * 0.01 + this.swayOffset) * 0.5 + 0.2;
+            if (this.y > height) { this.init(); this.y = 0; }
+            if (this.x > width) this.x = 0;
+            if (this.x < 0) this.x = width;
+        }
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+            ctx.fill();
+        }
+    }
+
+    for (let i = 0; i < 150; i++) flakes.push(new Flake());
+
+    function animate() {
+        ctx.clearRect(0, 0, width, height);
+        for (let i = 0; i < flakes.length; i++) {
+            flakes[i].update();
+            flakes[i].draw();
+        }
+        requestAnimationFrame(animate);
+    }
+    animate();
+
+    window.addEventListener('keydown', (e) => {
+        if(e.key === "Escape") window.location.replace("https://drive.google.com");
+    });
+</script>
+
+</body>
+</html>
