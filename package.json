@@ -20,17 +20,15 @@
   "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
-    "eslint": "^10.0.3"
+    "eslint": "^10.4.1"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.1.144",
-    "axios": "^1.16.1",
+    "@anthropic-ai/claude-code": "^2.1.168",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "helmet": "^8.1.0",
-    "npm": "^11.12.1",
-    "supabase": "^2.85.0",
-    "ws": "^8.20.1"
+    "helmet": "^8.2.0",
+    "supabase": "^2.105.0",
+    "ws": "^8.21.0"
   }
 }
