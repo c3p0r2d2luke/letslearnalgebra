@@ -1,5 +1,9 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+import { logToAdminConsole } from "./logToAdminConsole";
+import { setPreviewCache } from "./previewCache";
+import { DEFAULT_SERVER_SETTINGS } from "./constants";
+
 /* =============================================================================
  * LLA Realtime Chat — script.js
  *
@@ -43,24 +47,24 @@ let audioContextUnlocked = false;
 
 async function unlockAudioContext() {
   if (audioContextUnlocked) return;
-  
+
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     // Create a silent oscillator
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
+
     osc.connect(gain);
     gain.connect(ctx.destination);
-    
+
     osc.frequency.value = 1; // Very low frequency
     gain.gain.value = 0.001; // Almost silent
-    
+
     osc.start();
     osc.stop(ctx.currentTime + 0.1);
-    
+
     // Wait a moment then resume
     await ctx.resume();
     audioContextUnlocked = true;
@@ -122,59 +126,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.key === "Escape") closeInlineRow();
     });
   }
-});
-
-// Add this near the top with your other constants
-const PREVIEW_CACHE_KEY = "linkPreviewsCache_v2";
-const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3.  IMPROVED  getPreviewCache / setPreviewCache
-//     Changes: prune-on-read is O(n) on every call — only prune once per session
-// ─────────────────────────────────────────────────────────────────────────────
-let _previewCachePruned = false;
- 
-function getPreviewCache() {
-  try {
-    const raw = localStorage.getItem(PREVIEW_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (_previewCachePruned) return parsed;
- 
-    // Prune once per page load
-    _previewCachePruned = true;
-    const now = Date.now();
-    let changed = false;
-    for (const key of Object.keys(parsed)) {
-      if (now - parsed[key].timestamp >= CACHE_TTL) {
-        delete parsed[key];
-        changed = true;
-      }
-    }
-    if (changed) localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(parsed));
-    return parsed;
-  } catch {
-    return {};
-  }
-}
- 
-function setPreviewCache(url, data) {
-  try {
-    const cache = getPreviewCache();
-    cache[url] = { data, timestamp: Date.now() };
-    localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Storage quota exceeded — silently skip caching
-  }
-}
-
-const SERVER_ROLE_LADDER = ["User", "Manager", "Admin", "SysManager", "SysAdmin"];
-
-const DEFAULT_SERVER_SETTINGS = Object.freeze({
-  bad_word_filter_enabled: false,
-  admin_only_custom_emojis: false,
-  allow_plaintext_links: false,
-  allow_everyone_mentions: false
 });
 
 let currentServerSettings = { ...DEFAULT_SERVER_SETTINGS };
@@ -371,33 +322,33 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
 function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   // Remove any orphaned submenus from a previous open
   document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
- 
+
   menu.innerHTML = "";
   menu.setAttribute("role", "menu");
- 
-let hideTimeout = null;
+
+  let hideTimeout = null;
   const HOVER_DELAY = 120;
   let _openSubmenu = null; // track currently visible submenu
- 
+
   // ── position helper (called AFTER submenu is visible) ──
   function positionSubmenu(parentEl, submenu) {
     submenu.style.display = "block"; // must be visible for offsetHeight
     const rect = parentEl.getBoundingClientRect();
     const sw = submenu.offsetWidth || 180;
     const sh = submenu.offsetHeight || 100;
- 
+
     let left = rect.right + 2;
     let top = rect.top;
- 
+
     if (left + sw > window.innerWidth - 8) left = rect.left - sw - 2;
     if (top + sh > window.innerHeight - 8) top = window.innerHeight - sh - 8;
     if (top < 8) top = 8;
     if (left < 8) left = 8;
- 
+
     submenu.style.left = left + "px";
     submenu.style.top = top + "px";
   }
- 
+
   // ── shared item builder ──
   function buildItem(label, action, parentEl) {
     const item = document.createElement("div");
@@ -405,16 +356,16 @@ let hideTimeout = null;
     item.setAttribute("role", "menuitem");
     item.setAttribute("tabindex", "0");
     item.textContent = label;
- 
+
     item.addEventListener("mouseenter", () => item.classList.add("ctx-item--hover"));
     item.addEventListener("mouseleave", () => item.classList.remove("ctx-item--hover"));
- 
+
     item.addEventListener("click", (e) => {
       e.stopPropagation();
       closeEverything();
       action();
     });
- 
+
     item.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -433,11 +384,11 @@ let hideTimeout = null;
       }
       if (e.key === "Escape") closeEverything();
     });
- 
+
     parentEl.appendChild(item);
     return item;
   }
- 
+
   // ── section header that opens a fly-out ──
   function buildSection(title, items, parentEl) {
     const header = document.createElement("div");
@@ -446,7 +397,7 @@ let hideTimeout = null;
     header.setAttribute("aria-haspopup", "true");
     header.setAttribute("tabindex", "0");
     header.innerHTML = `<span>${title}</span><span class="ctx-arrow">▶</span>`;
- 
+
     const submenu = document.createElement("div");
     submenu.className = "ctx-menu lla-submenu";
     submenu.setAttribute("role", "menu");
@@ -454,9 +405,9 @@ let hideTimeout = null;
     submenu.style.position = "fixed";
     submenu.style.zIndex = "10001";
     document.body.appendChild(submenu);
- 
+
     items.forEach(({ label, action }) => buildItem(label, action, submenu));
- 
+
     function openSub() {
       if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
       // Close any previously open submenu before opening this one
@@ -468,7 +419,7 @@ let hideTimeout = null;
       _openSubmenu = submenu;
       header.classList.add("ctx-item--hover");
     }
- 
+
     function closeSub() {
       hideTimeout = setTimeout(() => {
         submenu.style.display = "none";
@@ -476,7 +427,7 @@ let hideTimeout = null;
         hideTimeout = null;
       }, HOVER_DELAY);
     }
- 
+
     header.addEventListener("mouseenter", openSub);
     header.addEventListener("mouseleave", closeSub);
     submenu.addEventListener("mouseenter", () => {
@@ -484,7 +435,7 @@ let hideTimeout = null;
       header.classList.add("ctx-item--hover");
     });
     submenu.addEventListener("mouseleave", closeSub);
- 
+
     header.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight" || e.key === "Enter") {
         e.preventDefault();
@@ -493,16 +444,16 @@ let hideTimeout = null;
       }
       if (e.key === "Escape") closeEverything();
     });
- 
+
     parentEl.appendChild(header);
   }
- 
+
   function closeEverything() {
     if (hideTimeout) clearTimeout(hideTimeout);
     document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
     menu.style.display = "none";
   }
- 
+
   // ── build sections ──
   sections.forEach((section, i) => {
     if (i > 0 && i < sections.length) {
@@ -510,7 +461,7 @@ let hideTimeout = null;
       divider.className = "ctx-divider";
       menu.appendChild(divider);
     }
- 
+
     if (i === 0) {
       // First section: inline items (Quick Actions)
       section.items.forEach(({ label, action }) => buildItem(label, action, menu));
@@ -518,10 +469,10 @@ let hideTimeout = null;
       buildSection(section.title, section.items, menu);
     }
   });
- 
+
   // ── position the root menu ──
   menu.style.display = "block";
- 
+
   const mw = menu.offsetWidth || 200;
   const mh = menu.offsetHeight || 200;
   let lx = anchorX + 8;
@@ -530,13 +481,13 @@ let hideTimeout = null;
   if (ly + mh > window.innerHeight - 8) ly = anchorY - mh - 8;
   if (lx < 8) lx = 8;
   if (ly < 8) ly = 8;
- 
+
   menu.style.left = lx + "px";
   menu.style.top = ly + "px";
- 
+
   // Focus first item for keyboard users
   menu.querySelector("[role=menuitem]")?.focus();
- 
+
   // Click-away closes
   setTimeout(() => {
     document.addEventListener("click", function handler(e) {
@@ -566,45 +517,45 @@ let hideTimeout = null;
 function showMobileMessageMenu(menu, sections) {
   menu.innerHTML = "";
   menu.classList.add("mobile-sheet", "mobile-message-sheet");
- 
+
   // ── backdrop ──
   const backdrop = document.createElement("div");
   backdrop.className = "mobile-sheet-backdrop";
   document.body.appendChild(backdrop);
- 
+
   function dismissSheet() {
     menu.classList.remove("mobile-sheet--open");
     backdrop.remove();
     setTimeout(() => { menu.style.display = "none"; }, 220);
   }
- 
+
   backdrop.addEventListener("click", dismissSheet);
- 
+
   // ── handle label ──
   const handle = document.createElement("div");
   handle.className = "mobile-sheet-handle";
   menu.appendChild(handle);
- 
+
   const titleEl = document.createElement("div");
   titleEl.className = "mobile-sheet-title";
   titleEl.textContent = "Message Actions";
   menu.appendChild(titleEl);
- 
+
   // ── DANGER keywords used to colour certain items ──
   const DANGER_WORDS = ["delete", "block", "logout", "mute", "ban", "kick", "remove"];
- 
+
   sections.forEach((section, i) => {
     if (i > 0) {
       const sep = document.createElement("div");
       sep.className = "mobile-sheet-sep";
       menu.appendChild(sep);
     }
- 
+
     const groupLabel = document.createElement("div");
     groupLabel.className = "mobile-sheet-group-label";
     groupLabel.textContent = section.title;
     menu.appendChild(groupLabel);
- 
+
     section.items.forEach(({ label, action }) => {
       const btn = document.createElement("button");
       btn.className = "mobile-sheet-btn";
@@ -619,7 +570,7 @@ function showMobileMessageMenu(menu, sections) {
       menu.appendChild(btn);
     });
   });
- 
+
   // ── close button ──
   const closeBtn = document.createElement("button");
   closeBtn.className = "mobile-sheet-btn mobile-sheet-btn--cancel";
@@ -629,7 +580,7 @@ function showMobileMessageMenu(menu, sections) {
     dismissSheet();
   });
   menu.appendChild(closeBtn);
- 
+
   // Position & animate in
   menu.style.display = "block";
   requestAnimationFrame(() => menu.classList.add("mobile-sheet--open"));
@@ -737,12 +688,12 @@ function getAuthRedirectUrl() {
   if (origin && origin !== "null" && origin !== "file://") {
     return `${origin}${window.location.pathname}`;
   }
-  // Fallback: If you are on localhost but the origin detection is weird, 
+  // Fallback: If you are on localhost but the origin detection is weird,
   // explicitly define your local dev URL.
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-     return `${window.location.origin}${window.location.pathname}`;
+    return `${window.location.origin}${window.location.pathname}`;
   }
-  return null; 
+  return null;
 }
 
 function deriveDefaultUsername(authUser) {
@@ -860,10 +811,10 @@ async function handleAuthSuccess(user) {
   console.log("✅ Logged in as:", username);
 
   // 5. Load the App (This will now see the username in localStorage)
-  await loadUser(); 
+  await loadUser();
   subscribeToGlobalMentions();
 
-    // ── TUTORIAL: show only on first-ever login ──
+  // ── TUTORIAL: show only on first-ever login ──
   // We check whether this auth_id has ever been seen before.
   // If userData was just created (no previous login), it's a new user.
   const isNewUser = !localStorage.getItem("lla_seen_before_" + user.id);
@@ -921,7 +872,7 @@ async function doSignUp() {
     .from("users")
     .insert({
       username: usernameVal,
-      auth_id: userId, 
+      auth_id: userId,
       sys_admin: false,
       sys_manager: false,
       blocked: false,
@@ -932,7 +883,7 @@ async function doSignUp() {
   if (profileError) {
     console.error("Profile creation failed:", profileError);
     // Optional: Cleanup auth user if profile fails
-    // await supabaseClient.auth.admin.deleteUser(userId); 
+    // await supabaseClient.auth.admin.deleteUser(userId);
     errorEl.textContent = "❌ Failed to create profile. Check console.";
     errorEl.style.display = "block";
     return;
@@ -1194,7 +1145,7 @@ let isTyping = false;
 let channels = [];
 let categories = [];
 let collapsedCategories = new Set();
-try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch {}
+try { collapsedCategories = new Set(JSON.parse(localStorage.getItem("collapsedCategories") || "[]")); } catch { }
 let currentChannelId = null;
 let lastTextChannelId = null; // last non-voice channel — used to return after VC disconnect
 let currentServerId = null;
@@ -1232,7 +1183,7 @@ const deliveredMentionNotifications = new Set();
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
-function escapeHTML(str) {
+export function escapeHTML(str) {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -1432,7 +1383,7 @@ async function showLocalTestNotification() {
       await registration.showNotification("Notifications enabled", {
         body: "Local notification test successful.",
         tag: "local-notification-test",
-        icon:  "/logo.png",
+        icon: "/logo.png",
         badge: "/logo.png",
         requireInteraction: true,
         silent: false,
@@ -1997,7 +1948,7 @@ async function refreshUnreadMentionCounts() {
 
 function subscribeToGlobalMentions() {
   if (globalMentionSubscription) {
-    try { globalMentionSubscription.unsubscribe(); } catch {}
+    try { globalMentionSubscription.unsubscribe(); } catch { }
     globalMentionSubscription = null;
   }
   if (!username) return;
@@ -2035,7 +1986,7 @@ function subscribeToGlobalMentions() {
 
 function stopMemberRealtime() {
   if (memberRealtimeSubscription) {
-    try { memberRealtimeSubscription.unsubscribe(); } catch {}
+    try { memberRealtimeSubscription.unsubscribe(); } catch { }
     memberRealtimeSubscription = null;
   }
 }
@@ -2219,9 +2170,9 @@ async function updateMentionSuggestions() {
     // Define your commands here
     const commands = [
       { label: "/gif", value: "gif", description: "Search for a GIF", insert: "/gif " },
-/*      { label: "/help", value: "help", description: "Show available commands", insert: "/help " },
-      { label: "/me", value: "me", description: "Display an action", insert: "/me " },
-      { label: "/clear", value: "clear", description: "Clear chat locally", insert: "/clear " }*/
+      /*      { label: "/help", value: "help", description: "Show available commands", insert: "/help " },
+            { label: "/me", value: "me", description: "Display an action", insert: "/me " },
+            { label: "/clear", value: "clear", description: "Clear chat locally", insert: "/clear " }*/
     ];
 
     // Filter commands based on query
@@ -2280,9 +2231,9 @@ async function updateMentionSuggestions() {
 
     const baseItems = canMentionEveryone()
       ? [
-          { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
-          { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
-        ]
+        { kind: "mention", value: "everyone", label: "@everyone", meta: "Notify all server members" },
+        { kind: "mention", value: "here", label: "@here", meta: "Notify online members" }
+      ]
       : [];
 
     const userItems = mentionCandidates
@@ -2332,7 +2283,7 @@ function applyMentionSuggestion(itemOrValue) {
       // match.index is where the match started (either 0 or the space before /)
       // We want to replace starting from the '/' character, not the space.
       // The '/' is at match.index + (match[1].length)
-      start = match.index + match[1].length; 
+      start = match.index + match[1].length;
       replacement = item.insertText; // e.g., "/gif "
     } else {
       // Fallback if regex fails (shouldn't happen if triggered correctly)
@@ -2399,7 +2350,7 @@ const saveNameBtn = document.getElementById("saveNameButton");
 
 // ------------------------ Supabase Setup ------------------------
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
+const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz";
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
@@ -2449,24 +2400,24 @@ function getDisplayName(user) {
 
 function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
-  
+
   // 1. Define Base Permissions for standard roles (Fallback only)
   let basePerms = {
-    read_messages: true, 
-    send_messages: true, 
+    read_messages: true,
+    send_messages: true,
     delete_messages: false,
-    rename_channels: false, 
-    create_channels: false, 
+    rename_channels: false,
+    create_channels: false,
     manage_roles: false,
-    mute_users: false, 
-    manage_messages: false, 
+    mute_users: false,
+    manage_messages: false,
     manage_reports: false,
-    send_gifs: false, 
-    send_links: false, 
+    send_gifs: false,
+    send_links: false,
     send_attachments: false,
-    mention_everyone: false, 
+    mention_everyone: false,
     bypass_word_filter: false,
-    create_invites: false, 
+    create_invites: false,
     use_custom_emojis: false
   };
 
@@ -2477,9 +2428,9 @@ function loadUserPermissions(roleName, customPerms = null) {
     // To ensure custom roles rule, we start with base and overwrite EVERYTHING custom says.
     // However, to be safe, let's start with base and let customPerms override specific keys.
     // If you want custom roles to be ENTIRELY independent, uncomment the line below:
-    // basePerms = { ...customPerms }; 
-    
-    // Better approach: Start with base, then apply custom. 
+    // basePerms = { ...customPerms };
+
+    // Better approach: Start with base, then apply custom.
     // If customPerms has a key, it wins. If not, basePerms wins.
     Object.entries(customPerms).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -2583,11 +2534,11 @@ function initRealtime() {
 
 function subscribeToDirectMessages() {
   if (dmMembershipSubscription) {
-    try { dmMembershipSubscription.unsubscribe(); } catch {}
+    try { dmMembershipSubscription.unsubscribe(); } catch { }
     dmMembershipSubscription = null;
   }
   if (dmRealtimeSubscription) {
-    try { dmRealtimeSubscription.unsubscribe(); } catch {}
+    try { dmRealtimeSubscription.unsubscribe(); } catch { }
     dmRealtimeSubscription = null;
   }
   if (!username) return;
@@ -2648,9 +2599,9 @@ async function subscribeToCurrentChannel() {
     .channel(`messages-channel-${currentChannelId}`)
     .on(
       "postgres_changes",
-      { 
-        event: "*", 
-        schema: "public", 
+      {
+        event: "*",
+        schema: "public",
         table: "messages",
         filter: `channel_id=eq.${currentChannelId}` // 🔥 CRITICAL FILTER
       },
@@ -2895,15 +2846,15 @@ async function loadDirectConversations() {
     if (messagesError) throw messagesError;
 
     const membersByConversation = new Map();
-(members || []).forEach((member) => {
-  const key = member.conversation_id;
-  if (!membersByConversation.has(key)) membersByConversation.set(key, []);
+    (members || []).forEach((member) => {
+      const key = member.conversation_id;
+      if (!membersByConversation.has(key)) membersByConversation.set(key, []);
 
-  membersByConversation.get(key).push({
-    username: member.username,
-    displayName: getDisplayName(member)
-  });
-});
+      membersByConversation.get(key).push({
+        username: member.username,
+        displayName: getDisplayName(member)
+      });
+    });
 
     const lastMessageByConversation = new Map();
     (messages || []).forEach((message) => {
@@ -2914,13 +2865,13 @@ async function loadDirectConversations() {
 
     directConversations = (memberships || []).map((membership) => {
       const participants =
-  membersByConversation.get(membership.conversation_id) || [];
+        membersByConversation.get(membership.conversation_id) || [];
 
-const otherUser =
-  participants.find((participant) => participant.username !== username);
+      const otherUser =
+        participants.find((participant) => participant.username !== username);
 
-const otherUsername =
-  otherUser?.displayName || otherUser?.username || "Unknown";
+      const otherUsername =
+        otherUser?.displayName || otherUser?.username || "Unknown";
       const lastMessage = lastMessageByConversation.get(membership.conversation_id);
       return {
         id: membership.conversation_id,
@@ -3314,7 +3265,7 @@ let _sortableInstances = [];
 let _serverSortableInstance = null;
 
 function renderChannelList() {
-  _sortableInstances.forEach(s => { try { s.destroy(); } catch {} });
+  _sortableInstances.forEach(s => { try { s.destroy(); } catch { } });
   _sortableInstances = [];
 
   const fragment = document.createDocumentFragment();
@@ -3528,9 +3479,9 @@ channelList.addEventListener("contextmenu", (e) => {
   if (!ch) return;
 
   showContextMenu(document.getElementById("channelMenu"), e.clientX, e.clientY, [
-    // Renaming is disabled in the inline row. 
+    // Renaming is disabled in the inline row.
     // If you have a modal for renaming, replace the action below:
-    // { label: "Rename Channel", color: "white", action: () => openModal('renameChannelModal') }, 
+    // { label: "Rename Channel", color: "white", action: () => openModal('renameChannelModal') },
 
     { label: "Edit Permissions", color: "white", action: () => openChannelPermsModal(channelId) },
     { label: "Delete Channel", color: "#ed4245", action: () => showInlineDelete("channel", channelId, ch.name) }
@@ -3556,10 +3507,10 @@ function showContextMenu(menuEl, x, y, items) {
     btn.textContent = label;
     btn.className = "context-menu-item";
     if (color) btn.style.color = color;
-    btn.onclick = (ev) => { 
-      ev.stopPropagation(); 
-      menuEl.style.display = "none"; 
-      action(); 
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      menuEl.style.display = "none";
+      action();
     };
     fragment.appendChild(btn);
   });
@@ -3832,12 +3783,12 @@ async function performCreateChannel(name, categoryName, type = 'text') {
   // ... (Category logic remains the same) ...
   let cat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase() && c.server_id === currentServerId);
   if (!cat) {
-     // ... (Create category logic) ...
-     const sortOrder = categories
+    // ... (Create category logic) ...
+    const sortOrder = categories
       .filter(c => c.server_id === currentServerId)
       .reduce((maxOrder, category) => Math.max(maxOrder, Number(category.sort_order) || 0), -1) + 1;
 
-     const { data: newCat, error: catError } = await supabaseClient
+    const { data: newCat, error: catError } = await supabaseClient
       .from("categories")
       .insert({
         name: categoryName.trim(),
@@ -3848,12 +3799,12 @@ async function performCreateChannel(name, categoryName, type = 'text') {
       .select()
       .single();
 
-      if (catError) {
-        console.error("❌ Create category:", catError.message);
-        return;
-      }
-      categories.push(newCat);
-      cat = newCat;
+    if (catError) {
+      console.error("❌ Create category:", catError.message);
+      return;
+    }
+    categories.push(newCat);
+    cat = newCat;
   }
 
   const sortOrder = channels
@@ -3885,7 +3836,7 @@ async function performCreateChannel(name, categoryName, type = 'text') {
   // If it's a voice channel, maybe switch to it? Or just show it.
   if (type === 'voice') {
     // Optional: Auto-join voice? Or just let them click it.
-    // switchChannel(data.id); 
+    // switchChannel(data.id);
   } else {
     switchChannel(data.id);
   }
@@ -4273,10 +4224,10 @@ async function loadUser() {
 
     isBlocked = false; // Reset per-server block state
     mutedUntil = null;
-    
+
     // SCHEMA MATCH: Read 'muted_until' (global mute)
     globalMutedUntil = data?.muted_until || null;
-    
+
     currentNotificationPrefs = Object.assign(
       { mentions: true, replies: true, all_messages: false },
       data?.notification_preferences || {}
@@ -4285,7 +4236,7 @@ async function loadUser() {
     currentBio = data?.profile_description || "";
     currentThemeId = data?.custom_theme_id || null;
     setAvatarUrl(username, data?.avatar_url || "");
-    
+
     loadThemesAndApply().catch(err => console.warn("Theme load failed:", err));
 
     // SCHEMA MATCH: Determine System Role from Booleans
@@ -4306,7 +4257,7 @@ async function loadUser() {
     localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
     localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
     localStorage.setItem("chatRole", currentRole);
-    
+
     console.log("🔐 System role set to:", currentSystemRole);
     console.log("🔐 Server role set to:", currentRole);
 
@@ -4377,7 +4328,7 @@ async function saveName() {
     } else {
       // SCHEMA MATCH: Read 'system_role' for currentRole
       currentRole = normalizeServerRole(data?.[0]?.system_role || "User");
-      
+
       // SCHEMA MATCH: Read booleans for currentSystemRole
       if (data?.[0]?.sys_admin) {
         currentSystemRole = "SysAdmin";
@@ -4404,7 +4355,7 @@ async function saveName() {
   namePrompt.style.display = "none";
   const controls = document.getElementById("controls");
   if (controls) controls.classList.add("visible");
-  
+
   const input = document.getElementById("messageInput");
   const button = document.getElementById("sendButton");
   if (input) input.disabled = false;
@@ -4817,7 +4768,7 @@ function createMessageElement(msg) {
 
     // --- CRITICAL GIF & LINK HANDLING ---
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
-    
+
     if (urlMatch) {
       const url = urlMatch[0];
       const gifUrl = resolveGifUrl(url);
@@ -4846,11 +4797,11 @@ function createMessageElement(msg) {
       const appendLinkPreview = () => {
         // Only show preview if we haven't already embedded a GIF
         if (hasNoEmbed) return;
-        
+
         const previewContainer = document.createElement("div");
         previewContainer.className = "link-preview-container";
         contentDiv.appendChild(previewContainer);
-        
+
         setTimeout(async () => {
           const preview = await buildLinkPreview(url);
           if (preview) {
@@ -4870,7 +4821,7 @@ function createMessageElement(msg) {
         const placeholder = document.createElement("div");
         placeholder.className = "gif-resolving";
         contentDiv.appendChild(placeholder);
-        
+
         setTimeout(async () => {
           const resolved = await resolveGifPageUrlAsync(url);
           placeholder.remove();
@@ -4937,7 +4888,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
         el.style.background = "#3a3d44";
         // Reset background after a bit
         setTimeout(() => {
-          if(el) el.style.background = "";
+          if (el) el.style.background = "";
         }, 2000);
       }
     }
@@ -4956,7 +4907,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         el.style.background = "#3a3d44";
         setTimeout(() => {
-          if(el) el.style.background = "";
+          if (el) el.style.background = "";
         }, 2000);
       }
     }
@@ -5061,9 +5012,9 @@ document.addEventListener("keydown", async e => {
   if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "i") {
     e.preventDefault();
     e.stopImmediatePropagation();
-    
+
     if (currentSystemRole !== "SysAdmin") {
-      return; 
+      return;
     }
 
     if (adminDebugPanel) {
@@ -5091,15 +5042,15 @@ document.addEventListener("keydown", async e => {
 const VAPID_PUBLIC_KEY = "BASYo0tS0nRAG504ReCj95aY9QacgW9vPLQKkMJRU8LXPDMtYIg-oeA__TvgyDJlop9mQqeRC1j_7ydtlKCk0zA";
 async function enablePush() {
   if (!username) return;
-  if(!("serviceWorker" in navigator)) return;
+  if (!("serviceWorker" in navigator)) return;
   const permission = await Notification.requestPermission();
-  if(permission!=="granted") return;
+  if (permission !== "granted") return;
   await navigator.serviceWorker.register("/sw.js");
   const registration = await navigator.serviceWorker.ready;
   await showLocalTestNotification();
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
-    subscription = await registration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: VAPID_PUBLIC_KEY });
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: VAPID_PUBLIC_KEY });
   }
   await supabaseClient.from("push_subscriptions").upsert({ username, subscription }, { onConflict: "username" });
   try {
@@ -5114,7 +5065,7 @@ async function enablePush() {
     let responseBody = "";
     try {
       responseBody = await response.text();
-    } catch {}
+    } catch { }
     console.log("🧪 Test push response:", response.status, responseBody || "(empty)");
   } catch (testPushError) {
     console.warn("⚠️ Test push failed:", testPushError);
@@ -5181,7 +5132,7 @@ if (channelListEl) {
 document.addEventListener("click", (e) => {
   const picker = document.getElementById("emojiPicker");
   if (picker && picker.style.display !== "none" &&
-      !picker.contains(e.target) && !e.target.classList.contains("emoji-trigger")) {
+    !picker.contains(e.target) && !e.target.classList.contains("emoji-trigger")) {
     picker.style.display = "none";
   }
 });
@@ -5189,17 +5140,17 @@ document.addEventListener("click", (e) => {
 // ======================== EMOJI PICKER ========================
 
 const EMOJI_CATEGORIES = [
-  { name: "Recent",      icon: "🕐", emojis: [] },
-  { name: "Smileys",     icon: "😀", emojis: ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚","😙","🥲","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🤫","🤔","🤐","🤨","😐","😑","😶","😏","😒","🙄","😬","🤥","😌","😔","😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳","🥸","😎","🤓","🧐","😕","😟","🙁","☹️","😮","😯","😲","😳","🥺","😦","😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡","😠","🤬","😈","👿","💀","☠️","💩","🤡","👹","👺","👻","👽","👾","🤖"] },
-  { name: "People",      icon: "👋", emojis: ["👋","🤚","🖐️","✋","🖖","👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙","👈","👉","👆","🖕","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏","🙌","👐","🤲","🤝","🙏","✍️","💅","🤳","💪","🫶","🫀","🫁","🦷","🦴","👀","👁️","👅","👄","💋","🫦","👶","🧒","👦","👧","🧑","👱","👨","🧔","👩","🧓","👴","👵","🙍","🙎","🙅","🙆","💁","🙋","🧏","🙇","🤦","🤷","👮","🕵️","💂","🥷","👷","🤴","👸","👰","🤵","🤰","🤱","👼","🎅","🤶","🦸","🦹","🧙","🧚","🧛","🧜","🧝","🧞","🧟","💆","💇","🚶","🧍","🧎","🏃","💃","🕺"] },
-  { name: "Animals",     icon: "🐶", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐔","🐧","🐦","🐤","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🪱","🐛","🦋","🐌","🐞","🐜","🦟","🦗","🕷️","🦂","🐢","🐍","🦎","🦖","🦕","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🦧","🦣","🐘","🦛","🦏","🐪","🐫","🦒","🦘","🦬","🐃","🐂","🐄","🐎","🐖","🐏","🐑","🦙","🐐","🦌","🐕","🐩","🦮","🐕‍🦺","🐈","🐈‍⬛","🐓","🦃","🦤","🦚","🦜","🦢","🦩","🕊️","🐇","🦝","🦨","🦡","🦫","🦦","🦥","🐁","🐀","🐿️","🦔","🐾","🐉","🐲"] },
-  { name: "Nature",      icon: "🌿", emojis: ["🌵","🎄","🌲","🌳","🌴","🌱","🌿","☘️","🍀","🎍","🎋","🍃","🍂","🍁","🍄","🐚","🪨","🌾","💐","🌷","🌹","🥀","🌺","🌸","🌼","🌻","🌞","🌝","🌛","🌜","🌚","🌕","🌖","🌗","🌘","🌑","🌒","🌓","🌔","🌙","🌟","⭐","🌠","🌌","☁️","⛅","🌤️","⛈️","🌧️","🌨️","❄️","☃️","⛄","🌬️","💨","💧","💦","🌊","🌈","🌫️","🌀","🌪️","🌩️","⚡","🔥","💥","🌍","🌎","🌏","🗺️","🏔️","⛰️","🌋","🏕️","🏖️","🏜️","🏝️","🏞️"] },
-  { name: "Food",        icon: "🍔", emojis: ["🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍈","🍒","🍑","🥭","🍍","🥥","🥝","🍅","🫒","🥑","🍆","🥔","🥕","🌽","🌶️","🫑","🥒","🥬","🥦","🧄","🧅","🍄","🥜","🌰","🍞","🥐","🥖","🫓","🥨","🥯","🧀","🥚","🍳","🧈","🥞","🧇","🥓","🥩","🍗","🍖","🌭","🍔","🍟","🍕","🫔","🌮","🌯","🥙","🧆","🥘","🍲","🫕","🥣","🥗","🍿","🧂","🥫","🍱","🍙","🍚","🍛","🍜","🍝","🍠","🍣","🍤","🍥","🥮","🍡","🥟","🥠","🥡","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🥧","🍫","🍬","🍭","🍯","🍼","🥛","☕","🫖","🍵","🧃","🥤","🧋","🍶","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾"] },
-  { name: "Travel",      icon: "✈️", emojis: ["🚗","🚕","🚙","🚌","🏎️","🚓","🚑","🚒","🚐","🛻","🚚","🚛","🚜","🏍️","🛵","🛺","🚲","🛴","🛹","🚏","⛽","🚨","🚥","🚦","🛑","⚓","⛵","🛶","🚤","🛳️","⛴️","🚢","✈️","🛩️","🛫","🛬","💺","🚁","🚀","🛸","🏔️","⛰️","🌋","🏕️","🏖️","🏜️","🏝️","🏞️","🏟️","🏛️","🏗️","🏘️","🏚️","🏠","🏡","🏢","🏣","🏤","🏥","🏦","🏨","🏩","🏪","🏫","🏬","🏭","🏯","🏰","💒","🗼","🗽","⛪","🕌","🛕","🕍","⛩️","🕋","⛲","🎠","🎡","🎢","🎪","🌁","🌃","🏙️","🌄","🌅","🌆","🌇","🌉","🗺️"] },
-  { name: "Activities",  icon: "⚽", emojis: ["⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🏓","🏸","🏒","🥅","⛳","🎣","🤿","🥊","🥋","🎽","🛹","🛷","⛸️","🥌","🎿","⛷️","🏂","🏋️","🤸","⛹️","🤺","🏇","🧘","🧗","🚵","🚴","🏆","🥇","🥈","🥉","🏅","🎖️","🏵️","🎗️","🎫","🎟️","🎪","🤹","🎭","🩰","🎨","🎬","🎤","🎧","🎼","🎵","🎶","🥁","🎷","🎺","🎸","🪕","🎻","🎲","♟️","🎯","🎳","🎮","🎰","🧩"] },
-  { name: "Objects",     icon: "💡", emojis: ["📱","💻","⌨️","🖥️","🖨️","🖱️","💽","💾","💿","📀","📺","📷","📸","📹","🎥","📽️","🎞️","📞","☎️","📟","📡","🔋","🔌","💡","🔦","🕯️","💰","💳","🪙","✉️","📧","📨","📩","📦","📫","📬","📭","📮","✏️","✒️","🖊️","📝","📁","📂","🗂️","📅","📆","📇","📈","📉","📊","📋","📌","📍","📎","✂️","🗃️","🗄️","🗑️","🔒","🔓","🔑","🗝️","🔨","⚒️","🛠️","⚔️","🔫","🛡️","🔧","🔩","⚙️","⚖️","🔗","🧲","🪜","🧪","🧫","🧬","🔬","🔭","💊","💉","🩸","🩹","🩺","🪞","🛏️","🛋️","🚪","🧴","🧹","🧺","🧻","🧼","🧽","🛒","🚬","🪦","🧿","📿","🪬"] },
-  { name: "Symbols",     icon: "❤️", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❤️‍🔥","❤️‍🩹","❣️","💕","💞","💓","💗","💖","💘","💝","💟","☮️","✝️","☪️","🕉️","☸️","✡️","☯️","☦️","🛐","♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓","🆔","⚛️","☢️","☣️","📴","📳","✴️","🆚","💮","㊙️","㊗️","🅰️","🅱️","🆎","🆑","🅾️","🆘","❌","⭕","🛑","⛔","📛","🚫","💯","💢","♨️","🚷","🚯","🚳","🚱","🔞","📵","🚭","❗","❕","❓","❔","‼️","⁉️","🔅","🔆","⚠️","🚸","🔱","⚜️","🔰","♻️","✅","❇️","✳️","❎","🌐","💠","💤","🏧","♿","🅿️","🈳","🚹","🚺","🚼","🚻","⚧️","▶️","⏩","⏭️","⏯️","◀️","⏪","⏮️","⏸️","⏹️","⏺️","⏏️","➕","➖","➗","✖️","💲","💱","™️","©️","®️","✔️","☑️","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","🟤","🔺","🔻","🔷","🔶","🔹","🔸","❤️‍🔥","💬","💭","🗯️","♠️","♣️","♥️","♦️","🃏","🎴","🀄"] },
-  { name: "Custom",      icon: "⭐", emojis: [] }
+  { name: "Recent", icon: "🕐", emojis: [] },
+  { name: "Smileys", icon: "😀", emojis: ["😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😗", "☺️", "😚", "😙", "🥲", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "🤥", "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "🤯", "🤠", "🥳", "🥸", "😎", "🤓", "🧐", "😕", "😟", "🙁", "☹️", "😮", "😯", "😲", "😳", "🥺", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬", "😈", "👿", "💀", "☠️", "💩", "🤡", "👹", "👺", "👻", "👽", "👾", "🤖"] },
+  { name: "People", icon: "👋", emojis: ["👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🫶", "🫀", "🫁", "🦷", "🦴", "👀", "👁️", "👅", "👄", "💋", "🫦", "👶", "🧒", "👦", "👧", "🧑", "👱", "👨", "🧔", "👩", "🧓", "👴", "👵", "🙍", "🙎", "🙅", "🙆", "💁", "🙋", "🧏", "🙇", "🤦", "🤷", "👮", "🕵️", "💂", "🥷", "👷", "🤴", "👸", "👰", "🤵", "🤰", "🤱", "👼", "🎅", "🤶", "🦸", "🦹", "🧙", "🧚", "🧛", "🧜", "🧝", "🧞", "🧟", "💆", "💇", "🚶", "🧍", "🧎", "🏃", "💃", "🕺"] },
+  { name: "Animals", icon: "🐶", emojis: ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🙈", "🙉", "🙊", "🐔", "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🪱", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷️", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🦣", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒", "🦘", "🦬", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐕‍🦺", "🐈", "🐈‍⬛", "🐓", "🦃", "🦤", "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦝", "🦨", "🦡", "🦫", "🦦", "🦥", "🐁", "🐀", "🐿️", "🦔", "🐾", "🐉", "🐲"] },
+  { name: "Nature", icon: "🌿", emojis: ["🌵", "🎄", "🌲", "🌳", "🌴", "🌱", "🌿", "☘️", "🍀", "🎍", "🎋", "🍃", "🍂", "🍁", "🍄", "🐚", "🪨", "🌾", "💐", "🌷", "🌹", "🥀", "🌺", "🌸", "🌼", "🌻", "🌞", "🌝", "🌛", "🌜", "🌚", "🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓", "🌔", "🌙", "🌟", "⭐", "🌠", "🌌", "☁️", "⛅", "🌤️", "⛈️", "🌧️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "💧", "💦", "🌊", "🌈", "🌫️", "🌀", "🌪️", "🌩️", "⚡", "🔥", "💥", "🌍", "🌎", "🌏", "🗺️", "🏔️", "⛰️", "🌋", "🏕️", "🏖️", "🏜️", "🏝️", "🏞️"] },
+  { name: "Food", icon: "🍔", emojis: ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🫒", "🥑", "🍆", "🥔", "🥕", "🌽", "🌶️", "🫑", "🥒", "🥬", "🥦", "🧄", "🧅", "🍄", "🥜", "🌰", "🍞", "🥐", "🥖", "🫓", "🥨", "🥯", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🫔", "🌮", "🌯", "🥙", "🧆", "🥘", "🍲", "🫕", "🥣", "🥗", "🍿", "🧂", "🥫", "🍱", "🍙", "🍚", "🍛", "🍜", "🍝", "🍠", "🍣", "🍤", "🍥", "🥮", "🍡", "🥟", "🥠", "🥡", "🍦", "🍧", "🍨", "🍩", "🍪", "🎂", "🍰", "🧁", "🥧", "🍫", "🍬", "🍭", "🍯", "🍼", "🥛", "☕", "🫖", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🧉", "🍾"] },
+  { name: "Travel", icon: "✈️", emojis: ["🚗", "🚕", "🚙", "🚌", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🏍️", "🛵", "🛺", "🚲", "🛴", "🛹", "🚏", "⛽", "🚨", "🚥", "🚦", "🛑", "⚓", "⛵", "🛶", "🚤", "🛳️", "⛴️", "🚢", "✈️", "🛩️", "🛫", "🛬", "💺", "🚁", "🚀", "🛸", "🏔️", "⛰️", "🌋", "🏕️", "🏖️", "🏜️", "🏝️", "🏞️", "🏟️", "🏛️", "🏗️", "🏘️", "🏚️", "🏠", "🏡", "🏢", "🏣", "🏤", "🏥", "🏦", "🏨", "🏩", "🏪", "🏫", "🏬", "🏭", "🏯", "🏰", "💒", "🗼", "🗽", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋", "⛲", "🎠", "🎡", "🎢", "🎪", "🌁", "🌃", "🏙️", "🌄", "🌅", "🌆", "🌇", "🌉", "🗺️"] },
+  { name: "Activities", icon: "⚽", emojis: ["⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🏓", "🏸", "🏒", "🥅", "⛳", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🏋️", "🤸", "⛹️", "🤺", "🏇", "🧘", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎵", "🎶", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯", "🎳", "🎮", "🎰", "🧩"] },
+  { name: "Objects", icon: "💡", emojis: ["📱", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "💽", "💾", "💿", "📀", "📺", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️", "📟", "📡", "🔋", "🔌", "💡", "🔦", "🕯️", "💰", "💳", "🪙", "✉️", "📧", "📨", "📩", "📦", "📫", "📬", "📭", "📮", "✏️", "✒️", "🖊️", "📝", "📁", "📂", "🗂️", "📅", "📆", "📇", "📈", "📉", "📊", "📋", "📌", "📍", "📎", "✂️", "🗃️", "🗄️", "🗑️", "🔒", "🔓", "🔑", "🗝️", "🔨", "⚒️", "🛠️", "⚔️", "🔫", "🛡️", "🔧", "🔩", "⚙️", "⚖️", "🔗", "🧲", "🪜", "🧪", "🧫", "🧬", "🔬", "🔭", "💊", "💉", "🩸", "🩹", "🩺", "🪞", "🛏️", "🛋️", "🚪", "🧴", "🧹", "🧺", "🧻", "🧼", "🧽", "🛒", "🚬", "🪦", "🧿", "📿", "🪬"] },
+  { name: "Symbols", icon: "❤️", emojis: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉️", "☸️", "✡️", "☯️", "☦️", "🛐", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "☢️", "☣️", "📴", "📳", "✴️", "🆚", "💮", "㊙️", "㊗️", "🅰️", "🅱️", "🆎", "🆑", "🅾️", "🆘", "❌", "⭕", "🛑", "⛔", "📛", "🚫", "💯", "💢", "♨️", "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️", "⁉️", "🔅", "🔆", "⚠️", "🚸", "🔱", "⚜️", "🔰", "♻️", "✅", "❇️", "✳️", "❎", "🌐", "💠", "💤", "🏧", "♿", "🅿️", "🈳", "🚹", "🚺", "🚼", "🚻", "⚧️", "▶️", "⏩", "⏭️", "⏯️", "◀️", "⏪", "⏮️", "⏸️", "⏹️", "⏺️", "⏏️", "➕", "➖", "➗", "✖️", "💲", "💱", "™️", "©️", "®️", "✔️", "☑️", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "⚫", "⚪", "🟤", "🔺", "🔻", "🔷", "🔶", "🔹", "🔸", "❤️‍🔥", "💬", "💭", "🗯️", "♠️", "♣️", "♥️", "♦️", "🃏", "🎴", "🀄"] },
+  { name: "Custom", icon: "⭐", emojis: [] }
 ];
 
 let allCustomEmojis = []; // every active custom emoji in the server
@@ -5745,13 +5696,13 @@ async function reportMessage(messageId) {
 
     if (error) throw error;
 
-   const reportData = {
-  reporter: username,
-  reported_user: data.username,
-  content: data.content,
-  reason: reason,
-  message_id: messageId
-};
+    const reportData = {
+      reporter: username,
+      reported_user: data.username,
+      content: data.content,
+      reason: reason,
+      message_id: messageId
+    };
 
     // store in database
     await supabaseClient
@@ -6373,9 +6324,9 @@ async function forceLogout(author) {
 // ---------------- EDIT MESSAGE ----------------
 async function editMessage(messageId) {
   if (isUserBlockedOrMutedSync()) {
-  alert("❌ You cannot edit messages.");
-  return;
-}
+    alert("❌ You cannot edit messages.");
+    return;
+  }
   const msg = messageDataMap.get(Number(messageId));
   if (!msg) return;
 
@@ -6397,9 +6348,9 @@ async function editMessage(messageId) {
 // ---------------- REACTION BUBBLES ----------------
 async function addReaction(messageId, emoji) {
   if (isUserBlockedOrMutedSync()) {
-  alert("❌ You are muted.");
-  return;
-}
+    alert("❌ You are muted.");
+    return;
+  }
   try {
     const normalizedMessageId = Number(messageId);
     let existing = findMyReactionIds(normalizedMessageId, emoji).map((id) => ({ id }));
@@ -6552,9 +6503,9 @@ function clearReply() {
 
 async function startReply(messageId) {
   if (isUserBlockedOrMutedSync()) {
-  alert("❌ You are muted.");
-  return;
-}
+    alert("❌ You are muted.");
+    return;
+  }
   replyingTo = messageId;
 
   const li = messagesMap.get(Number(messageId));
@@ -6614,7 +6565,7 @@ function renderReply(msg, li) {
   const name = original.dataset.user;
   const text = original.querySelector(".content")?.innerHTML || "";
 
-  preview.textContent = `Replying to ${name}: ${text.substring(0,40)}...`;
+  preview.textContent = `Replying to ${name}: ${text.substring(0, 40)}...`;
 
   li.prepend(preview);
 
@@ -6768,9 +6719,9 @@ uploadBtn.addEventListener("click", () => {
 // Handle file selection
 fileInput.addEventListener("change", async (e) => {
   if (isUserBlockedOrMutedSync()) {
-  alert("❌ You cannot upload files.");
-  return;
-}
+    alert("❌ You cannot upload files.");
+    return;
+  }
   const file = e.target.files[0];
   if (!file) return;
 
@@ -6793,8 +6744,8 @@ fileInput.addEventListener("change", async (e) => {
 
     // 2. Upload to Supabase Storage
     const { error: uploadError } = await supabaseClient.storage
-  .from("chat-files")
-  .upload(fileName, file);
+      .from("chat-files")
+      .upload(fileName, file);
 
     if (uploadError) throw uploadError;
 
@@ -6870,7 +6821,7 @@ function updateTypingUI() {
       const now = Date.now();
 
       const typingUsers = data
-        .filter(u => 
+        .filter(u =>
           u.username !== username &&
           now - new Date(u.updated_at).getTime() < 5000 // ignore stale
         )
@@ -6898,10 +6849,10 @@ function getFileType(url) {
 
     const ext = match[1].toLowerCase();
 
-    if (["png","jpg","jpeg","gif","webp","bmp","svg"].includes(ext)) return "image";
-    if (["mp4","webm","ogg","mov"].includes(ext)) return "video";
-    if (["mp3","wav","ogg"].includes(ext)) return "audio";
-    if (["pdf","txt","doc","docx"].includes(ext)) return "document";
+    if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "image";
+    if (["mp4", "webm", "ogg", "mov"].includes(ext)) return "video";
+    if (["mp3", "wav", "ogg"].includes(ext)) return "audio";
+    if (["pdf", "txt", "doc", "docx"].includes(ext)) return "document";
 
     return "unknown";
   } catch {
@@ -7096,27 +7047,27 @@ function executeScripts(container) {
       newScript.textContent = oldScript.textContent;
       // Inline scripts MUST be replaced in place to run
       oldScript.parentNode.replaceChild(newScript, oldScript);
-    } 
+    }
     // 3. Handle External Scripts (GoFundMe, etc.)
     else {
       // A. Create a clone to track if it loads
       const tempScript = newScript.cloneNode();
-      
+
       // B. Set up success/failure handlers BEFORE appending
       tempScript.onload = () => {
         console.log(`✅ External script loaded: ${oldScript.src}`);
         // Optional: Remove the temporary tracking script if you want
-        // tempScript.remove(); 
+        // tempScript.remove();
       };
       tempScript.onerror = (e) => {
         console.error(`❌ External script failed: ${oldScript.src}`, e);
         // If you have an admin console, log it there too
         if (typeof appendLine === 'function' && typeof activeFilters !== 'undefined') {
-           appendLine(adminConsoleOutput, activeFilters, { 
-             type: "ERROR", 
-             parts: [`💥 GoFundMe/External Script Failed: ${oldScript.src}`], 
-             raw: e 
-           });
+          appendLine(adminConsoleOutput, activeFilters, {
+            type: "ERROR",
+            parts: [`💥 GoFundMe/External Script Failed: ${oldScript.src}`],
+            raw: e
+          });
         }
       };
 
@@ -7126,7 +7077,7 @@ function executeScripts(container) {
       // D. CRITICAL: Remove the OLD script tag immediately to prevent conflicts
       // If we don't remove this, the browser might think the script is "already there"
       // or the widget logic might fail to find the container.
-      oldScript.remove(); 
+      oldScript.remove();
     }
   });
 }
@@ -7252,7 +7203,7 @@ async function refreshOwnServerMemberStatus() {
 
 function subscribeToOwnServerStatus(serverId) {
   if (_ownServerStatusSub) {
-    try { _ownServerStatusSub.unsubscribe(); } catch {}
+    try { _ownServerStatusSub.unsubscribe(); } catch { }
     _ownServerStatusSub = null;
   }
   if (!serverId || !username) return;
@@ -7356,7 +7307,7 @@ function toggleSelfMute() {
   // Also push the voice mic mute state if user is in voice.
   try {
     if (typeof updateVoiceMuteFromSelf === "function") updateVoiceMuteFromSelf();
-  } catch {}
+  } catch { }
 }
 
 function updateSelfMuteBadge() {
@@ -7432,7 +7383,7 @@ function updateSelfMuteBadge() {
     createChannelBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log("Create Channel Button Clicked!"); 
+      console.log("Create Channel Button Clicked!");
       openCreateChannelModal();
     });
   } else {
@@ -7656,9 +7607,9 @@ var _customEmojiRealtimeSub = null;
 
 function subscribeToServerRealtime(serverId) {
   // Clean up previous server's subscriptions
-  if (_channelRealtimeSub) { try { _channelRealtimeSub.unsubscribe(); } catch {} _channelRealtimeSub = null; }
-  if (_categoryRealtimeSub) { try { _categoryRealtimeSub.unsubscribe(); } catch {} _categoryRealtimeSub = null; }
-  if (_customEmojiRealtimeSub) { try { _customEmojiRealtimeSub.unsubscribe(); } catch {} _customEmojiRealtimeSub = null; }
+  if (_channelRealtimeSub) { try { _channelRealtimeSub.unsubscribe(); } catch { } _channelRealtimeSub = null; }
+  if (_categoryRealtimeSub) { try { _categoryRealtimeSub.unsubscribe(); } catch { } _categoryRealtimeSub = null; }
+  if (_customEmojiRealtimeSub) { try { _customEmojiRealtimeSub.unsubscribe(); } catch { } _customEmojiRealtimeSub = null; }
 
   if (!serverId) return;
 
@@ -7724,7 +7675,7 @@ async function giveCustomRole(targetUser) {
 
   // 2. Build a selection list
   const roleList = availableRoles.map((r, i) => `${i + 1}. ${r.name} (${r.role || 'Custom'})`).join("\n");
-  
+
   const choice = prompt(
     `Give a custom role to ${targetUser}:\n\n${roleList}\n\nEnter the number (1, 2, etc.):`
   );
@@ -7757,7 +7708,7 @@ async function giveCustomRole(targetUser) {
       .delete()
       .eq("server_id", currentServerId)
       .eq("member_id", (await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single()).data?.id);
-      
+
     // Re-insert the link for the new role
     const memberData = await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single();
     if (memberData.data) {
@@ -7769,7 +7720,7 @@ async function giveCustomRole(targetUser) {
     }
 
     alert(`✅ Assigned role "${selectedRole.name}" to ${targetUser}.`);
-    
+
     // Refresh UI
     await loadServerMembers();
     await refreshServerRole(); // Refresh current user's view if they are the target
@@ -7808,7 +7759,7 @@ function subscribeToTyping() {
 
 function subscribeToServerMemberships() {
   if (serverMembershipSubscription) {
-    try { serverMembershipSubscription.unsubscribe(); } catch {}
+    try { serverMembershipSubscription.unsubscribe(); } catch { }
     serverMembershipSubscription = null;
   }
 
@@ -8000,7 +7951,7 @@ function renderServerList() {
   const serverList = document.getElementById("serverList");
   if (!serverList) return;
   if (_serverSortableInstance) {
-    try { _serverSortableInstance.destroy(); } catch {}
+    try { _serverSortableInstance.destroy(); } catch { }
     _serverSortableInstance = null;
   }
   serverList.innerHTML = "";
@@ -8164,7 +8115,7 @@ async function loadServerMembers() {
     }
     const error = membersError;
 
-    if (error) { 
+    if (error) {
       console.error("❌ loadServerMembers error:", error);
       console.error("   Error code:", error.code);
       console.error("   Error hint:", error.hint);
@@ -8179,17 +8130,17 @@ async function loadServerMembers() {
           Username: ${username}
         </div>`;
       }
-      return; 
+      return;
     }
 
     const memberIds = (members || []).map(m => m.id).filter(Boolean);
     const [{ data: roleLinks, error: roleLinksError }, { data: roles, error: rolesError }] = await Promise.all([
       memberIds.length
         ? supabaseClient
-            .from("server_member_roles")
-            .select("member_id, role_id")
-            .eq("server_id", currentServerId)
-            .in("member_id", memberIds)
+          .from("server_member_roles")
+          .select("member_id, role_id")
+          .eq("server_id", currentServerId)
+          .in("member_id", memberIds)
         : Promise.resolve({ data: [] }),
       supabaseClient
         .from("server_roles")
@@ -8454,21 +8405,21 @@ function renderMemberList() {
       }
       fragment.appendChild(item);
       // Inside renderMemberList, inside the forEach loop:
-item.addEventListener("click", async () => {
-  if (m.username === username) {
-    // Clicking own name opens profile
-    openUserProfile(m.username, currentServerId);
-  } else {
-    // Clicking others opens DM (existing logic)
-    try {
-      const conversationId = await ensureDirectConversation(m.username);
-      await loadDirectConversations();
-      await openDirectConversation(conversationId);
-    } catch (dmError) {
-      console.error("❌ Failed to open DM:", dmError);
-    }
-  }
-});
+      item.addEventListener("click", async () => {
+        if (m.username === username) {
+          // Clicking own name opens profile
+          openUserProfile(m.username, currentServerId);
+        } else {
+          // Clicking others opens DM (existing logic)
+          try {
+            const conversationId = await ensureDirectConversation(m.username);
+            await loadDirectConversations();
+            await openDirectConversation(conversationId);
+          } catch (dmError) {
+            console.error("❌ Failed to open DM:", dmError);
+          }
+        }
+      });
     });
   };
 
@@ -8585,7 +8536,7 @@ async function joinServer(codeOrUrl) {
     const u = new URL(code);
     const c = u.searchParams.get("invite");
     if (c) code = c;
-  } catch {}
+  } catch { }
 
   const { data: invite, error } = await supabaseClient
     .from("server_invites")
@@ -8744,19 +8695,19 @@ async function createServer(name, slug) {
 
 function initServerModals() {
   // In initServerModals(), modify the addServerBtn listener:
-const addBtn = document.getElementById("addServerBtn");
-if (addBtn) {
-  // Only show for SysAdmins
-  addBtn.style.display = currentSystemRole === "SysAdmin" ? "flex" : "none";
+  const addBtn = document.getElementById("addServerBtn");
+  if (addBtn) {
+    // Only show for SysAdmins
+    addBtn.style.display = currentSystemRole === "SysAdmin" ? "flex" : "none";
 
-  addBtn.addEventListener("click", () => {
-    if (currentSystemRole !== "SysAdmin") {
-      alert("❌ Only SysAdmins can create servers.");
-      return;
-    }
-    openModal("serverModal");
-  });
-}
+    addBtn.addEventListener("click", () => {
+      if (currentSystemRole !== "SysAdmin") {
+        alert("❌ Only SysAdmins can create servers.");
+        return;
+      }
+      openModal("serverModal");
+    });
+  }
 
   const goCreate = document.getElementById("goCreateServer");
   if (goCreate) goCreate.addEventListener("click", () => {
@@ -8875,10 +8826,10 @@ if (addBtn) {
   });
 
   // Inside initServerModals()
-const closeManageInvites = document.getElementById("closeManageInvitesModal");
-if (closeManageInvites) closeManageInvites.addEventListener("click", () => closeModal("manageInvitesModal"));
-const closeManageInvitesX = document.getElementById("closeManageInvitesModalX");
-if (closeManageInvitesX) closeManageInvitesX.addEventListener("click", () => closeModal("manageInvitesModal"));
+  const closeManageInvites = document.getElementById("closeManageInvitesModal");
+  if (closeManageInvites) closeManageInvites.addEventListener("click", () => closeModal("manageInvitesModal"));
+  const closeManageInvitesX = document.getElementById("closeManageInvitesModalX");
+  if (closeManageInvitesX) closeManageInvitesX.addEventListener("click", () => closeModal("manageInvitesModal"));
 
   setMemberListVisibility();
 }
@@ -9096,8 +9047,8 @@ function resolveGifUrl(url) {
 
     // media.giphy.com/media/HASH/... - already direct
     if (host === "media.giphy.com" || host === "media0.giphy.com" ||
-        host === "media1.giphy.com" || host === "media2.giphy.com" ||
-        host === "media3.giphy.com" || host === "media4.giphy.com") {
+      host === "media1.giphy.com" || host === "media2.giphy.com" ||
+      host === "media3.giphy.com" || host === "media4.giphy.com") {
       return url;
     }
 
@@ -9119,9 +9070,9 @@ function isLikelyGifPageUrl(url) {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
     if ((host === "tenor.com" || host === "www.tenor.com")
-        && u.pathname.startsWith("/view/")) return true;
+      && u.pathname.startsWith("/view/")) return true;
     if ((host === "giphy.com" || host === "www.giphy.com")
-        && (u.pathname.startsWith("/gifs/") || u.pathname.startsWith("/embed/"))) return true;
+      && (u.pathname.startsWith("/gifs/") || u.pathname.startsWith("/embed/"))) return true;
     return false;
   } catch {
     return false;
@@ -9226,13 +9177,13 @@ async function handleInlineConfirm() {
         return;
       }
       await performCreateChannel(value, catValue);
-    } 
+    }
     else if (mode === "channel-rename") {
       await performRenameChannel(parseInt(targetId, 10), value);
-    } 
+    }
     else if (mode === "category-create") {
       await performCreateCategory(value);
-    } 
+    }
     else if (mode === "category-rename") {
       await performRenameCategory(originalName, value);
     }
@@ -9258,7 +9209,7 @@ if (createChannelBtn) {
   // Option 1: Hide the button entirely if you only use Right-Click
   createChannelBtn.style.display = "none";
 
-  // Option 2: If you want to keep the button but link it to a NEW modal, 
+  // Option 2: If you want to keep the button but link it to a NEW modal,
   // uncomment the line below and replace 'YOUR_NEW_MODAL_ID' with your actual modal ID
   // createChannelBtn.addEventListener("click", () => openModal('YOUR_NEW_MODAL_ID'));
 }
@@ -9306,16 +9257,16 @@ function showServerContextMenu(x, y, serverId) {
 
     // --- NEW: Invite Management ---
     addOption("Generate Invite", () => {
-       // Reuse existing generateInvite logic but ensure it targets currentServerId
-       // We need to temporarily set currentServerId if not already set
-       const prevServerId = currentServerId;
-       currentServerId = serverId;
-       generateInvite();
-       currentServerId = prevServerId;
+      // Reuse existing generateInvite logic but ensure it targets currentServerId
+      // We need to temporarily set currentServerId if not already set
+      const prevServerId = currentServerId;
+      currentServerId = serverId;
+      generateInvite();
+      currentServerId = prevServerId;
     });
 
     addOption("Manage Invites", () => {
-       openManageInvitesModal(serverId);
+      openManageInvitesModal(serverId);
     });
 
     // Separator
@@ -9357,7 +9308,7 @@ async function updateServerSettingValues(serverId, values = {}) {
   const { error } = await supabaseClient
     .from("server_settings")
     .upsert({ server_id: serverId, ...values }, { onConflict: "server_id" });
-    
+
   if (error) throw error;
 
   // Update local cache
@@ -9724,7 +9675,7 @@ async function changeName(targetUser) {
     `Click Cancel to use their actual name (${actualName}) instead.`
   );
 
-  let trimmedName = null; 
+  let trimmedName = null;
   let isNicknameChange = false;
 
   if (useCustom) {
@@ -9732,16 +9683,16 @@ async function changeName(targetUser) {
       `Custom display name for ${actualName}:`,
       currentDisplayName || actualName
     );
-    
-    if (newNameInput === null) return; 
-    
+
+    if (newNameInput === null) return;
+
     const cleaned = newNameInput.trim();
-    
+
     if (!cleaned) {
       alert("❌ Name cannot be empty. (Pick Cancel on the first dialog to use the actual name.)");
       return;
     }
-    
+
     if (cleaned === actualName) {
       trimmedName = null;
     } else {
@@ -9757,8 +9708,8 @@ async function changeName(targetUser) {
     if (trimmedName !== null) {
       const { error: profileError } = await supabaseClient
         .from("server_members")
-        .update({ 
-          profile_display_name: trimmedName 
+        .update({
+          profile_display_name: trimmedName
         })
         .eq("server_id", currentServerId)
         .eq("username", targetUser);
@@ -9822,7 +9773,7 @@ async function changeName(targetUser) {
           // Non-fatal, but log it
         }
       }
-      
+
       // 4. Update the targetUser variable for the rest of the function
       // (Now that the username has changed, we refer to the new name)
       // Note: In a real app, you might need to reload the user object here.
@@ -9949,7 +9900,7 @@ async function editInvite(inviteId) {
   const newMax = prompt("Max uses (leave blank for unlimited):", invite.max_uses || "");
   if (newMax === null) return;
 
-  const newExp = prompt("Expiration date (YYYY-MM-DD HH:MM or leave blank for never):", 
+  const newExp = prompt("Expiration date (YYYY-MM-DD HH:MM or leave blank for never):",
     invite.expires_at ? new Date(invite.expires_at).toISOString().slice(0, 16) : "");
   if (newExp === null) return;
 
@@ -10238,14 +10189,14 @@ async function deleteMyAccount() {
   try {
     // Best-effort cleanup. RLS should permit a user to delete their own rows.
     const tables = [
-      { table: "reactions",                 col: "username" },
-      { table: "messages",                  col: "username" },
-      { table: "dm_messages",               col: "username" },
-      { table: "voice_room_participants",   col: "username" },
-      { table: "channel_permissions",       col: "username" },
-      { table: "server_member_roles",       col: "username" },
-      { table: "server_members",            col: "username" },
-      { table: "users",                     col: "username" }
+      { table: "reactions", col: "username" },
+      { table: "messages", col: "username" },
+      { table: "dm_messages", col: "username" },
+      { table: "voice_room_participants", col: "username" },
+      { table: "channel_permissions", col: "username" },
+      { table: "server_member_roles", col: "username" },
+      { table: "server_members", col: "username" },
+      { table: "users", col: "username" }
     ];
     for (const t of tables) {
       try {
@@ -10257,9 +10208,9 @@ async function deleteMyAccount() {
 
     setStatus("✅ Account data removed. Signing you out…");
     // Wipe local state and sign out.
-    try { localStorage.clear(); } catch {}
-    try { sessionStorage.clear(); } catch {}
-    try { await supabaseClient.auth.signOut(); } catch {}
+    try { localStorage.clear(); } catch { }
+    try { sessionStorage.clear(); } catch { }
+    try { await supabaseClient.auth.signOut(); } catch { }
 
     setTimeout(() => { location.reload(); }, 800);
   } catch (err) {
@@ -10472,16 +10423,16 @@ if (serverOptionsModal) {
    ====================================================================== */
 
 const ROLE_PERMISSION_DEFS = [
-  { key: "manage_roles",        title: "Manage Roles",            desc: "Edit other roles, channels, server settings, and member roles." },
-  { key: "manage_messages",     title: "Manage Messages",         desc: "Delete or pin any message in this server." },
-  { key: "mute_users",          title: "Mute / Block Members",    desc: "Mute or block other members in this server." },
-  { key: "send_gifs",           title: "Send GIFs",               desc: "Use /gif and post GIF / image / video URLs." },
-  { key: "send_links",          title: "Send Links",              desc: "Bypass the server's plain-text link restriction." },
-  { key: "send_attachments",    title: "Send Attachments",        desc: "Upload files in text channels." },
-  { key: "mention_everyone",    title: "Mention @everyone / @here", desc: "Use @everyone and @here regardless of server setting." },
-  { key: "bypass_word_filter",  title: "Bypass Bad-Word Filter",  desc: "Send messages without the bad-word filter censoring them." },
-  { key: "create_invites",      title: "Create Invites",          desc: "Create new invite links for this server." },
-  { key: "use_custom_emojis",   title: "Use Custom Emojis",       desc: "Use server custom emojis even when restricted to admins." }
+  { key: "manage_roles", title: "Manage Roles", desc: "Edit other roles, channels, server settings, and member roles." },
+  { key: "manage_messages", title: "Manage Messages", desc: "Delete or pin any message in this server." },
+  { key: "mute_users", title: "Mute / Block Members", desc: "Mute or block other members in this server." },
+  { key: "send_gifs", title: "Send GIFs", desc: "Use /gif and post GIF / image / video URLs." },
+  { key: "send_links", title: "Send Links", desc: "Bypass the server's plain-text link restriction." },
+  { key: "send_attachments", title: "Send Attachments", desc: "Upload files in text channels." },
+  { key: "mention_everyone", title: "Mention @everyone / @here", desc: "Use @everyone and @here regardless of server setting." },
+  { key: "bypass_word_filter", title: "Bypass Bad-Word Filter", desc: "Send messages without the bad-word filter censoring them." },
+  { key: "create_invites", title: "Create Invites", desc: "Create new invite links for this server." },
+  { key: "use_custom_emojis", title: "Use Custom Emojis", desc: "Use server custom emojis even when restricted to admins." }
 ];
 
 let serverRolesCache = [];
@@ -10849,7 +10800,7 @@ async function unlinkOAuthIdentity(provider) {
   }
 
   // Refresh the auth user so user.identities reflects the new state.
-  try { await supabaseClient.auth.refreshSession(); } catch {}
+  try { await supabaseClient.auth.refreshSession(); } catch { }
 
   console.log(`✅ Successfully unlinked ${provider}`);
   showLinkStatus(`✅ ${provider} account unlinked successfully!`, "success");
@@ -10866,7 +10817,7 @@ async function updateAccountLinkButtons() {
     github: document.getElementById("linkGithubBtn"),
     discord: document.getElementById("linkDiscordBtn"),
     azure: document.getElementById("linkAzureBtn")
-   // spotify: document.getElementById("linkSpotifyBtn")
+    // spotify: document.getElementById("linkSpotifyBtn")
   };
 
   const providerNames = {
@@ -10874,7 +10825,7 @@ async function updateAccountLinkButtons() {
     github: "GitHub",
     discord: "Discord",
     azure: "Azure"
-   // spotify: "Spotify"
+    // spotify: "Spotify"
   };
 
   const providerIcons = {
@@ -10995,7 +10946,7 @@ function setupAccountLinkListeners() {
     }
   });
 
-  }
+}
 
 // Run immediately
 setupAccountLinkListeners();
@@ -11011,7 +10962,7 @@ function forceAttachAccountLinkListeners() {
   const linkGithub = document.getElementById("linkGithubBtn");
   const linkDiscord = document.getElementById("linkDiscordBtn");
   const linkAzure = document.getElementById("linkAzureBtn");
- // const linkSpotify = document.getElementById("linkSpotifyBtn");
+  // const linkSpotify = document.getElementById("linkSpotifyBtn");
 
   console.log("🔧 Forcing account link listeners...");
 
@@ -11047,7 +10998,7 @@ if (openBtn && closeBtn && modal) {
 
 // ======================== /gif SLASH COMMAND (FORCED POSITION FIX) ========================
 (function setupGifSlashCommand() {
-  const TENOR_API_KEY = "LIVDSRZULELA"; 
+  const TENOR_API_KEY = "LIVDSRZULELA";
   const TENOR_LIMIT = 24;
   const DEBOUNCE_MS = 300;
 
@@ -11065,7 +11016,7 @@ if (openBtn && closeBtn && modal) {
   picker.className = "hidden";
 
   // FORCE STYLES IN-JS TO OVERRIDE CSS
-  picker.style.position = "fixed"; 
+  picker.style.position = "fixed";
   picker.style.zIndex = "9999999"; // Higher than everything
   picker.style.backgroundColor = "#2f3136";
   picker.style.border = "1px solid #40444b";
@@ -11156,7 +11107,7 @@ if (openBtn && closeBtn && modal) {
       const m = (r.media && r.media[0]) || null;
       if (!m) return;
       const thumb = m.tinygif?.url || m.nanogif?.url || m.gif?.url;
-      const full  = m.gif?.url || m.tinygif?.url;
+      const full = m.gif?.url || m.tinygif?.url;
       if (!thumb || !full) return;
 
       const item = document.createElement("div");
@@ -11224,23 +11175,23 @@ if (openBtn && closeBtn && modal) {
 
   function handleInput() {
     const value = inputEl.value.trim();
-  const match = value.match(/^\/gif(?:\s+(.*))?$/i);
+    const match = value.match(/^\/gif(?:\s+(.*))?$/i);
 
-  if (!match) {
-    if (isOpen()) close();
-    return;
-  }
+    if (!match) {
+      if (isOpen()) close();
+      return;
+    }
 
-  // --- /gif permission gate (honors per-server "Send GIFs" role permission) ---
-  const _legacyGifAllowed = ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole);
-  if (!(userPermissions.send_gifs || _legacyGifAllowed)) {
-    if (isOpen()) close();
-    return;
-  }
-  // -----------------------------------------
+    // --- /gif permission gate (honors per-server "Send GIFs" role permission) ---
+    const _legacyGifAllowed = ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole);
+    if (!(userPermissions.send_gifs || _legacyGifAllowed)) {
+      if (isOpen()) close();
+      return;
+    }
+    // -----------------------------------------
 
-  const query = (match[1] || "").trim();
-  open(inputEl.getBoundingClientRect());
+    const query = (match[1] || "").trim();
+    open(inputEl.getBoundingClientRect());
 
     if (!query) {
       setState("Type a search after <b>/gif</b> — e.g. <b>/gif cats</b>");
@@ -11467,7 +11418,7 @@ function addParticipantToGrid(usernameVal) {
 // --- SUBSCRIBE TO SIGNALING (FIXED ORDER) ---
 function subscribeToVoiceSignaling(channelId) {
   if (voiceSignalingSub) {
-    try { voiceSignalingSub.unsubscribe(); } catch {}
+    try { voiceSignalingSub.unsubscribe(); } catch { }
     voiceSignalingSub = null;
   }
 
@@ -11477,11 +11428,11 @@ function subscribeToVoiceSignaling(channelId) {
     .channel(`voice-signaling-${channelId}`)
     .on(
       "postgres_changes",
-      { 
-        event: "INSERT", 
-        schema: "public", 
+      {
+        event: "INSERT",
+        schema: "public",
         table: "voice_signaling",
-        filter: `channel_id=eq.${channelId}` 
+        filter: `channel_id=eq.${channelId}`
       },
       async (payload) => {
         const data = payload.new;
@@ -11502,7 +11453,7 @@ function subscribeToVoiceSignaling(channelId) {
             console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
 
             await peerConn.setRemoteDescription(new RTCSessionDescription(sdpObj));
-            
+
             // Mark that remote description is set
             const state = connectionStates.get(data.from_username) || {};
             state.remoteDescriptionSet = true;
@@ -11523,7 +11474,7 @@ function subscribeToVoiceSignaling(channelId) {
                   sdp: JSON.stringify(answer)
                 });
             }
-            
+
             // Process any pending ICE candidates
             const pending = pendingIceCandidates.get(data.from_username) || [];
             if (pending.length > 0) {
@@ -11540,7 +11491,7 @@ function subscribeToVoiceSignaling(channelId) {
           } else if (data.ice_candidate) {
             // Received ICE Candidate
             console.log(`📩 Received ICE candidate from ${data.from_username}`);
-            
+
             const state = connectionStates.get(data.from_username) || {};
             if (state.remoteDescriptionSet) {
               // Remote description is set, add candidate immediately
@@ -11566,7 +11517,7 @@ function subscribeToVoiceSignaling(channelId) {
 // --- SUBSCRIBE TO VOICE ROOM PARTICIPANT CHANGES ---
 function subscribeToVoiceRoom(channelId) {
   if (voiceRoomSub) {
-    try { voiceRoomSub.unsubscribe(); } catch {}
+    try { voiceRoomSub.unsubscribe(); } catch { }
     voiceRoomSub = null;
   }
 
@@ -11623,10 +11574,10 @@ function subscribeToVoiceRoom(channelId) {
 
         // If admin-muted my own mic, force-mute locally and refresh the bar.
         if (p.username === username) {
-          try { applyLocalMicState(); } catch {}
-          try { applyLocalDeafenState(); } catch {}
-          try { refreshVoiceControlButtons(); } catch {}
-          try { updateSelfMuteBadge(); } catch {}
+          try { applyLocalMicState(); } catch { }
+          try { applyLocalDeafenState(); } catch { }
+          try { refreshVoiceControlButtons(); } catch { }
+          try { updateSelfMuteBadge(); } catch { }
         }
       }
     )
@@ -11645,7 +11596,7 @@ function subscribeToVoiceRoom(channelId) {
         // Close peer connection if any
         const conn = currentPeerConnections.get(p.username);
         if (conn) {
-          try { conn.close(); } catch {}
+          try { conn.close(); } catch { }
           currentPeerConnections.delete(p.username);
         }
         // Remove audio element
@@ -11710,8 +11661,8 @@ async function initiateConnection(targetUsername, channelId) {
     ]
   });
 
-window.activeConnections = window.activeConnections || {};
-window.activeConnections[targetUsername] = peerConn;
+  window.activeConnections = window.activeConnections || {};
+  window.activeConnections[targetUsername] = peerConn;
 
   // Add local tracks
   localStream.getTracks().forEach(track => {
@@ -11719,61 +11670,61 @@ window.activeConnections[targetUsername] = peerConn;
   });
 
   // Handle incoming remote stream
-peerConn.ontrack = (event) => {
-  console.log(`🎵 Received track from ${targetUsername}`);
+  peerConn.ontrack = (event) => {
+    console.log(`🎵 Received track from ${targetUsername}`);
 
-  let stream = event.streams[0];
-  if (!stream) {
-    console.warn(`⚠️ No stream for ${targetUsername}, creating manually.`);
-    stream = new MediaStream();
-    if (event.track) stream.addTrack(event.track);
-  }
-
-  // Remove any existing audio element for this user
-  const existingAudio = document.getElementById(`audio-${targetUsername}`);
-  if (existingAudio) existingAudio.remove();
-
-  const audio = document.createElement('audio');
-  audio.srcObject = stream;
-  audio.id = `audio-${targetUsername}`;
-  audio.className = 'remote-voice';
-  audio.autoplay = true;
-  audio.muted = selfDeafened;
-  audio.volume = (cachedUserVoiceVolume || 100) / 100;
-  document.body.appendChild(audio);
-
-  // Unlock AudioContext and force playback
-  const AC = window.AudioContext || window.webkitAudioContext;
-  const ctx = new AC();
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-  audio.play().catch(err => console.warn(`⚠️ Autoplay blocked for ${targetUsername}:`, err.message));
-
-  // Speaking indicator via MediaStream analyser (does NOT re-route audio)
-  const analyser = ctx.createAnalyser();
-  const source = ctx.createMediaStreamSource(stream);
-  source.connect(analyser);
-  analyser.fftSize = 256;
-  const freqData = new Uint8Array(analyser.frequencyBinCount);
-  let wasSpeaking = false;
-
-  function checkSpeaking() {
-    if (!currentPeerConnections.has(targetUsername)) {
-      try { ctx.close(); } catch {}
-      return;
+    let stream = event.streams[0];
+    if (!stream) {
+      console.warn(`⚠️ No stream for ${targetUsername}, creating manually.`);
+      stream = new MediaStream();
+      if (event.track) stream.addTrack(event.track);
     }
-    analyser.getByteFrequencyData(freqData);
-    const avg = freqData.reduce((a, b) => a + b, 0) / freqData.length;
-    const isSpeaking = avg > 20;
-    const tile = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
-    if (tile) {
-      const avatar = tile.querySelector('.voice-participant-avatar');
-      if (avatar) avatar.classList.toggle('speaking', isSpeaking);
+
+    // Remove any existing audio element for this user
+    const existingAudio = document.getElementById(`audio-${targetUsername}`);
+    if (existingAudio) existingAudio.remove();
+
+    const audio = document.createElement('audio');
+    audio.srcObject = stream;
+    audio.id = `audio-${targetUsername}`;
+    audio.className = 'remote-voice';
+    audio.autoplay = true;
+    audio.muted = selfDeafened;
+    audio.volume = (cachedUserVoiceVolume || 100) / 100;
+    document.body.appendChild(audio);
+
+    // Unlock AudioContext and force playback
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => { });
+    audio.play().catch(err => console.warn(`⚠️ Autoplay blocked for ${targetUsername}:`, err.message));
+
+    // Speaking indicator via MediaStream analyser (does NOT re-route audio)
+    const analyser = ctx.createAnalyser();
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const freqData = new Uint8Array(analyser.frequencyBinCount);
+    let wasSpeaking = false;
+
+    function checkSpeaking() {
+      if (!currentPeerConnections.has(targetUsername)) {
+        try { ctx.close(); } catch { }
+        return;
+      }
+      analyser.getByteFrequencyData(freqData);
+      const avg = freqData.reduce((a, b) => a + b, 0) / freqData.length;
+      const isSpeaking = avg > 20;
+      const tile = document.querySelector(`.voice-participant[data-username="${targetUsername}"]`);
+      if (tile) {
+        const avatar = tile.querySelector('.voice-participant-avatar');
+        if (avatar) avatar.classList.toggle('speaking', isSpeaking);
+      }
+      wasSpeaking = isSpeaking;
+      requestAnimationFrame(checkSpeaking);
     }
-    wasSpeaking = isSpeaking;
-    requestAnimationFrame(checkSpeaking);
-  }
-  checkSpeaking();
-};
+    checkSpeaking();
+  };
 
   peerConn.onicecandidate = async (event) => {
     if (event.candidate) {
@@ -11815,7 +11766,7 @@ peerConn.ontrack = (event) => {
 // --- JOIN VOICE CHANNEL (UPDATED) ---
 async function joinVoiceChannel(channelId) {
   const channel = channels.find(c => c.id === channelId);
-  
+
   if (!channel || channel.channel_type !== 'voice') {
     console.error("❌ Cannot join: Not a voice channel");
     alert("❌ This is not a voice channel.");
@@ -11850,19 +11801,19 @@ async function joinVoiceChannel(channelId) {
 
     if (voiceGrid) {
       voiceGrid.style.display = 'flex';
-      voiceGrid.innerHTML = ''; 
-      voiceParticipantState.clear(); 
+      voiceGrid.innerHTML = '';
+      voiceParticipantState.clear();
     }
     if (voiceBar) voiceBar.style.display = 'flex';
-    
+
     if (vcStatusChannel) vcStatusChannel.textContent = channel.name;
     if (currentChannelName) {
       currentChannelName.textContent = `🎤 ${channel.name}`;
-      currentChannelName.style.color = 'var(--success)'; 
+      currentChannelName.style.color = 'var(--success)';
     }
     if (input) {
       input.disabled = true;
-      input.value = ''; 
+      input.value = '';
     }
     if (sendBtn) sendBtn.disabled = true;
 
@@ -11937,7 +11888,7 @@ async function joinVoiceChannel(channelId) {
           await initiateConnection(p.username, channelId);
         }
       }
-      
+
       voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
       renderVoiceParticipant(username, voiceParticipantState.get(username));
     } else {
@@ -12000,7 +11951,7 @@ function leaveVoiceChannel() {
   // 4. Close peer connections
   currentPeerConnections.forEach(conn => conn.close());
   currentPeerConnections.clear();
-  
+
   // Clear WebRTC state maps
   pendingIceCandidates.clear();
   connectionStates.clear();
@@ -12165,10 +12116,10 @@ function openVoiceParticipantMenu(targetUsername, x, y) {
 
   const st = voiceParticipantState.get(targetUsername) || {};
   // Toggle visibility of mute/unmute, deafen/undeafen based on current state.
-  menu.querySelector('[data-action="server-mute"]').style.display    = st.is_admin_muted    ? 'none' : 'block';
-  menu.querySelector('[data-action="server-unmute"]').style.display  = st.is_admin_muted    ? 'block' : 'none';
-  menu.querySelector('[data-action="server-deafen"]').style.display  = st.is_admin_deafened ? 'none' : 'block';
-  menu.querySelector('[data-action="server-undeafen"]').style.display= st.is_admin_deafened ? 'block' : 'none';
+  menu.querySelector('[data-action="server-mute"]').style.display = st.is_admin_muted ? 'none' : 'block';
+  menu.querySelector('[data-action="server-unmute"]').style.display = st.is_admin_muted ? 'block' : 'none';
+  menu.querySelector('[data-action="server-deafen"]').style.display = st.is_admin_deafened ? 'none' : 'block';
+  menu.querySelector('[data-action="server-undeafen"]').style.display = st.is_admin_deafened ? 'block' : 'none';
 
   // Position within viewport.
   menu.style.display = 'block';
@@ -12177,7 +12128,7 @@ function openVoiceParticipantMenu(targetUsername, x, y) {
   const px = Math.min(x, window.innerWidth - w - 8);
   const py = Math.min(y, window.innerHeight - h - 8);
   menu.style.left = px + 'px';
-  menu.style.top  = py + 'px';
+  menu.style.top = py + 'px';
 }
 
 function closeVoiceParticipantMenu() {
@@ -12189,10 +12140,10 @@ function closeVoiceParticipantMenu() {
 async function applyAdminVoiceAction(targetUsername, action) {
   if (!currentVoiceChannelId || !targetUsername) return;
   const updates = {};
-  if (action === 'server-mute')      updates.is_admin_muted    = true;
-  if (action === 'server-unmute')    updates.is_admin_muted    = false;
-  if (action === 'server-deafen')  { updates.is_admin_deafened = true;  updates.is_admin_muted = true; }
-  if (action === 'server-undeafen')  updates.is_admin_deafened = false;
+  if (action === 'server-mute') updates.is_admin_muted = true;
+  if (action === 'server-unmute') updates.is_admin_muted = false;
+  if (action === 'server-deafen') { updates.is_admin_deafened = true; updates.is_admin_muted = true; }
+  if (action === 'server-undeafen') updates.is_admin_deafened = false;
 
   if (action === 'disconnect') {
     try {
@@ -12220,11 +12171,11 @@ async function applyAdminVoiceAction(targetUsername, action) {
 // Wire VC control bar + participant menu (idempotent).
 (function wireVoiceControlsOnce() {
   function init() {
-    const muteBtn  = document.getElementById('vcMuteBtn');
-    const deafBtn  = document.getElementById('vcDeafenBtn');
+    const muteBtn = document.getElementById('vcMuteBtn');
+    const deafBtn = document.getElementById('vcDeafenBtn');
     const leaveBtn = document.getElementById('vcLeaveBtn');
-    if (muteBtn  && !muteBtn.dataset.wired)  { muteBtn.dataset.wired = "1";  muteBtn.addEventListener('click',  (e) => { e.stopPropagation(); toggleVoiceMute(); }); }
-    if (deafBtn  && !deafBtn.dataset.wired)  { deafBtn.dataset.wired = "1";  deafBtn.addEventListener('click',  (e) => { e.stopPropagation(); toggleVoiceDeafen(); }); }
+    if (muteBtn && !muteBtn.dataset.wired) { muteBtn.dataset.wired = "1"; muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleVoiceMute(); }); }
+    if (deafBtn && !deafBtn.dataset.wired) { deafBtn.dataset.wired = "1"; deafBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleVoiceDeafen(); }); }
     if (leaveBtn && !leaveBtn.dataset.wired) { leaveBtn.dataset.wired = "1"; leaveBtn.addEventListener('click', (e) => { e.stopPropagation(); leaveVoiceChannel(); }); }
 
     const menu = document.getElementById('voiceParticipantMenu');
@@ -12292,31 +12243,31 @@ async function loadThemesAndApply() {
       .select("id, name, display_name, css_variables, is_default")
       .order("is_default", { ascending: false })
       .order("display_name", { ascending: true });
-    
+
     if (!error && Array.isArray(data)) {
       // Filter out any accidental built-in IDs just in case
       dbThemes = data.filter(theme => theme && theme.css_variables && !theme.id.startsWith("__builtin_"));
     }
-  } catch (err) { 
-    console.warn("Themes table unavailable:", err.message); 
+  } catch (err) {
+    console.warn("Themes table unavailable:", err.message);
   }
 
   // Since we removed built-ins, availableThemes is purely DB-driven
   availableThemes = dbThemes;
 
   // --- FALLBACK LOGIC ---
-  // If the DB is empty, we don't want a broken UI. 
+  // If the DB is empty, we don't want a broken UI.
   // We will apply a hardcoded "Safe Default" style immediately.
   if (availableThemes.length === 0) {
     console.warn("⚠️ No themes found in DB. Applying safe fallback style.");
     applyFallbackStyle();
     // We do NOT set currentThemeId here so the user knows to pick one later
-    return; 
+    return;
   }
 
   // --- THEME SELECTION ---
   let chosen = null;
-  
+
   // 1. Check Local Storage first
   const localThemeId = localStorage.getItem("chatThemeId");
   if (localThemeId) {
@@ -12358,7 +12309,7 @@ function applyFallbackStyle() {
     "--danger": "#ed4245",
     "--success": "#3ba55d"
   };
-  
+
   // Reset previous vars
   if (root._lastThemeVarKeys && Array.isArray(root._lastThemeVarKeys)) {
     root._lastThemeVarKeys.forEach((k) => root.style.removeProperty(k));
@@ -12373,15 +12324,15 @@ function applyFallbackStyle() {
 async function selectTheme(themeId) {
   const theme = availableThemes.find(t => t.id === themeId);
   if (!theme) return;
-  
+
   applyThemeVariables(theme);
-  
+
   // 🔥 CRITICAL FIX: Update the global state variable
   currentThemeId = themeId;
 
   // Save to Local Storage
   localStorage.setItem("chatThemeId", themeId);
-  
+
   // Optional: Sync to DB
   try {
     await supabaseClient.from("users").update({ custom_theme_id: themeId }).eq("username", username);
@@ -12406,10 +12357,10 @@ function _normalizeThemeVars(raw) {
   // Normalize keys: some themes store "accent" instead of "--accent".
   // Re-key anything that looks like a CSS var name but is missing the "--" prefix.
   const CSS_VAR_NAMES = new Set([
-    "bg-main","bg-secondary","bg-tertiary","bg-hover","bg-elevated","bg-deepest",
-    "bg-modal","bg-input","body-bg-from","body-bg-to",
-    "text-main","text-muted","text-link","text-on-accent",
-    "accent","accent-strong","danger","success","warning","surface-border"
+    "bg-main", "bg-secondary", "bg-tertiary", "bg-hover", "bg-elevated", "bg-deepest",
+    "bg-modal", "bg-input", "body-bg-from", "body-bg-to",
+    "text-main", "text-muted", "text-link", "text-on-accent",
+    "accent", "accent-strong", "danger", "success", "warning", "surface-border"
   ]);
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -12435,43 +12386,43 @@ function _expandThemeVariables(vars) {
   const get = (k) => (typeof out[k] === "string" && out[k]) ? out[k] : null;
 
   // --- Background ladder (deepest -> elevated) ---
-  const bgMain      = get("--bg-main")      || "#2b2d31";
+  const bgMain = get("--bg-main") || "#2b2d31";
   const bgSecondary = get("--bg-secondary") || _shadeColor(bgMain, -10);
-  const bgTertiary  = get("--bg-tertiary")  || _shadeColor(bgMain,  +6);
-  const bgHover     = get("--bg-hover")     || _shadeColor(bgMain, +10);
-  const bgElevated  = get("--bg-elevated")  || _shadeColor(bgMain, +16);
-  const bgDeepest   = get("--bg-deepest")   || _shadeColor(bgSecondary, -20);
-  const bgModal     = get("--bg-modal")     || bgTertiary;
-  const bgInput     = get("--bg-input")     || bgSecondary;
+  const bgTertiary = get("--bg-tertiary") || _shadeColor(bgMain, +6);
+  const bgHover = get("--bg-hover") || _shadeColor(bgMain, +10);
+  const bgElevated = get("--bg-elevated") || _shadeColor(bgMain, +16);
+  const bgDeepest = get("--bg-deepest") || _shadeColor(bgSecondary, -20);
+  const bgModal = get("--bg-modal") || bgTertiary;
+  const bgInput = get("--bg-input") || bgSecondary;
 
-  out["--bg-main"]      = bgMain;
+  out["--bg-main"] = bgMain;
   out["--bg-secondary"] = bgSecondary;
-  out["--bg-tertiary"]  = bgTertiary;
-  out["--bg-hover"]     = bgHover;
-  out["--bg-elevated"]  = bgElevated;
-  out["--bg-deepest"]   = bgDeepest;
-  out["--bg-modal"]     = bgModal;
-  out["--bg-input"]     = bgInput;
+  out["--bg-tertiary"] = bgTertiary;
+  out["--bg-hover"] = bgHover;
+  out["--bg-elevated"] = bgElevated;
+  out["--bg-deepest"] = bgDeepest;
+  out["--bg-modal"] = bgModal;
+  out["--bg-input"] = bgInput;
 
   // --- Body gradient backdrop ---
   out["--body-bg-from"] = get("--body-bg-from") || _shadeColor(bgMain, -4);
-  out["--body-bg-to"]   = get("--body-bg-to")   || _shadeColor(bgMain, -16);
+  out["--body-bg-to"] = get("--body-bg-to") || _shadeColor(bgMain, -16);
 
   // --- Text colors ---
-  const textMain  = get("--text-main")  || "#dbdee1";
+  const textMain = get("--text-main") || "#dbdee1";
   const textMuted = get("--text-muted") || _mix(textMain, bgMain, 0.45);
-  out["--text-main"]      = textMain;
-  out["--text-muted"]     = textMuted;
-  out["--text-link"]      = get("--text-link")      || get("--accent") || "#00a8fc";
+  out["--text-main"] = textMain;
+  out["--text-muted"] = textMuted;
+  out["--text-link"] = get("--text-link") || get("--accent") || "#00a8fc";
   out["--text-on-accent"] = get("--text-on-accent") || _bestContrast(get("--accent") || "#5865f2");
 
   // --- Accent / status colors ---
   const accent = get("--accent") || "#5865f2";
-  out["--accent"]         = accent;
+  out["--accent"] = accent;
   out["--accent-strong"] = get("--accent-strong") || _shadeColor(accent, +12);
-  out["--danger"]         = get("--danger")  || "#ed4245";
-  out["--success"]        = get("--success") || "#3ba55d";
-  out["--warning"]        = get("--warning") || "#faa61a";
+  out["--danger"] = get("--danger") || "#ed4245";
+  out["--success"] = get("--success") || "#3ba55d";
+  out["--warning"] = get("--warning") || "#faa61a";
 
   // --- Borders ---
   // Use a luminance-aware translucent overlay so borders are visible on both
@@ -12488,9 +12439,9 @@ function _hexToRgb(hex) {
   let h = hex.trim().replace(/^#/, "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
-  return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+  return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
 }
-function _rgbToHex(r,g,b) {
+function _rgbToHex(r, g, b) {
   const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
   return "#" + c(r) + c(g) + c(b);
 }
@@ -12503,13 +12454,13 @@ function _shadeColor(hex, percent) {
 function _mix(hexA, hexB, ratio) {
   const a = _hexToRgb(hexA), b = _hexToRgb(hexB);
   if (!a || !b) return hexA;
-  return _rgbToHex(a.r*(1-ratio)+b.r*ratio, a.g*(1-ratio)+b.g*ratio, a.b*(1-ratio)+b.b*ratio);
+  return _rgbToHex(a.r * (1 - ratio) + b.r * ratio, a.g * (1 - ratio) + b.g * ratio, a.b * (1 - ratio) + b.b * ratio);
 }
 function _luminance(hex) {
   const rgb = _hexToRgb(hex);
   if (!rgb) return 0.5;
-  const f = (c) => { c /= 255; return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); };
-  return 0.2126*f(rgb.r) + 0.7152*f(rgb.g) + 0.0722*f(rgb.b);
+  const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(rgb.r) + 0.7152 * f(rgb.g) + 0.0722 * f(rgb.b);
 }
 function _isLight(hex) { return _luminance(hex) > 0.5; }
 function _bestContrast(hex) { return _isLight(hex) ? "#1a1a1a" : "#ffffff"; }
@@ -12534,7 +12485,7 @@ function applyThemeVariables(theme) {
 
   // Cache the parsed (raw) object locally for instant apply on next load —
   // we re-expand on read so logic changes here apply immediately.
-  try { localStorage.setItem("chatThemeVars", JSON.stringify(raw)); } catch {}
+  try { localStorage.setItem("chatThemeVars", JSON.stringify(raw)); } catch { }
 }
 
 // Restore last theme variables ASAP so first paint isn't a flash.
@@ -12550,7 +12501,7 @@ function applyThemeVariables(theme) {
       if (typeof v === "string") root.style.setProperty(k, v);
     });
     root._lastThemeVarKeys = Object.keys(vars);
-  } catch {}
+  } catch { }
 })();
 
 function renderThemeList() {
@@ -12733,10 +12684,10 @@ function updatePresenceDot() {
 }
 
 const CONNECTION_PROVIDERS = [
-  { id: "google",   name: "Google",    icon: "G",  brand: "#ea4335" },
-  { id: "github",   name: "GitHub",    icon: "GH", brand: "#1f2328" },
-  { id: "discord",  name: "Discord",   icon: "D",  brand: "#5865f2" },
-  { id: "azure",    name: "Microsoft", icon: "M",  brand: "#0067b8" }
+  { id: "google", name: "Google", icon: "G", brand: "#ea4335" },
+  { id: "github", name: "GitHub", icon: "GH", brand: "#1f2328" },
+  { id: "discord", name: "Discord", icon: "D", brand: "#5865f2" },
+  { id: "azure", name: "Microsoft", icon: "M", brand: "#0067b8" }
 ];
 
 function getProviderHandleFromIdentity(identity) {
@@ -12773,8 +12724,8 @@ async function refreshSettingsConnections() {
       <div class="connection-card-body">
         <div class="connection-card-name">${escapeHTML(p.name)}</div>
         <div class="connection-card-handle">${linked
-          ? (handle ? escapeHTML(handle) : "Linked")
-          : "Not connected"}</div>
+        ? (handle ? escapeHTML(handle) : "Linked")
+        : "Not connected"}</div>
       </div>
       <button class="connection-card-btn ${linked ? 'disconnect' : 'connect'}"
               data-provider="${p.id}" data-action="${linked ? 'disconnect' : 'connect'}">
@@ -13408,9 +13359,9 @@ async function getMemberPermissions(serverId, memberId) {
 
 // ================= VOICE CHAT TEST FUNCTION =================
 // Comprehensive voice chat diagnostic tool
-window.testVoiceChat = async function() {
+window.testVoiceChat = async function () {
   console.log('🔬 Starting Voice Chat Diagnostic Test...');
-  
+
   const results = {
     browserSupport: {},
     permissions: {},
@@ -13428,7 +13379,7 @@ window.testVoiceChat = async function() {
     results.browserSupport.getUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     results.browserSupport.RTCPeerConnection = !!(window.RTCPeerConnection || window.webkitRTCPeerConnection);
     results.browserSupport.AudioContext = !!(window.AudioContext || window.webkitAudioContext);
-    
+
     if (!results.browserSupport.getUserMedia) {
       results.summary.push('❌ getUserMedia not supported - voice chat impossible');
     }
@@ -13459,13 +13410,13 @@ window.testVoiceChat = async function() {
       results.devices.audioInputs = devices.filter(d => d.kind === 'audioinput').length;
       results.devices.audioOutputs = devices.filter(d => d.kind === 'audiooutput').length;
       results.devices.details = devices.filter(d => d.kind === 'audioinput' || d.kind === 'audiooutput');
-      
+
       if (results.devices.audioInputs === 0) {
         results.summary.push('❌ No audio input devices found');
       } else {
         results.summary.push(`✅ Found ${results.devices.audioInputs} audio input devices`);
       }
-      
+
       if (results.devices.audioOutputs === 0) {
         results.summary.push('❌ No audio output devices found');
       } else {
@@ -13485,9 +13436,9 @@ window.testVoiceChat = async function() {
           { urls: "stun:stun1.l.google.com:19302" }
         ]
       });
-      
+
       results.webrtc.connectionCreated = true;
-      
+
       // Test ICE candidate generation
       testConn.onicecandidate = (event) => {
         if (event.candidate) {
@@ -13495,12 +13446,12 @@ window.testVoiceChat = async function() {
           console.log('🧊 ICE candidate generated successfully');
         }
       };
-      
+
       // Create a test offer to verify SDP generation
       const offer = await testConn.createOffer();
       results.webrtc.offerCreated = true;
       results.webrtc.sdpValid = !!offer.sdp;
-      
+
       testConn.close();
       results.summary.push('✅ WebRTC connection test passed');
     } catch (webrtcErr) {
@@ -13514,11 +13465,11 @@ window.testVoiceChat = async function() {
       const testAudio = new Audio();
       results.audio.elementCreated = true;
       results.audio.canPlay = typeof testAudio.play === 'function';
-      
+
       // Test volume control
       testAudio.volume = 0.5;
       results.audio.volumeControl = testAudio.volume === 0.5;
-      
+
       results.summary.push('✅ Audio element test passed');
     } catch (audioErr) {
       results.audio.error = audioErr.message;
@@ -13532,7 +13483,7 @@ window.testVoiceChat = async function() {
         const { data, error } = await supabaseClient
           .from('voice_room_participants')
           .select('count');
-        
+
         if (error) {
           results.database.error = error.message;
           results.summary.push(`⚠️ Database test failed: ${error.message}`);
@@ -13557,7 +13508,7 @@ window.testVoiceChat = async function() {
       results.voiceState.localStream = !!localStream;
       results.voiceState.peerConnections = currentPeerConnections ? currentPeerConnections.size : 0;
       results.voiceState.participantState = voiceParticipantState ? voiceParticipantState.size : 0;
-      
+
       if (currentVoiceChannelId) {
         results.summary.push(`ℹ️ Currently in voice channel: ${currentVoiceChannelId}`);
       }
@@ -13570,11 +13521,11 @@ window.testVoiceChat = async function() {
       results.audio.contextCreated = true;
       results.audio.sampleRate = audioCtx.sampleRate;
       results.audio.state = audioCtx.state;
-      
+
       // Test analyser node creation
       const analyser = audioCtx.createAnalyser();
       results.audio.analyserCreated = true;
-      
+
       audioCtx.close();
       results.summary.push('✅ Audio context test passed');
     } catch (audioCtxErr) {
@@ -13605,53 +13556,53 @@ window.testVoiceChat = async function() {
 };
 
 // Quick voice chat check function
-window.quickVoiceCheck = function() {
+window.quickVoiceCheck = function () {
   const issues = [];
-  
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     issues.push('Browser does not support getUserMedia');
   }
-  
+
   if (!window.RTCPeerConnection && !window.webkitRTCPeerConnection) {
     issues.push('Browser does not support WebRTC');
   }
-  
+
   if (typeof currentVoiceChannelId === 'undefined' || !currentVoiceChannelId) {
     issues.push('Not currently in a voice channel');
   }
-  
+
   if (!localStream) {
     issues.push('No local audio stream');
   }
-  
+
   if (issues.length === 0) {
     console.log('✅ Quick voice check: No issues detected');
   } else {
     console.warn('⚠️ Quick voice check issues:', issues);
   }
-  
+
   return issues;
 };
 
 // Test audio playback function
-window.testAudioPlayback = async function() {
+window.testAudioPlayback = async function () {
   console.log('🔊 Testing audio playback...');
-  
+
   try {
     // Create a simple test tone
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
-    
+
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
-    
+
     oscillator.frequency.value = 440; // A4 note
     gainNode.gain.value = 0.1; // Low volume
-    
+
     oscillator.start();
     oscillator.stop(audioContext.currentTime + 1); // Play for 1 second
-    
+
     console.log('✅ Audio playback test initiated (should hear a 1-second tone)');
     return true;
   } catch (err) {
@@ -13661,58 +13612,58 @@ window.testAudioPlayback = async function() {
 };
 
 // Audio routing and loopback tests
-window.testAudioRouting = async function() {
+window.testAudioRouting = async function () {
   console.log('🔊 Testing audio routing (microphone to speakers)...');
-  
+
   try {
     // Get microphone access
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log('✅ Microphone access granted for routing test');
-    
+
     // Create audio context for processing
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     const gainNode = audioContext.createGain();
-    
+
     // Set up audio processing chain
     source.connect(analyser);
     analyser.connect(gainNode);
     gainNode.connect(audioContext.destination);
-    
+
     // Set low volume to avoid feedback
     gainNode.gain.value = 0.1;
-    
+
     // 🔥 CRITICAL: Unmute all voice audio elements so we can hear them
     document.querySelectorAll('audio[id^="audio-"]').forEach(el => {
       el.muted = false;
       el.volume = 0.1; // Keep volume low to prevent feedback
     });
-    
+
     // Set up analyser for level monitoring
     analyser.fftSize = 256;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     console.log('🎤 Audio routing active - speak into microphone to test');
     console.log('⚠️  Low volume set to prevent feedback');
-    
+
     // Monitor audio levels
     let monitoring = true;
     const checkLevels = () => {
       if (!monitoring) return;
-      
+
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      
+
       if (average > 10) {
         console.log(`🔊 Audio level detected: ${Math.round(average)}`);
       }
-      
+
       requestAnimationFrame(checkLevels);
     };
-    
+
     checkLevels();
-    
+
     // Auto-stop after 10 seconds
     setTimeout(() => {
       monitoring = false;
@@ -13722,9 +13673,9 @@ window.testAudioRouting = async function() {
       stream.getTracks().forEach(track => track.stop());
       console.log('✅ Audio routing test completed');
     }, 10000);
-    
+
     return { success: true, message: 'Audio routing test active for 10 seconds' };
-    
+
   } catch (err) {
     console.error('❌ Audio routing test failed:', err);
     return { success: false, error: err.message };
@@ -13732,9 +13683,9 @@ window.testAudioRouting = async function() {
 };
 
 // Test simulated peer connection audio flow
-window.testPeerAudioFlow = async function() {
+window.testPeerAudioFlow = async function () {
   console.log('🔗 Testing peer connection audio flow simulation...');
-  
+
   try {
     // Create two peer connections to simulate audio flow
     const peer1 = new RTCPeerConnection({
@@ -13743,54 +13694,54 @@ window.testPeerAudioFlow = async function() {
     const peer2 = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
-    
+
     // Get microphone stream
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    
+
     // Add stream to peer1
     stream.getTracks().forEach(track => peer1.addTrack(track, stream));
-    
+
     // Handle incoming tracks on peer2
     peer2.ontrack = (event) => {
       console.log('🎵 Received audio track in simulation');
-      
+
       // Create audio element to play received audio
       const audio = new Audio();
       audio.srcObject = event.streams[0];
       audio.autoplay = true;
       audio.volume = 0.3; // Low volume to prevent feedback
-      
+
       document.body.appendChild(audio);
-      
+
       console.log('🔊 Playing received audio in simulation');
-      
+
       // Remove after 5 seconds
       setTimeout(() => {
         audio.remove();
         console.log('✅ Peer audio flow simulation completed');
       }, 5000);
     };
-    
+
     // Create offer-answer exchange
     const offer = await peer1.createOffer();
     await peer1.setLocalDescription(offer);
     await peer2.setRemoteDescription(offer);
-    
+
     const answer = await peer2.createAnswer();
     await peer2.setLocalDescription(answer);
     await peer1.setRemoteDescription(answer);
-    
+
     console.log('✅ Peer connection simulation established');
-    
+
     // Clean up after 10 seconds
     setTimeout(() => {
       peer1.close();
       peer2.close();
       stream.getTracks().forEach(track => track.stop());
     }, 10000);
-    
+
     return { success: true, message: 'Peer audio flow simulation active' };
-    
+
   } catch (err) {
     console.error('❌ Peer audio flow test failed:', err);
     return { success: false, error: err.message };
@@ -13798,39 +13749,39 @@ window.testPeerAudioFlow = async function() {
 };
 
 // Real-time audio level monitoring for voice calls
-window.startAudioLevelMonitoring = function() {
+window.startAudioLevelMonitoring = function () {
   console.log('📊 Starting real-time audio level monitoring...');
-  
+
   if (!localStream) {
     console.warn('⚠️ No local audio stream - join voice channel first');
     return;
   }
-  
+
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(localStream);
     const analyser = audioContext.createAnalyser();
-    
+
     source.connect(analyser);
     analyser.fftSize = 256;
-    
+
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     const monitorLevels = () => {
       if (!localStream) {
         console.log('📊 Audio level monitoring stopped');
         return;
       }
-      
+
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      
+
       // Update UI with audio level
       const level = Math.min(100, Math.round(average * 2));
-      
+
       // Check if speaking
       const isSpeaking = level > 15;
-      
+
       // Update speaking indicator
       const selfParticipant = document.querySelector('.voice-participant.is-self');
       if (selfParticipant) {
@@ -13841,20 +13792,20 @@ window.startAudioLevelMonitoring = function() {
           avatar.classList.remove('speaking');
         }
       }
-      
+
       // Log levels periodically
       if (isSpeaking) {
         console.log(`🎤 Speaking level: ${level}%`);
       }
-      
+
       requestAnimationFrame(monitorLevels);
     };
-    
+
     monitorLevels();
     console.log('✅ Audio level monitoring started');
-    
+
     return { success: true, message: 'Audio monitoring active' };
-    
+
   } catch (err) {
     console.error('❌ Audio level monitoring failed:', err);
     return { success: false, error: err.message };
@@ -13862,29 +13813,29 @@ window.startAudioLevelMonitoring = function() {
 };
 
 // Test audio device switching
-window.testAudioDeviceSwitching = async function() {
+window.testAudioDeviceSwitching = async function () {
   console.log('🔄 Testing audio device switching...');
-  
+
   try {
     // Get all audio devices
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioInputs = devices.filter(d => d.kind === 'audioinput');
     const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
-    
+
     console.log(`🎤 Found ${audioInputs.length} input devices:`);
     audioInputs.forEach((device, index) => {
       console.log(`  ${index}: ${device.label || 'Unknown'}`);
     });
-    
+
     console.log(`🔊 Found ${audioOutputs.length} output devices:`);
     audioOutputs.forEach((device, index) => {
       console.log(`  ${index}: ${device.label || 'Unknown'}`);
     });
-    
+
     // Test switching between input devices
     if (audioInputs.length > 1) {
       console.log('🔄 Testing input device switching...');
-      
+
       for (let i = 0; i < Math.min(3, audioInputs.length); i++) {
         try {
           const constraints = {
@@ -13892,15 +13843,15 @@ window.testAudioDeviceSwitching = async function() {
               deviceId: audioInputs[i].deviceId
             }
           };
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
           console.log(`✅ Successfully switched to input device ${i}: ${audioInputs[i].label || 'Unknown'}`);
-          
+
           stream.getTracks().forEach(track => track.stop());
-          
+
           // Small delay between switches
           await new Promise(resolve => setTimeout(resolve, 500));
-          
+
         } catch (err) {
           console.warn(`⚠️ Failed to switch to input device ${i}:`, err.message);
         }
@@ -13908,13 +13859,13 @@ window.testAudioDeviceSwitching = async function() {
     } else {
       console.log('ℹ️ Only one input device available, skipping switch test');
     }
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       inputDevices: audioInputs.length,
-      outputDevices: audioOutputs.length 
+      outputDevices: audioOutputs.length
     };
-    
+
   } catch (err) {
     console.error('❌ Audio device switching test failed:', err);
     return { success: false, error: err.message };
@@ -13922,41 +13873,41 @@ window.testAudioDeviceSwitching = async function() {
 };
 
 // Comprehensive voice chat audio test suite
-window.runVoiceAudioTests = async function() {
+window.runVoiceAudioTests = async function () {
   console.log('🧪 Running comprehensive voice audio tests...');
-  
+
   const results = {
     routing: null,
     peerFlow: null,
     deviceSwitching: null,
     monitoring: null
   };
-  
+
   // Test 1: Audio routing
   console.log('\n📊 Test 1: Audio Routing');
   results.routing = await testAudioRouting();
-  
+
   // Wait a bit between tests
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
+
   // Test 2: Peer audio flow
   console.log('\n📊 Test 2: Peer Audio Flow');
   results.peerFlow = await testPeerAudioFlow();
-  
+
   // Wait a bit between tests
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
+
   // Test 3: Device switching
   console.log('\n📊 Test 3: Device Switching');
   results.deviceSwitching = await testAudioDeviceSwitching();
-  
+
   // Test 4: Start monitoring (if in voice channel)
   console.log('\n📊 Test 4: Audio Level Monitoring');
   results.monitoring = startAudioLevelMonitoring();
-  
+
   console.log('\n✅ Voice audio test suite completed!');
   console.log('Results:', results);
-  
+
   return results;
 };
 
@@ -13964,14 +13915,14 @@ console.log('🔬 Voice chat test functions loaded. Use testVoiceChat(), quickVo
 
 /**
  * Admin Debug Panel Implementation
- * 
+ *
  * SECURITY NOTE: This panel is only visible to users with currentSystemRole === "SysAdmin".
- * It does not bypass browser security or school restrictions. It runs within the 
+ * It does not bypass browser security or school restrictions. It runs within the
  * standard application context.
  */
 
 // ======================== ENHANCED ADMIN DEBUG CONSOLE ========================
-let adminDebugPanel = null;
+export let adminDebugPanel = null;
 let adminConsoleHistory = [];
 let adminConsoleHistoryIndex = -1;
 let _consoleIntercepted = false;
@@ -14066,7 +14017,7 @@ function initAdminDebugPanel() {
   });
   inputEl.placeholder = "Run any JS… try: document.title, fetch(), supabaseClient, servers";
   inputEl.addEventListener("focus", () => { inputEl.style.borderColor = "#5865f2"; });
-  inputEl.addEventListener("blur",  () => { inputEl.style.borderColor = "#3a3d44"; });
+  inputEl.addEventListener("blur", () => { inputEl.style.borderColor = "#3a3d44"; });
 
   const runBtn = makeToolbarBtn("Run ▶", "#3ba55d");
   runBtn.addEventListener("click", () => runCommand());
@@ -14098,7 +14049,7 @@ function initAdminDebugPanel() {
   document.addEventListener("mousemove", e => {
     if (!drag) return;
     adminDebugPanel.style.left = (e.clientX - drag.x) + "px";
-    adminDebugPanel.style.top  = (e.clientY - drag.y) + "px";
+    adminDebugPanel.style.top = (e.clientY - drag.y) + "px";
     adminDebugPanel.style.bottom = "auto"; adminDebugPanel.style.right = "auto";
   });
   document.addEventListener("mouseup", () => { drag = null; });
@@ -14150,9 +14101,9 @@ function initAdminDebugPanel() {
   interceptFetch(output, activeFilters);
 
   // ── Welcome message ───────────────────────────────────────────────────────
-  appendLine(output, activeFilters, { type: "INFO",  parts: ["🛡️  SysAdmin Console — full browser-console replacement"], raw: null });
-  appendLine(output, activeFilters, { type: "INFO",  parts: ["   All errors, warnings, network requests and console output captured."], raw: null });
-  appendLine(output, activeFilters, { type: "INFO",  parts: ["   Use Tab for autocomplete. Arrow keys for history. Click any object to expand."], raw: null });
+  appendLine(output, activeFilters, { type: "INFO", parts: ["🛡️  SysAdmin Console — full browser-console replacement"], raw: null });
+  appendLine(output, activeFilters, { type: "INFO", parts: ["   All errors, warnings, network requests and console output captured."], raw: null });
+  appendLine(output, activeFilters, { type: "INFO", parts: ["   Use Tab for autocomplete. Arrow keys for history. Click any object to expand."], raw: null });
 
   // ── Helper functions (scoped) ─────────────────────────────────────────────
 
@@ -14217,84 +14168,84 @@ function initAdminDebugPanel() {
   }
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
-const SUGGESTIONS = [
-  // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
-  "servers",
-  "channels",
-  "username",
-  "currentRole",
-  "currentSystemRole",
-  "currentServerId",
-  "currentChannelId",
-  "serverMembers",
-  "messagesMap",
-  "userPermissions",
-  "voiceParticipantState",
-  "currentPeerConnections.size",
-  "currentVoiceChannelId",
-  "availableThemes",
+  const SUGGESTIONS = [
+    // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
+    "servers",
+    "channels",
+    "username",
+    "currentRole",
+    "currentSystemRole",
+    "currentServerId",
+    "currentChannelId",
+    "serverMembers",
+    "messagesMap",
+    "userPermissions",
+    "voiceParticipantState",
+    "currentPeerConnections.size",
+    "currentVoiceChannelId",
+    "availableThemes",
 
-  // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
-  "loadServers()",
-  "loadServerMembers()",
-  "loadMessages()",
-  "renderChannelList()",
-  "subscribeToCurrentChannel()",
-  "refreshServerRole()",
-  "refreshUnreadMentionCounts()",
-  "markServerMentionsRead(currentServerId)",
-  "toggleMobileSimulation()",
-  "startTutorial()",
+    // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
+    "loadServers()",
+    "loadServerMembers()",
+    "loadMessages()",
+    "renderChannelList()",
+    "subscribeToCurrentChannel()",
+    "refreshServerRole()",
+    "refreshUnreadMentionCounts()",
+    "markServerMentionsRead(currentServerId)",
+    "toggleMobileSimulation()",
+    "startTutorial()",
 
-  // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
-  "forceLogout('target_username')",
-  "globalMuteUser('target_username', 60)",
-  "globalUnmuteUser('target_username')",
-  "deleteUser('target_username')",
-  "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
-  "promote('target_username', 'Admin')",
-  "changeName('target_username')",
-  "userInfo('target_username')",
-  "transferOwnership()",
+    // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
+    "forceLogout('target_username')",
+    "globalMuteUser('target_username', 60)",
+    "globalUnmuteUser('target_username')",
+    "deleteUser('target_username')",
+    "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
+    "promote('target_username', 'Admin')",
+    "changeName('target_username')",
+    "userInfo('target_username')",
+    "transferOwnership()",
 
-  // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
-  "fixPlainGifUrls()",
-  "deleteKeyword('spam_word')",
-  "exportChat()",
-  "censorContent('test text')",
-  "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
+    // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
+    "fixPlainGifUrls()",
+    "deleteKeyword('spam_word')",
+    "exportChat()",
+    "censorContent('test text')",
+    "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
 
-  // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
-  "testVoiceChat()",
-  "quickVoiceCheck()",
-  "runVoiceAudioTests()",
-  "simulatePerson()",
-  "monitorNetworkAudio()",
-  "silentAudioAnalyzerTest()",
-  "testAudioPlayback()",
-  "testAudioRouting()",
-  "startAudioLevelMonitoring()",
-  "leaveVoiceChannel()",
-  "joinVoiceChannel()",
+    // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
+    "testVoiceChat()",
+    "quickVoiceCheck()",
+    "runVoiceAudioTests()",
+    "simulatePerson()",
+    "monitorNetworkAudio()",
+    "silentAudioAnalyzerTest()",
+    "testAudioPlayback()",
+    "testAudioRouting()",
+    "startAudioLevelMonitoring()",
+    "leaveVoiceChannel()",
+    "joinVoiceChannel()",
 
-  // --- 🎨 THEMES & UI ---
-  "loadThemesAndApply()",
-  "selectTheme('theme_id_here')",
-  "document.querySelectorAll('audio').length",
+    // --- 🎨 THEMES & UI ---
+    "loadThemesAndApply()",
+    "selectTheme('theme_id_here')",
+    "document.querySelectorAll('audio').length",
 
-  // --- 🌐 BROWSER & NETWORK (Native) ---
-  "document.title",
-  "document.cookie",
-  "window.location.href",
-  "localStorage",
-  "sessionStorage",
-  "navigator.userAgent",
-  "performance.memory",
-  "performance.now()",
-  "supabaseClient",
-  "supabaseClient.auth.getUser()",
-  "supabaseClient.auth.getSession()"
-];
+    // --- 🌐 BROWSER & NETWORK (Native) ---
+    "document.title",
+    "document.cookie",
+    "window.location.href",
+    "localStorage",
+    "sessionStorage",
+    "navigator.userAgent",
+    "performance.memory",
+    "performance.now()",
+    "supabaseClient",
+    "supabaseClient.auth.getUser()",
+    "supabaseClient.auth.getSession()"
+  ];
 
   function updateAutocomplete(val) {
     if (!val) { hideAutocomplete(); return; }
@@ -14311,7 +14262,7 @@ const SUGGESTIONS = [
       });
       item.addEventListener("mousedown", e => { e.preventDefault(); inputEl.value = m; hideAutocomplete(); inputEl.focus(); });
       item.addEventListener("mouseover", () => { item.style.background = "rgba(88,101,242,0.2)"; });
-      item.addEventListener("mouseout",  () => { item.style.background = i === 0 ? "rgba(88,101,242,0.3)" : "transparent"; });
+      item.addEventListener("mouseout", () => { item.style.background = i === 0 ? "rgba(88,101,242,0.3)" : "transparent"; });
       autocompleteBox.appendChild(item);
     });
     autocompleteBox.style.display = "block";
@@ -14455,7 +14406,7 @@ function appendLine(output, activeFilters, entry) {
     opacity: dimmed ? "0.55" : "1"
   });
   row.addEventListener("mouseover", () => { row.style.background = "rgba(255,255,255,0.03)"; });
-  row.addEventListener("mouseout",  () => { row.style.background = ""; });
+  row.addEventListener("mouseout", () => { row.style.background = ""; });
 
   // Type badge
   const badge = document.createElement("span");
@@ -14523,7 +14474,7 @@ function interceptConsole(output, activeFilters) {
           else parts.push(formatArg(a));
         });
         appendLine(output, activeFilters, { type, parts: parts.length ? [parts.join(" ")] : [], raw: raws.length === 1 ? raws[0] : raws.length > 1 ? raws : null });
-      } catch {}
+      } catch { }
     };
   });
 
@@ -14533,18 +14484,18 @@ function interceptConsole(output, activeFilters) {
     origTable(data, cols);
     try {
       appendLine(output, activeFilters, { type: "LOG", parts: ["[table]"], raw: data });
-    } catch {}
+    } catch { }
   };
 
   // console.group / groupEnd
-  ["group","groupCollapsed","groupEnd","time","timeEnd","count","countReset","assert"].forEach(m => {
+  ["group", "groupCollapsed", "groupEnd", "time", "timeEnd", "count", "countReset", "assert"].forEach(m => {
     if (!console[m]) return;
     const orig = console[m].bind(console);
     console[m] = (...args) => {
       orig(...args);
       try {
         appendLine(output, activeFilters, { type: "LOG", parts: [`[${m}] ` + args.map(formatArg).join(" ")], raw: null, dimmed: true });
-      } catch {}
+      } catch { }
     };
   });
 }
@@ -14568,24 +14519,24 @@ function interceptFetch(output, activeFilters) {
   window.fetch = async function (...args) {
     const url = args[0];
     const method = args[1]?.method || 'GET';
-    appendLine(output, activeFilters, { 
-      type: "NET", 
-      parts: [`🌐 Fetch: ${method} ${typeof url === 'string' ? url : url.url}`], 
-      raw: null 
+    appendLine(output, activeFilters, {
+      type: "NET",
+      parts: [`🌐 Fetch: ${method} ${typeof url === 'string' ? url : url.url}`],
+      raw: null
     });
     try {
       const res = await originalFetch.apply(this, args);
-      appendLine(output, activeFilters, { 
-        type: "NET", 
-        parts: [`✅ ${res.status} ${res.statusText}`], 
-        raw: res 
+      appendLine(output, activeFilters, {
+        type: "NET",
+        parts: [`✅ ${res.status} ${res.statusText}`],
+        raw: res
       });
       return res;
     } catch (err) {
-      appendLine(output, activeFilters, { 
-        type: "ERROR", 
-        parts: [`❌ Fetch Failed: ${err.message}`], 
-        raw: err 
+      appendLine(output, activeFilters, {
+        type: "ERROR",
+        parts: [`❌ Fetch Failed: ${err.message}`],
+        raw: err
       });
       throw err;
     }
@@ -14595,10 +14546,10 @@ function interceptFetch(output, activeFilters) {
   const originalXHROpen = XMLHttpRequest.prototype.open;
   const originalXHRSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    appendLine(output, activeFilters, { 
-      type: "NET", 
-      parts: [`🌐 XHR: ${method.toUpperCase()} ${url}`], 
-      raw: null 
+    appendLine(output, activeFilters, {
+      type: "NET",
+      parts: [`🌐 XHR: ${method.toUpperCase()} ${url}`],
+      raw: null
     });
     return originalXHROpen.apply(this, [method, url, ...rest]);
   };
@@ -14608,20 +14559,20 @@ function interceptFetch(output, activeFilters) {
 
   // 3. CSP Violation Listener (Crucial for embeds!)
   document.addEventListener('securitypolicyviolation', (e) => {
-    appendLine(output, activeFilters, { 
-      type: "ERROR", 
-      parts: [`🚫 CSP BLOCKED: ${e.blockedURI} (Directive: ${e.violatedDirective})`], 
-      raw: e 
+    appendLine(output, activeFilters, {
+      type: "ERROR",
+      parts: [`🚫 CSP BLOCKED: ${e.blockedURI} (Directive: ${e.violatedDirective})`],
+      raw: e
     });
   });
 
   // 4. Global Error & Promise Rejection Monitor
   window.addEventListener('error', (e) => {
     if (e.message.toLowerCase().includes('gofundme') || e.filename?.includes('gofundme')) {
-      appendLine(output, activeFilters, { 
-        type: "ERROR", 
-        parts: [`💥 GoFundMe Error: ${e.message}`, `  at ${e.filename}:${e.lineno}`], 
-        raw: e 
+      appendLine(output, activeFilters, {
+        type: "ERROR",
+        parts: [`💥 GoFundMe Error: ${e.message}`, `  at ${e.filename}:${e.lineno}`],
+        raw: e
       });
     }
   });
@@ -14629,10 +14580,10 @@ function interceptFetch(output, activeFilters) {
   window.addEventListener('unhandledrejection', (e) => {
     const msg = String(e.reason);
     if (msg.includes('gofundme') || msg.includes('embed')) {
-      appendLine(output, activeFilters, { 
-        type: "ERROR", 
-        parts: [`💥 GoFundMe Promise Rejection: ${msg}`], 
-        raw: e.reason 
+      appendLine(output, activeFilters, {
+        type: "ERROR",
+        parts: [`💥 GoFundMe Promise Rejection: ${msg}`],
+        raw: e.reason
       });
     }
   });
@@ -14643,33 +14594,33 @@ function interceptFetch(output, activeFilters) {
       mutation.addedNodes.forEach((node) => {
         if (node.tagName === 'IFRAME') {
           const src = node.src || '(no src)';
-          appendLine(output, activeFilters, { 
-            type: "NET", 
-            parts: [`📺 Iframe Created: ${src}`], 
-            raw: node 
+          appendLine(output, activeFilters, {
+            type: "NET",
+            parts: [`📺 Iframe Created: ${src}`],
+            raw: node
           });
-          
+
           // Try to attach a load listener (will fail for cross-origin, but we log the attempt)
           try {
             node.addEventListener('load', () => {
-              appendLine(output, activeFilters, { 
-                type: "INFO", 
-                parts: [`✅ Iframe Loaded: ${src}`], 
-                raw: null 
+              appendLine(output, activeFilters, {
+                type: "INFO",
+                parts: [`✅ Iframe Loaded: ${src}`],
+                raw: null
               });
             });
             node.addEventListener('error', () => {
-              appendLine(output, activeFilters, { 
-                type: "ERROR", 
-                parts: [`❌ Iframe Failed to Load: ${src}`], 
-                raw: null 
+              appendLine(output, activeFilters, {
+                type: "ERROR",
+                parts: [`❌ Iframe Failed to Load: ${src}`],
+                raw: null
               });
             });
           } catch (err) {
-            appendLine(output, activeFilters, { 
-              type: "WARN", 
-              parts: [`⚠️ Cannot monitor iframe events (Cross-Origin): ${src}`], 
-              raw: null 
+            appendLine(output, activeFilters, {
+              type: "WARN",
+              parts: [`⚠️ Cannot monitor iframe events (Cross-Origin): ${src}`],
+              raw: null
             });
           }
         }
@@ -14683,17 +14634,17 @@ function interceptFetch(output, activeFilters) {
     const embed = document.querySelector('.gfm-embed');
     if (embed) {
       const iframe = embed.querySelector('iframe');
-      appendLine(output, activeFilters, { 
-        type: "INFO", 
-        parts: [`🔍 GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`], 
-        raw: null 
+      appendLine(output, activeFilters, {
+        type: "INFO",
+        parts: [`🔍 GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`],
+        raw: null
       });
-      
+
       if (!iframe) {
-        appendLine(output, activeFilters, { 
-          type: "WARN", 
-          parts: [`⚠️ No iframe found inside .gfm-embed! Script might not have loaded.`], 
-          raw: null 
+        appendLine(output, activeFilters, {
+          type: "WARN",
+          parts: [`⚠️ No iframe found inside .gfm-embed! Script might not have loaded.`],
+          raw: null
         });
       }
     }
@@ -14758,48 +14709,6 @@ function formatConsoleArgs(args) {
   }).join(' ');
 }
 
-function logToAdminConsole(message, type = 'log') {
-  if (!adminDebugPanel) return;
-
-  const output = document.getElementById('admin-console-output');
-  const line = document.createElement('div');
-  line.style.cssText = `
-    margin-bottom: 4px;
-    word-wrap: break-word;
-    border-left: 3px solid transparent;
-    padding-left: 8px;
-  `;
-
-  const timestamp = new Date().toLocaleTimeString();
-  const prefix = `[${timestamp}]`;
-
-  switch (type) {
-    case 'error':
-      line.style.borderLeftColor = '#ed4245';
-      line.style.color = '#ff6b6b';
-      break;
-    case 'warn':
-      line.style.borderLeftColor = '#faa61a';
-      line.style.color = '#ffd966';
-      break;
-    case 'success':
-      line.style.borderLeftColor = '#3ba55d';
-      line.style.color = '#3ba55d';
-      break;
-    case 'info':
-      line.style.borderLeftColor = '#5865f2';
-      line.style.color = '#5865f2';
-      break;
-    default:
-      line.style.borderLeftColor = '#949ba4';
-      line.style.color = '#dbdee1';
-  }
-
-  line.innerHTML = `<span style="opacity: 0.6; margin-right: 8px;">${prefix}</span>${escapeHTML(message)}`;
-  output.appendChild(line);
-  output.scrollTop = output.scrollHeight;
-}
-
 function executeAdminCommand(command) {
   logToAdminConsole(`> ${command}`, 'info');
 
@@ -14819,7 +14728,7 @@ function executeAdminCommand(command) {
 
 function makeElementDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-  
+
   handle.onmousedown = dragMouseDown;
 
   function dragMouseDown(e) {
@@ -14858,19 +14767,19 @@ if (typeof currentSystemRole !== 'undefined' && currentSystemRole === 'SysAdmin'
 
 /**
  * Silent Audio Analyzer Test
- * 
+ *
  * Creates a temporary AudioContext and AnalyserNode to check if the browser
- * can process audio data. 
- * 
+ * can process audio data.
+ *
  * WARNING: In most browsers, you cannot "listen" to system audio (what you hear)
- * via JS without a specific permission or extension. This will likely show 0 
+ * via JS without a specific permission or extension. This will likely show 0
  * unless you are already in a voice channel where the stream is active.
- * 
+ *
  * Usage: Run in console: silentAudioAnalyzerTest()
  */
-window.silentAudioAnalyzerTest = async function() {
+window.silentAudioAnalyzerTest = async function () {
   console.log('🔇 Starting Silent Audio Analyzer Test...');
-  
+
   const results = {
     contextCreated: false,
     analyserCreated: false,
@@ -14883,13 +14792,13 @@ window.silentAudioAnalyzerTest = async function() {
     // 1. Create AudioContext (Does not play sound)
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     if (ctx.state === 'suspended') {
-      // Browsers often suspend context until a user gesture. 
+      // Browsers often suspend context until a user gesture.
       // We try to resume, but if it fails, we might not get data.
       await ctx.resume().catch(e => console.warn("Context resume failed (expected):", e));
     }
-    
+
     results.contextCreated = true;
     console.log('✅ AudioContext created (suspended/resumed state:', ctx.state + ')');
 
@@ -14901,28 +14810,28 @@ window.silentAudioAnalyzerTest = async function() {
 
     // 3. Attempt to connect to the destination (Speakers)
     // NOTE: This does NOT capture system audio. It creates a path to the speakers.
-    // To actually "hear" system audio, you would need a MediaStreamDestination 
+    // To actually "hear" system audio, you would need a MediaStreamDestination
     // capturing a loopback device, which is not standard JS.
     // We connect the analyser to the destination to ensure the graph is valid.
     const dest = ctx.createMediaStreamDestination();
     analyser.connect(dest);
-    
+
     // 4. Run a silent check
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
+
     // Get data immediately
     analyser.getByteFrequencyData(dataArray);
-    
+
     // Calculate average level
     let sum = 0;
     for (let i = 0; i < bufferLength; i++) {
       sum += dataArray[i];
     }
     const average = sum / bufferLength;
-    
+
     results.audioLevel = average;
-    
+
     if (average > 5) {
       results.hasAudioInput = true;
       results.message = `Detected audio activity (Level: ${Math.round(average)}). This implies audio is currently playing or a stream is active.`;
@@ -14938,7 +14847,7 @@ window.silentAudioAnalyzerTest = async function() {
 
     console.log('📊 Silent Test Results:', results);
     console.log('%c' + results.message, 'color: ' + (results.hasAudioInput ? '#3ba55d' : '#949ba4'));
-    
+
     return results;
 
   } catch (err) {
@@ -14950,16 +14859,16 @@ window.silentAudioAnalyzerTest = async function() {
 
 /**
  * Simulates a remote user joining, playing a beep, and leaving.
- * 
+ *
  * LOGIC:
  * 1. Creates a local AudioContext and Oscillator (Beep).
  * 2. Creates a fake RTCPeerConnection to simulate the "incoming track".
  * 3. Routes the beep to the browser's audio output.
  * 4. Logs all steps and errors.
- * 
+ *
  * USAGE: Run in console: simulatePerson()
  */
-window.simulatePerson = async function() {
+window.simulatePerson = async function () {
   const log = (msg, type = 'info') => {
     const color = type === 'error' ? '#ed4245' : (type === 'success' ? '#3ba55d' : '#5865f2');
     console.log(`%c[SIM-BOT] ${msg}`, `color: ${color}; font-weight: bold;`);
@@ -14978,7 +14887,7 @@ window.simulatePerson = async function() {
     // 1. Setup Audio Context
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -14987,19 +14896,19 @@ window.simulatePerson = async function() {
     // 2. Generate the Beep (Oscillator)
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
-    
+
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(440, ctx.currentTime); // A4 note
     oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 2); // Slide up
-    
+
     // Volume ramp (Fade in/out to avoid clicking)
     gainNode.gain.setValueAtTime(0, ctx.currentTime);
     gainNode.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.1); // Fade in
     gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 4.9); // Fade out
-    
+
     oscillator.connect(gainNode);
     gainNode.connect(ctx.destination); // Connect to speakers
-    
+
     log('🔊 Beep generator created (440Hz -> 880Hz)', 'info');
 
     // 3. Simulate "Remote Track" Logic
@@ -15007,30 +14916,30 @@ window.simulatePerson = async function() {
     // by creating a MediaStream from our oscillator and treating it like a remote stream.
     const dest = ctx.createMediaStreamDestination();
     gainNode.connect(dest); // Route beep to a stream
-    
+
     const fakeStream = dest.stream;
     const fakeTrack = fakeStream.getAudioTracks()[0];
-    
+
     // Create a fake Peer Connection to trigger your ontrack logic if possible
     // Note: This won't actually connect to the server, but tests the local audio path
     const peerConn = new RTCPeerConnection();
-    
+
     peerConn.ontrack = (event) => {
       log('🎵 [SIM-BOT] Received track event (Simulated)', 'success');
-      
+
       // Create audio element exactly like your real code does
       const audio = document.createElement('audio');
       audio.srcObject = event.streams[0];
       audio.autoplay = true;
-      
-      // CRITICAL: Your code forces muted=true by default. 
-      // We must manually unmute this simulated track to hear it, 
+
+      // CRITICAL: Your code forces muted=true by default.
+      // We must manually unmute this simulated track to hear it,
       // mimicking what testAudioRouting() would do.
-      audio.muted = false; 
-      
+      audio.muted = false;
+
       document.body.appendChild(audio);
       log('🔈 Audio element created and UNMUTED for simulation', 'success');
-      
+
       // Cleanup after 5 seconds
       setTimeout(() => {
         audio.remove();
@@ -15040,7 +14949,7 @@ window.simulatePerson = async function() {
 
     // Add the track to the connection (simulating incoming data)
     peerConn.addTrack(fakeTrack, fakeStream);
-    
+
     // Start the beep
     oscillator.start();
     simulationState.started = true;
@@ -15089,11 +14998,11 @@ window.simulatePerson = async function() {
 
 /**
  * Robust Network Audio Monitor
- * 
+ *
  * Scans ALL active RTCPeerConnections in the browser, not just a custom list.
  * This fixes the issue where the connection exists but the custom list is empty.
  */
-window.monitorNetworkAudio = async function() {
+window.monitorNetworkAudio = async function () {
   const log = (msg, type = 'info') => {
     const color = type === 'error' ? '#ed4245' : (type === 'success' ? '#3ba55d' : '#f1c40f');
     console.log(`%c[NET-MONITOR] ${msg}`, `color: ${color}; font-weight: bold;`);
@@ -15107,7 +15016,7 @@ window.monitorNetworkAudio = async function() {
   // 1. Try to find connections in your custom list first (if it exists)
   const customList = window.activeConnections || {};
   const customKeys = Object.keys(customList);
-  
+
   if (customKeys.length > 0) {
     log(`Found ${customKeys.length} connections in custom list.`, 'success');
     for (const key of customKeys) {
@@ -15118,14 +15027,14 @@ window.monitorNetworkAudio = async function() {
   // 2. CRITICAL FALLBACK: Scan the browser's internal connection registry
   // This catches connections that your app didn't register in 'activeConnections'
   log('Scanning browser internal connection registry...');
-  
+
   // We use a trick: iterate through all global variables looking for PeerConnections
   // Note: This is a bit hacky but necessary if your app doesn't store them globally.
   // A better long-term fix is to ensure your 'initiateConnection' pushes to window.activeConnections.
-  
+
   // Instead of scanning globals (which is unreliable), let's check if you have a global array
   // If you don't, we need to patch your connection logic.
-  
+
   // TEMPORARY FIX: Check if you have a global 'peerConns' or similar
   const possibleGlobals = ['peerConns', 'connections', 'voiceConnections', 'activePeers'];
   let scannedAny = false;
@@ -15187,7 +15096,7 @@ window.monitorNetworkAudio = async function() {
 
 async function fixPlainGifUrls() {
   console.log('🔧 Starting plain GIF URL cleanup...');
-  
+
   if (!username) {
     console.error('❌ Not logged in. Please log in first.');
     return;
@@ -15223,18 +15132,18 @@ async function fixPlainGifUrls() {
 
   for (const msg of messages) {
     processed++;
-    
+
     // Check if content is a plain GIF URL
     const isPlainUrl = GIF_URL_REGEX.test(msg.content.trim());
-    
+
     if (isPlainUrl) {
       const url = msg.content.trim();
       const isGif = GIF_EXTENSIONS.test(url) || TENOR_DOMAIN.test(url) || GIPHY_DOMAIN.test(url);
-      
+
       if (isGif) {
         // Wrap in markdown format that your app expects
         const fixedContent = `[📄 GIF](${url})`;
-        
+
         try {
           const { error: updateError } = await supabaseClient
             .from("messages")
@@ -15260,199 +15169,9 @@ async function fixPlainGifUrls() {
   console.log(`   Processed: ${processed}`);
   console.log(`   Fixed: ${fixed}`);
   console.log(`   Errors: ${errors}`);
-  
+
   if (fixed > 0) {
     console.log('💡 Tip: Reload the page to see the changes reflected in the chat.');
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 4.  TUTORIAL SYSTEM
-//     Call  startTutorial()  after a brand-new user's first login.
-//     Highlights key UI areas one by one with a pulsing spotlight.
-//     Progress is saved in localStorage so it only shows once.
-// ─────────────────────────────────────────────────────────────────────────────
-const TUTORIAL_KEY = "lla_tutorial_done_v2";
- 
-const TUTORIAL_STEPS = [
-  {
-    selector: ".server-sidebar",
-    title: "Your Servers",
-    body: "Each icon here is a server — like a classroom or club. Click one to open it.",
-    position: "right",
-  },
-  {
-    selector: ".channel-sidebar",
-    title: "Channels",
-    body: "Channels are like rooms inside a server. Text channels let you chat; voice channels let you talk live.",
-    position: "right",
-  },
-  {
-    selector: "#dmList",
-    title: "Direct Messages",
-    body: "Send a private message to any member by hitting the <b>+</b> next to Direct Messages.",
-    position: "right",
-  },
-  {
-    selector: "#messageInput",
-    title: "Send a Message",
-    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with 📎 if you're and admin.",
-    position: "top",
-  },
-  /*{
-    selector: "#memberList",
-    title: "Members",
-    body: "See who's online in this server. Right-click (or long-press on mobile) a member to send a DM or view their profile.",
-    position: "left",
-  },*/
-  {
-    selector: "#openSettingsBtn",
-    title: "Settings",
-    body: "Change your avatar, status, notification preferences, and appearance themes here.",
-    position: "top",
-  },
-];
- 
-function startTutorial() {
-  if (localStorage.getItem(TUTORIAL_KEY)) return; // already done
- 
-  let step = 0;
- 
-  // ── overlay pieces ──
-  const overlay = document.createElement("div");
-  overlay.id = "tutorialOverlay";
-  overlay.setAttribute("aria-modal", "true");
-  overlay.setAttribute("role", "dialog");
-  overlay.setAttribute("aria-label", "App tutorial");
- 
-  const spotlight = document.createElement("div");
-  spotlight.id = "tutorialSpotlight";
- 
-  const card = document.createElement("div");
-  card.id = "tutorialCard";
- 
-  const cardTitle = document.createElement("div");
-  cardTitle.id = "tutorialCardTitle";
- 
-  const cardBody = document.createElement("div");
-  cardBody.id = "tutorialCardBody";
- 
-  const cardFooter = document.createElement("div");
-  cardFooter.id = "tutorialCardFooter";
- 
-  const skipBtn = document.createElement("button");
-  skipBtn.className = "tutorial-btn tutorial-btn--skip";
-  skipBtn.textContent = "Skip tour";
-  skipBtn.addEventListener("click", endTutorial);
- 
-  const nextBtn = document.createElement("button");
-  nextBtn.className = "tutorial-btn tutorial-btn--next";
-  nextBtn.textContent = "Next →";
-  nextBtn.addEventListener("click", () => advanceTutorial(step + 1));
- 
-  const dots = document.createElement("div");
-  dots.id = "tutorialDots";
- 
-  cardFooter.appendChild(skipBtn);
-  cardFooter.appendChild(dots);
-  cardFooter.appendChild(nextBtn);
-  card.appendChild(cardTitle);
-  card.appendChild(cardBody);
-  card.appendChild(cardFooter);
-  overlay.appendChild(spotlight);
-  overlay.appendChild(card);
-  document.body.appendChild(overlay);
- 
-  // Keyboard: Esc to skip, right-arrow to advance
-  overlay.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") endTutorial();
-    if (e.key === "ArrowRight") advanceTutorial(step + 1);
-  });
- 
-  advanceTutorial(0);
- 
-  function advanceTutorial(newStep) {
-    step = newStep;
-    if (step >= TUTORIAL_STEPS.length) { endTutorial(); return; }
- 
-    const s = TUTORIAL_STEPS[step];
-    const target = document.querySelector(s.selector);
- 
-    cardTitle.textContent = s.title;
-    cardBody.innerHTML = s.body;
-    nextBtn.textContent = step === TUTORIAL_STEPS.length - 1 ? "Finish 🎉" : "Next →";
- 
-    // Dots
-    dots.innerHTML = "";
-    TUTORIAL_STEPS.forEach((_, i) => {
-      const dot = document.createElement("span");
-      dot.className = "tutorial-dot" + (i === step ? " tutorial-dot--active" : "");
-      dots.appendChild(dot);
-    });
- 
-    if (!target) {
-      // Skip steps whose target isn't in the DOM right now
-      advanceTutorial(step + 1);
-      return;
-    }
- 
-    // Scroll target into view then position spotlight + card
-    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    requestAnimationFrame(() => positionTutorialStep(target, s.position));
-  }
- 
-  function positionTutorialStep(target, position) {
-    const rect = target.getBoundingClientRect();
-    const PAD = 8;
- 
-    // Spotlight
-    spotlight.style.left   = (rect.left   - PAD) + "px";
-    spotlight.style.top    = (rect.top    - PAD) + "px";
-    spotlight.style.width  = (rect.width  + PAD * 2) + "px";
-    spotlight.style.height = (rect.height + PAD * 2) + "px";
- 
-    // Card
-    const cw = 280, ch = 160;
-    let cx, cy;
-    if (position === "right") {
-      cx = rect.right + 16;
-      cy = rect.top + rect.height / 2 - ch / 2;
-    } else if (position === "left") {
-      cx = rect.left - cw - 16;
-      cy = rect.top + rect.height / 2 - ch / 2;
-    } else if (position === "top") {
-      cx = rect.left + rect.width / 2 - cw / 2;
-      cy = rect.top - ch - 16;
-    } else { // bottom
-      cx = rect.left + rect.width / 2 - cw / 2;
-      cy = rect.bottom + 16;
-    }
- 
-    // Clamp to viewport
-    cx = Math.max(8, Math.min(cx, window.innerWidth  - cw - 8));
-    cy = Math.max(8, Math.min(cy, window.innerHeight - ch - 8));
- 
-    card.style.left = cx + "px";
-    card.style.top  = cy + "px";
-  }
- 
-  function endTutorial() {
-    localStorage.setItem(TUTORIAL_KEY, "1");
-    overlay.remove();
-  }
-}
-
-function removeLocalStorageKey(key) {
-  if (!key) {
-    console.warn("⚠️ No key provided. Nothing removed.");
-    return;
-  }
-
-  if (localStorage.getItem(key) !== null) {
-    localStorage.removeItem(key);
-    console.log(`✅ Removed key: "${key}"`);
-  } else {
-    console.log(`ℹ️ Key "${key}" did not exist.`);
   }
 }
 
@@ -15471,14 +15190,14 @@ function toggleMobileSimulation() {
   if (isMobileSim) {
     // --- RESTORE DESKTOP ---
     isMobileSim = false;
-    
+
     // 1. Restore window dimensions (this triggers CSS media queries)
     window.resizeTo(originalWindowWidth, originalWindowHeight);
-    
+
     // 2. Wait for resize to complete, then force JS to re-check
     setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-      
+
       // 3. Clean up any manual overrides
       body.classList.remove('mobile-sim-active');
       html.style.width = '';
@@ -15486,25 +15205,25 @@ function toggleMobileSimulation() {
       body.style.width = '';
       body.style.margin = '';
       body.style.overflowX = '';
-      
+
       // 4. Remove banner
       const banner = document.getElementById('mobile-sim-banner');
       if (banner) banner.remove();
-      
+
       console.log('✅ Restored to desktop view');
     }, 300);
 
   } else {
     // --- ENTER MOBILE SIMULATION ---
     isMobileSim = true;
-    
+
     // 1. Save current dimensions
     originalWindowWidth = window.innerWidth;
     originalWindowHeight = window.innerHeight;
-    
+
     // 2. Resize window to phone dimensions (forces CSS media queries)
     window.resizeTo(375, 667); // iPhone SE size
-    
+
     // 3. Add visual styling for the simulation frame
     body.classList.add('mobile-sim-active');
     html.style.width = '375px';
@@ -15513,7 +15232,7 @@ function toggleMobileSimulation() {
     body.style.margin = '0 auto';
     body.style.overflowX = 'hidden';
     body.style.backgroundColor = '#1e1f22';
-    
+
     // 4. Add banner
     const banner = document.createElement('div');
     banner.id = 'mobile-sim-banner';
@@ -15534,11 +15253,11 @@ function toggleMobileSimulation() {
       pointer-events: none;
     `;
     document.body.appendChild(banner);
-    
+
     // 5. Force JS to re-evaluate mobile state
     setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-      
+
       // 6. Manually trigger mobile-specific UI changes if needed
       // (Adjust selectors based on your app's structure)
       const sidebar = document.querySelector('.server-sidebar, .channel-sidebar');
@@ -15546,12 +15265,12 @@ function toggleMobileSimulation() {
         sidebar.classList.add('mobile-hidden');
         sidebar.style.display = 'none';
       }
-      
+
       const hamburger = document.querySelector('.hamburger-menu, .mobile-toggle');
       if (hamburger) {
         hamburger.style.display = 'block';
       }
-      
+
       console.log('✅ Mobile simulation activated');
     }, 350);
   }
@@ -15574,13 +15293,13 @@ style.textContent = `
     z-index: 10000;
     box-shadow: 0 0 60px rgba(0,0,0,0.6);
   }
-  
+
   /* Ensure mobile elements are visible */
   body.mobile-sim-active .hamburger-menu,
   body.mobile-sim-active .mobile-toggle {
     display: block !important;
   }
-  
+
   body.mobile-sim-active .server-sidebar,
   body.mobile-sim-active .channel-sidebar {
     display: none !important;
@@ -15588,192 +15307,5 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-console.log('✅ Ultimate Mobile Simulation ready. Press Ctrl+Alt+M to toggle.');
 
-const MOBILE_TUTORIAL_STEPS = [
-  {
-    title: "👋 Welcome to LLA Chat!",
-    body: "This quick tour shows you around. Tap <b>Next</b> to continue, or <b>Skip</b> to jump straight in.",
-    highlightId: null,
-  },
-  {
-    title: "📱 Open the Sidebar",
-    body: "Tap the <b>☰ menu button</b> (top-left) to open your servers and channels. Let's open it now.",
-    highlightId: "menuToggle",
-    action: () => {
-      // Programmatically open the sidebar the same way the menu button does
-      const overlay = document.getElementById("sidebarOverlay");
-      const channelSidebar = document.querySelector(".channel-sidebar");
-      const serverSidebar  = document.querySelector(".server-sidebar");
-      if (overlay)       overlay.classList.add("active");
-      if (channelSidebar) channelSidebar.classList.add("open");
-      if (serverSidebar)  serverSidebar.classList.add("open");
-    },
-  },
-  {
-    title: "🗂️ Your Servers",
-    body: "The icons on the far left are <b>servers</b> — like classrooms or clubs. Tap one to open it.",
-    highlightId: "serverList",
-  },
-  {
-    title: "💬 Channels",
-    body: "Inside each server are <b>channels</b>. Text channels let you chat; voice channels let you talk live. Tap any channel name to open it.",
-    highlightId: "channelList",
-    action: () => {
-      // Close sidebar after showing channels so next steps show the chat
-      setTimeout(() => {
-        const overlay = document.getElementById("sidebarOverlay");
-        const channelSidebar = document.querySelector(".channel-sidebar");
-        const serverSidebar  = document.querySelector(".server-sidebar");
-        if (overlay)       overlay.classList.remove("active");
-        if (channelSidebar) channelSidebar.classList.remove("open");
-        if (serverSidebar)  serverSidebar.classList.remove("open");
-      }, 400);
-    },
-  },
-  {
-    title: "✉️ Direct Messages",
-    body: "Want to message someone privately? Tap the <b>+ next to Direct Messages</b> in the sidebar to start a DM.",
-    highlightId: "newDmBtn",
-  },
-  {
-    title: "⌨️ Sending Messages",
-    body: "Type in the <b>message box</b> at the bottom and tap <b>Send</b>. Use <b>📎</b> to attach a file, or type <b>@</b> to mention someone.",
-    highlightId: "messageInput",
-  },
-  {
-    title: "⚙️ Settings",
-    body: "Tap <b>⚙️</b> (bottom-left) to change your avatar, status, notifications, and theme.",
-    highlightId: "openSettingsBtn",
-  },
-  {
-    title: "🎉 You're all set!",
-    body: "That's the tour! Jump in and start chatting. You can always find help in the server settings.",
-    highlightId: null,
-  },
-];
- 
-function startMobileTutorial() {
-  if (localStorage.getItem(TUTORIAL_KEY)) return;
- 
-  let step = 0;
- 
-  // ── Build the sheet ──────────────────────────────────────────────────────
-  const sheet = document.createElement("div");
-  sheet.id = "mobileTutorialSheet";
- 
-  const handle = document.createElement("div");
-  handle.className = "mts-handle";
- 
-  const stepCounter = document.createElement("div");
-  stepCounter.className = "mts-counter";
- 
-  const title = document.createElement("div");
-  title.className = "mts-title";
- 
-  const body = document.createElement("div");
-  body.className = "mts-body";
- 
-  const footer = document.createElement("div");
-  footer.className = "mts-footer";
- 
-  const skipBtn = document.createElement("button");
-  skipBtn.className = "mts-btn mts-btn--skip";
-  skipBtn.textContent = "Skip tour";
-  skipBtn.addEventListener("click", endTutorial);
- 
-  const dots = document.createElement("div");
-  dots.className = "mts-dots";
- 
-  const nextBtn = document.createElement("button");
-  nextBtn.className = "mts-btn mts-btn--next";
-  nextBtn.addEventListener("click", () => advanceStep(step + 1));
- 
-  footer.appendChild(skipBtn);
-  footer.appendChild(dots);
-  footer.appendChild(nextBtn);
- 
-  sheet.appendChild(handle);
-  sheet.appendChild(stepCounter);
-  sheet.appendChild(title);
-  sheet.appendChild(body);
-  sheet.appendChild(footer);
-  document.body.appendChild(sheet);
- 
-  // ── Coach-mark highlight element (floats over highlighted element) ──────
-  const coachMark = document.createElement("div");
-  coachMark.id = "mobileTutorialCoachMark";
-  document.body.appendChild(coachMark);
- 
-  // ── Swipe-down to skip ───────────────────────────────────────────────────
-  let touchStartY = 0;
-  sheet.addEventListener("touchstart", (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
-  sheet.addEventListener("touchend", (e) => {
-    const delta = e.changedTouches[0].clientY - touchStartY;
-    if (delta > 60) endTutorial(); // swipe down 60px = dismiss
-  }, { passive: true });
- 
-  advanceStep(0);
- 
-  function advanceStep(newStep) {
-    step = newStep;
-    if (step >= MOBILE_TUTORIAL_STEPS.length) { endTutorial(); return; }
- 
-    const s = MOBILE_TUTORIAL_STEPS[step];
- 
-    // Run any side-effect (open sidebar etc.) before showing the step
-    if (s.action) s.action();
- 
-    // Update text
-    stepCounter.textContent = `${step + 1} of ${MOBILE_TUTORIAL_STEPS.length}`;
-    title.innerHTML = s.title;
-    body.innerHTML  = s.body;
-    nextBtn.textContent = step === MOBILE_TUTORIAL_STEPS.length - 1 ? "Let's go! 🚀" : "Next →";
- 
-    // Dots
-    dots.innerHTML = "";
-    MOBILE_TUTORIAL_STEPS.forEach((_, i) => {
-      const dot = document.createElement("span");
-      dot.className = "mts-dot" + (i === step ? " mts-dot--active" : "");
-      dots.appendChild(dot);
-    });
- 
-    // Coach mark
-    updateCoachMark(s.highlightId);
- 
-    // Slide sheet in
-    sheet.classList.remove("mts-sheet--hidden");
-    requestAnimationFrame(() => sheet.classList.add("mts-sheet--visible"));
-  }
- 
-  function updateCoachMark(id) {
-    coachMark.classList.remove("mts-coach--visible");
- 
-    if (!id) return;
-    const target = document.getElementById(id);
-    if (!target) return;
- 
-    // Only highlight if actually visible in viewport
-    const rect = target.getBoundingClientRect();
-    const inView = rect.width > 0 && rect.height > 0 &&
-                   rect.top  >= 0 && rect.top  <= window.innerHeight &&
-                   rect.left >= 0 && rect.left <= window.innerWidth;
-    if (!inView) return;
- 
-    const PAD = 6;
-    coachMark.style.left   = (rect.left   - PAD) + "px";
-    coachMark.style.top    = (rect.top    - PAD + window.scrollY) + "px";
-    coachMark.style.width  = (rect.width  + PAD * 2) + "px";
-    coachMark.style.height = (rect.height + PAD * 2) + "px";
- 
-    requestAnimationFrame(() => coachMark.classList.add("mts-coach--visible"));
-  }
- 
-  function endTutorial() {
-    localStorage.setItem(TUTORIAL_KEY, "1");
-    sheet.classList.remove("mts-sheet--visible");
-    sheet.classList.add("mts-sheet--hidden");
-    coachMark.classList.remove("mts-coach--visible");
-    setTimeout(() => { sheet.remove(); coachMark.remove(); }, 280);
-  }
-}
+console.log('✅ Ultimate Mobile Simulation ready. Press Ctrl+Alt+M to toggle.');

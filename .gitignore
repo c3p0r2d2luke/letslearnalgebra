@@ -1,4 +1,5 @@
 sql-stuff
+dist/
 node_modules/
 surge.sh
 *.pem
