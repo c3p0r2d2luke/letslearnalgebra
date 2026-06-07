@@ -14709,22 +14709,6 @@ function formatConsoleArgs(args) {
   }).join(' ');
 }
 
-function executeAdminCommand(command) {
-  logToAdminConsole(`> ${command}`, 'info');
-
-  try {
-    const result = new Function('return ' + command)();
-    logToAdminConsole(`✅ ${result}`, 'success');
-  } catch (error) {
-    // Try direct evaluation if it's a statement
-    try {
-      eval(command);
-      logToAdminConsole(`✅ Command executed (no return value)`, 'success');
-    } catch (evalError) {
-      logToAdminConsole(`❌ ${evalError.message}`, 'error');
-    }
-  }
-}
 
 function makeElementDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
