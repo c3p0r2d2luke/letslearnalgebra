@@ -44,24 +44,24 @@ let audioContextUnlocked = false;
 
 async function unlockAudioContext() {
   if (audioContextUnlocked) return;
-  
+
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     // Create a silent oscillator
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
+
     osc.connect(gain);
     gain.connect(ctx.destination);
-    
+
     osc.frequency.value = 1; // Very low frequency
     gain.gain.value = 0.001; // Almost silent
-    
+
     osc.start();
     osc.stop(ctx.currentTime + 0.1);
-    
+
     // Wait a moment then resume
     await ctx.resume();
     audioContextUnlocked = true;
@@ -134,14 +134,14 @@ const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 //     Changes: prune-on-read is O(n) on every call — only prune once per session
 // ─────────────────────────────────────────────────────────────────────────────
 let _previewCachePruned = false;
- 
+
 function getPreviewCache() {
   try {
     const raw = localStorage.getItem(PREVIEW_CACHE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (_previewCachePruned) return parsed;
- 
+
     // Prune once per page load
     _previewCachePruned = true;
     const now = Date.now();
@@ -158,7 +158,7 @@ function getPreviewCache() {
     return {};
   }
 }
- 
+
 function setPreviewCache(url, data) {
   try {
     const cache = getPreviewCache();
@@ -372,33 +372,33 @@ function getMessageMenuSections(messageId, author, anchorX, anchorY) {
 function showDesktopMessageMenu(menu, sections, anchorX, anchorY) {
   // Remove any orphaned submenus from a previous open
   document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
- 
+
   menu.innerHTML = "";
   menu.setAttribute("role", "menu");
- 
+
 let hideTimeout = null;
   const HOVER_DELAY = 120;
   let _openSubmenu = null; // track currently visible submenu
- 
+
   // ── position helper (called AFTER submenu is visible) ──
   function positionSubmenu(parentEl, submenu) {
     submenu.style.display = "block"; // must be visible for offsetHeight
     const rect = parentEl.getBoundingClientRect();
     const sw = submenu.offsetWidth || 180;
     const sh = submenu.offsetHeight || 100;
- 
+
     let left = rect.right + 2;
     let top = rect.top;
- 
+
     if (left + sw > window.innerWidth - 8) left = rect.left - sw - 2;
     if (top + sh > window.innerHeight - 8) top = window.innerHeight - sh - 8;
     if (top < 8) top = 8;
     if (left < 8) left = 8;
- 
+
     submenu.style.left = left + "px";
     submenu.style.top = top + "px";
   }
- 
+
   // ── shared item builder ──
   function buildItem(label, action, parentEl) {
     const item = document.createElement("div");
@@ -406,16 +406,16 @@ let hideTimeout = null;
     item.setAttribute("role", "menuitem");
     item.setAttribute("tabindex", "0");
     item.textContent = label;
- 
+
     item.addEventListener("mouseenter", () => item.classList.add("ctx-item--hover"));
     item.addEventListener("mouseleave", () => item.classList.remove("ctx-item--hover"));
- 
+
     item.addEventListener("click", (e) => {
       e.stopPropagation();
       closeEverything();
       action();
     });
- 
+
     item.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -434,11 +434,11 @@ let hideTimeout = null;
       }
       if (e.key === "Escape") closeEverything();
     });
- 
+
     parentEl.appendChild(item);
     return item;
   }
- 
+
   // ── section header that opens a fly-out ──
   function buildSection(title, items, parentEl) {
     const header = document.createElement("div");
@@ -447,7 +447,7 @@ let hideTimeout = null;
     header.setAttribute("aria-haspopup", "true");
     header.setAttribute("tabindex", "0");
     header.innerHTML = `<span>${title}</span><span class="ctx-arrow">▶</span>`;
- 
+
     const submenu = document.createElement("div");
     submenu.className = "ctx-menu lla-submenu";
     submenu.setAttribute("role", "menu");
@@ -455,9 +455,9 @@ let hideTimeout = null;
     submenu.style.position = "fixed";
     submenu.style.zIndex = "10001";
     document.body.appendChild(submenu);
- 
+
     items.forEach(({ label, action }) => buildItem(label, action, submenu));
- 
+
     function openSub() {
       if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
       // Close any previously open submenu before opening this one
@@ -469,7 +469,7 @@ let hideTimeout = null;
       _openSubmenu = submenu;
       header.classList.add("ctx-item--hover");
     }
- 
+
     function closeSub() {
       hideTimeout = setTimeout(() => {
         submenu.style.display = "none";
@@ -477,7 +477,7 @@ let hideTimeout = null;
         hideTimeout = null;
       }, HOVER_DELAY);
     }
- 
+
     header.addEventListener("mouseenter", openSub);
     header.addEventListener("mouseleave", closeSub);
     submenu.addEventListener("mouseenter", () => {
@@ -485,7 +485,7 @@ let hideTimeout = null;
       header.classList.add("ctx-item--hover");
     });
     submenu.addEventListener("mouseleave", closeSub);
- 
+
     header.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight" || e.key === "Enter") {
         e.preventDefault();
@@ -494,16 +494,16 @@ let hideTimeout = null;
       }
       if (e.key === "Escape") closeEverything();
     });
- 
+
     parentEl.appendChild(header);
   }
- 
+
   function closeEverything() {
     if (hideTimeout) clearTimeout(hideTimeout);
     document.querySelectorAll(".lla-submenu").forEach((el) => el.remove());
     menu.style.display = "none";
   }
- 
+
   // ── build sections ──
   sections.forEach((section, i) => {
     if (i > 0 && i < sections.length) {
@@ -511,7 +511,7 @@ let hideTimeout = null;
       divider.className = "ctx-divider";
       menu.appendChild(divider);
     }
- 
+
     if (i === 0) {
       // First section: inline items (Quick Actions)
       section.items.forEach(({ label, action }) => buildItem(label, action, menu));
@@ -519,10 +519,10 @@ let hideTimeout = null;
       buildSection(section.title, section.items, menu);
     }
   });
- 
+
   // ── position the root menu ──
   menu.style.display = "block";
- 
+
   const mw = menu.offsetWidth || 200;
   const mh = menu.offsetHeight || 200;
   let lx = anchorX + 8;
@@ -531,13 +531,13 @@ let hideTimeout = null;
   if (ly + mh > window.innerHeight - 8) ly = anchorY - mh - 8;
   if (lx < 8) lx = 8;
   if (ly < 8) ly = 8;
- 
+
   menu.style.left = lx + "px";
   menu.style.top = ly + "px";
- 
+
   // Focus first item for keyboard users
   menu.querySelector("[role=menuitem]")?.focus();
- 
+
   // Click-away closes
   setTimeout(() => {
     document.addEventListener("click", function handler(e) {
@@ -567,45 +567,45 @@ let hideTimeout = null;
 function showMobileMessageMenu(menu, sections) {
   menu.innerHTML = "";
   menu.classList.add("mobile-sheet", "mobile-message-sheet");
- 
+
   // ── backdrop ──
   const backdrop = document.createElement("div");
   backdrop.className = "mobile-sheet-backdrop";
   document.body.appendChild(backdrop);
- 
+
   function dismissSheet() {
     menu.classList.remove("mobile-sheet--open");
     backdrop.remove();
     setTimeout(() => { menu.style.display = "none"; }, 220);
   }
- 
+
   backdrop.addEventListener("click", dismissSheet);
- 
+
   // ── handle label ──
   const handle = document.createElement("div");
   handle.className = "mobile-sheet-handle";
   menu.appendChild(handle);
- 
+
   const titleEl = document.createElement("div");
   titleEl.className = "mobile-sheet-title";
   titleEl.textContent = "Message Actions";
   menu.appendChild(titleEl);
- 
+
   // ── DANGER keywords used to colour certain items ──
   const DANGER_WORDS = ["delete", "block", "logout", "mute", "ban", "kick", "remove"];
- 
+
   sections.forEach((section, i) => {
     if (i > 0) {
       const sep = document.createElement("div");
       sep.className = "mobile-sheet-sep";
       menu.appendChild(sep);
     }
- 
+
     const groupLabel = document.createElement("div");
     groupLabel.className = "mobile-sheet-group-label";
     groupLabel.textContent = section.title;
     menu.appendChild(groupLabel);
- 
+
     section.items.forEach(({ label, action }) => {
       const btn = document.createElement("button");
       btn.className = "mobile-sheet-btn";
@@ -620,7 +620,7 @@ function showMobileMessageMenu(menu, sections) {
       menu.appendChild(btn);
     });
   });
- 
+
   // ── close button ──
   const closeBtn = document.createElement("button");
   closeBtn.className = "mobile-sheet-btn mobile-sheet-btn--cancel";
@@ -630,7 +630,7 @@ function showMobileMessageMenu(menu, sections) {
     dismissSheet();
   });
   menu.appendChild(closeBtn);
- 
+
   // Position & animate in
   menu.style.display = "block";
   requestAnimationFrame(() => menu.classList.add("mobile-sheet--open"));
@@ -1229,7 +1229,9 @@ const serverProfileByKey = new Map();
 let currentUserAvatarUrl = "";
 const channelServerMap = new Map();
 const unreadMentionCounts = new Map();
+const unreadChannelMentionCounts = new Map();
 const deliveredMentionNotifications = new Set();
+let inboxOpen = false;
 const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
@@ -1885,7 +1887,355 @@ function markServerMentionsRead(serverId) {
   readMap[serverId] = new Date().toISOString();
   writeMentionReadMap(readMap);
   unreadMentionCounts.set(serverId, 0);
+  // Also clear all channel counts for this server
+  for (const [chId, ] of unreadChannelMentionCounts) {
+    if (channelServerMap.get(chId) === serverId) {
+      unreadChannelMentionCounts.set(chId, 0);
+    }
+  }
   renderServerList();
+  renderChannelList();
+  updateInboxHeaderBadge();
+}
+
+// ======================== INBOX ========================
+
+let inboxFilter = 'all';
+let _inboxMessages = []; // cached for filter switching
+const inboxChannelNameCache = new Map();
+const inboxReadSet = new Set(); // message IDs marked read in this session
+
+function updateInboxHeaderBadge(count) {
+  const badge = document.getElementById("inboxBadge");
+  if (!badge) return;
+  if (count === undefined) {
+    let total = 0;
+    for (const c of unreadMentionCounts.values()) total += c;
+    count = total;
+  }
+  if (count > 0) {
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.style.display = "flex";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+async function markNotificationRead(msgId, type) {
+  if (!username || !msgId || inboxReadSet.has(msgId)) return;
+  inboxReadSet.add(msgId);
+  try {
+    await supabaseClient
+      .from("notification_read_status")
+      .insert({ username, message_id: msgId, notification_type: type });
+  } catch {}
+}
+
+async function markAllNotificationsRead() {
+  if (!username || !_inboxMessages.length) return;
+  const unread = _inboxMessages.filter(m => !m.isRead);
+  if (!unread.length) return;
+
+  const records = unread.map(m => ({
+    username,
+    message_id: m.id,
+    notification_type: messageMentionsUser(m.content, username) ? 'mention' : 'reply'
+  }));
+  unread.forEach(m => { inboxReadSet.add(m.id); m.isRead = true; });
+
+  try { await supabaseClient.from("notification_read_status").insert(records); } catch {}
+
+  // Clear all server/channel badge counts
+  for (const k of unreadMentionCounts.keys()) unreadMentionCounts.set(k, 0);
+  for (const k of unreadChannelMentionCounts.keys()) unreadChannelMentionCounts.set(k, 0);
+  renderServerList();
+  renderChannelList();
+  updateInboxHeaderBadge(0);
+  renderInbox(false); // re-render without reload to show read state
+}
+
+async function fetchInboxMessages() {
+  if (!username || servers.length === 0) return [];
+
+  const allServerIds = servers.map(s => s.id).filter(Boolean);
+  await loadChannelServerMap(allServerIds);
+
+  const allChannelIds = [...channelServerMap.keys()];
+  if (allChannelIds.length === 0) return [];
+
+  // Fetch channel names for display
+  const { data: chData } = await supabaseClient
+    .from("channels").select("id, name").in("id", allChannelIds);
+  (chData || []).forEach(ch => inboxChannelNameCache.set(ch.id, ch.name));
+
+  // Parallel: fetch mentions + user's own message IDs
+  const [{ data: mentionData }, { data: myMsgs }] = await Promise.all([
+    supabaseClient
+      .from("messages")
+      .select("id, username, content, channel_id, inserted_at, reply_to")
+      .in("channel_id", allChannelIds)
+      .neq("username", username)
+      .ilike("content", `%@${username}%`)
+      .order("inserted_at", { ascending: false })
+      .limit(75),
+    supabaseClient
+      .from("messages")
+      .select("id")
+      .eq("username", username)
+      .in("channel_id", allChannelIds)
+      .order("id", { ascending: false })
+      .limit(500)
+  ]);
+
+  const myMessageIds = (myMsgs || []).map(m => m.id);
+  let replyData = [];
+  if (myMessageIds.length > 0) {
+    // Chunk to avoid URL length issues
+    const chunks = [];
+    for (let i = 0; i < myMessageIds.length; i += 100) chunks.push(myMessageIds.slice(i, i + 100));
+    const results = await Promise.all(chunks.map(chunk =>
+      supabaseClient
+        .from("messages")
+        .select("id, username, content, channel_id, inserted_at, reply_to")
+        .in("reply_to", chunk)
+        .neq("username", username)
+        .order("inserted_at", { ascending: false })
+        .limit(75)
+    ));
+    results.forEach(r => { if (r.data) replyData.push(...r.data); });
+  }
+
+  // Combine and deduplicate
+  const combined = new Map();
+  [...(mentionData || []), ...replyData].forEach(msg => combined.set(msg.id, msg));
+  const sorted = [...combined.values()].sort((a, b) =>
+    new Date(b.inserted_at) - new Date(a.inserted_at)
+  ).slice(0, 100);
+
+  if (sorted.length === 0) return [];
+
+  // Fetch read status from DB
+  const { data: readData } = await supabaseClient
+    .from("notification_read_status")
+    .select("message_id")
+    .eq("username", username)
+    .in("message_id", sorted.map(m => m.id));
+
+  const dbReadSet = new Set((readData || []).map(r => r.message_id));
+  return sorted.map(msg => ({
+    ...msg,
+    isRead: dbReadSet.has(msg.id) || inboxReadSet.has(msg.id)
+  }));
+}
+
+function openInbox() {
+  inboxOpen = true;
+  const panel = document.getElementById("inboxPanel");
+  const overlay = document.getElementById("inboxOverlay");
+  const toggle = document.getElementById("inboxToggle");
+  if (panel) panel.style.display = "flex";
+  if (overlay) overlay.style.display = "block";
+  if (toggle) toggle.classList.add("active");
+  renderInbox(true);
+}
+
+function closeInbox() {
+  inboxOpen = false;
+  const panel = document.getElementById("inboxPanel");
+  const overlay = document.getElementById("inboxOverlay");
+  const toggle = document.getElementById("inboxToggle");
+  if (panel) panel.style.display = "none";
+  if (overlay) overlay.style.display = "none";
+  if (toggle) toggle.classList.remove("active");
+}
+
+function setInboxFilter(filter) {
+  inboxFilter = filter;
+  document.querySelectorAll(".inbox-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.filter === filter);
+  });
+  renderInboxList(_inboxMessages);
+}
+
+function renderInboxList(messages) {
+  const content = document.getElementById("inboxContent");
+  if (!content) return;
+
+  // Apply filter
+  const filtered = messages.filter(msg => {
+    if (inboxFilter === 'mentions') return messageMentionsUser(msg.content, username);
+    if (inboxFilter === 'replies') return !!msg.reply_to && !messageMentionsUser(msg.content, username);
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    const label = inboxFilter === 'mentions' ? 'mentions' : inboxFilter === 'replies' ? 'replies' : 'notifications';
+    content.innerHTML = `
+      <div class="inbox-empty">
+        <div class="inbox-empty-icon">🔔</div>
+        <div>No ${label} yet.</div>
+        <div style="font-size:12px;opacity:0.6;">You'll see messages here when someone @mentions you or replies to you.</div>
+      </div>`;
+    return;
+  }
+
+  const unread = filtered.filter(m => !m.isRead);
+  const read   = filtered.filter(m => m.isRead);
+
+  const fragment = document.createDocumentFragment();
+
+  function buildItem(msg) {
+    const chId = Number(msg.channel_id);
+    const serverId = channelServerMap.get(chId);
+    const server = servers.find(s => s.id === serverId);
+
+    const isMention = messageMentionsUser(msg.content, username);
+    const isReply = !!msg.reply_to;
+    const tagClass = isMention ? "mention" : "reply";
+    const tagLabel = isMention ? "@ mention" : "↩ reply";
+
+    const serverName = server?.name || "Unknown Server";
+    const chName = inboxChannelNameCache.get(chId) || channels.find(c => c.id === chId)?.name || "channel";
+
+    const timeStr = msg.inserted_at
+      ? (() => {
+          const d = new Date(msg.inserted_at);
+          const now = new Date();
+          const diffH = (now - d) / 36e5;
+          if (diffH < 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          if (diffH < 48) return "Yesterday";
+          return d.toLocaleDateString([], { month: "short", day: "numeric" });
+        })()
+      : "";
+
+    const rawContent = (msg.content || "").replaceAll(NO_EMBED_PHRASE, "");
+    const snippet = rawContent.length > 200 ? rawContent.slice(0, 200) + "…" : rawContent;
+    const highlightedSnippet = escapeHTML(snippet).replace(
+      new RegExp(`(@${escapeRegExp(username)})`, "gi"),
+      '<span class="inbox-highlight">$1</span>'
+    );
+
+    // Build avatar
+    const initial = (getEffectiveDisplayName(msg.username) || msg.username || "?")[0].toUpperCase();
+    const avatarUrl = avatarUrlByUsername.get(msg.username);
+    const avatarHtml = avatarUrl
+      ? `<img src="${escapeHTML(avatarUrl)}" alt="" onerror="this.style.display='none'">`
+      : escapeHTML(initial);
+
+    const item = document.createElement("div");
+    item.className = `inbox-item${msg.isRead ? "" : " unread"}`;
+    item.dataset.msgId = msg.id;
+
+    if (!msg.isRead) {
+      const dot = document.createElement("div");
+      dot.className = "inbox-item-unread-dot";
+      item.appendChild(dot);
+    }
+
+    item.innerHTML += `
+      <div class="inbox-item-avatar">${avatarHtml}</div>
+      <div class="inbox-item-body-col">
+        <div class="inbox-item-toprow">
+          <span class="inbox-item-author">${escapeHTML(getEffectiveDisplayName(msg.username) || msg.username)}</span>
+          <span class="inbox-item-tag ${tagClass}">${tagLabel}</span>
+          <span class="inbox-item-location">
+            <span style="opacity:0.5;">${escapeHTML(serverName)}</span>
+            <span style="opacity:0.4;">›</span>
+            <span class="inbox-item-channel-name">#${escapeHTML(chName)}</span>
+          </span>
+        </div>
+        <div class="inbox-item-text">${highlightedSnippet}</div>
+        <div class="inbox-item-time">${escapeHTML(timeStr)}</div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => navigateToInboxMessage(msg));
+    return item;
+  }
+
+  if (unread.length > 0) {
+    const label = document.createElement("div");
+    label.className = "inbox-section-label";
+    label.textContent = `Unread — ${unread.length}`;
+    fragment.appendChild(label);
+    unread.forEach(msg => fragment.appendChild(buildItem(msg)));
+  }
+
+  if (read.length > 0) {
+    const label = document.createElement("div");
+    label.className = "inbox-section-label";
+    label.style.marginTop = unread.length > 0 ? "8px" : "0";
+    label.textContent = "Earlier";
+    fragment.appendChild(label);
+    read.forEach(msg => fragment.appendChild(buildItem(msg)));
+  }
+
+  content.innerHTML = "";
+  content.appendChild(fragment);
+}
+
+async function renderInbox(reload = false) {
+  const content = document.getElementById("inboxContent");
+  if (!content) return;
+
+  if (reload) {
+    content.innerHTML = '<div class="inbox-empty"><div class="inbox-empty-icon">⏳</div><div>Loading…</div></div>';
+    const messages = await fetchInboxMessages();
+    _inboxMessages = messages || [];
+    // Update bell badge based on unread count in inbox
+    const unreadCount = _inboxMessages.filter(m => !m.isRead).length;
+    updateInboxHeaderBadge(unreadCount);
+  }
+
+  renderInboxList(_inboxMessages);
+}
+
+async function navigateToInboxMessage(msg) {
+  const channelId = Number(msg.channel_id);
+  const serverId = channelServerMap.get(channelId);
+
+  // Mark as read
+  const type = messageMentionsUser(msg.content, username) ? 'mention' : 'reply';
+  markNotificationRead(msg.id, type);
+  msg.isRead = true;
+
+  // Update the item visually if inbox stays open
+  const itemEl = document.querySelector(`.inbox-item[data-msg-id="${msg.id}"]`);
+  if (itemEl) {
+    itemEl.classList.remove("unread");
+    itemEl.querySelector(".inbox-item-unread-dot")?.remove();
+  }
+
+  // Recalculate unread count
+  const unreadCount = _inboxMessages.filter(m => !m.isRead).length;
+  updateInboxHeaderBadge(unreadCount);
+
+  closeInbox();
+
+  if (serverId && serverId !== currentServerId) {
+    await switchServer(serverId);
+    await new Promise(r => setTimeout(r, 900));
+  }
+
+  if (channelId !== currentChannelId) {
+    const ch = channels.find(c => c.id === channelId);
+    if (ch && ch.channel_type !== 'voice') {
+      await switchChannel(channelId);
+    }
+  }
+
+  // Try to scroll to and highlight the message
+  const tryHighlight = (attempts = 0) => {
+    const msgEl = messagesMap.get(msg.id);
+    if (msgEl) {
+      msgEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      msgEl.classList.add("highlighted");
+      setTimeout(() => msgEl.classList.remove("highlighted"), 1800);
+    } else if (attempts < 8) {
+      setTimeout(() => tryHighlight(attempts + 1), 200);
+    }
+  };
+  setTimeout(() => tryHighlight(), 400);
 }
 
 // In script.js, find setServerCheckpoint
@@ -1951,6 +2301,19 @@ async function refreshUnreadMentionCounts() {
   const readMap = readMentionReadMap();
   const checkpointMap = readServerCheckpointMap();
   unreadMentionCounts.clear();
+  unreadChannelMentionCounts.clear();
+
+  // Pre-fetch the current user's message IDs to detect replies
+  const allChannelIds = [...channelServerMap.keys()];
+  let myMessageIds = new Set();
+  if (allChannelIds.length > 0) {
+    const { data: myMsgs } = await supabaseClient
+      .from("messages")
+      .select("id")
+      .eq("username", username)
+      .in("channel_id", allChannelIds);
+    (myMsgs || []).forEach(m => myMessageIds.add(m.id));
+  }
 
   await Promise.all(serverIds.map(async (serverId) => {
     const channelIds = [...channelServerMap.entries()]
@@ -1964,21 +2327,19 @@ async function refreshUnreadMentionCounts() {
     // 1. Get the checkpoint data
     const checkpoint = checkpointMap[serverId];
     const lastViewTime = checkpoint?.lastViewed;
-    const lastMessageId = checkpoint?.lastMessageId; // <--- NEW: Check ID first
+    const lastMessageId = checkpoint?.lastMessageId;
 
     let query = supabaseClient
       .from("messages")
-      .select("username, content, channel_id, inserted_at")
+      .select("id, username, content, channel_id, inserted_at, reply_to")
       .in("channel_id", channelIds)
       .neq("username", username)
       .order("inserted_at", { ascending: false });
 
     // 2. Apply the filter: Prefer ID, fallback to Time
     if (lastMessageId && lastMessageId > 0) {
-      // Filter strictly by ID: Only count messages newer than the last one we saw
       query = query.gt("id", lastMessageId);
     } else if (lastViewTime) {
-      // Fallback to timestamp if no ID is recorded
       query = query.gt("inserted_at", lastViewTime);
     }
 
@@ -1989,11 +2350,22 @@ async function refreshUnreadMentionCounts() {
       return;
     }
 
-    const count = (data || []).filter(msg => messageMentionsUser(msg.content, username)).length;
-    unreadMentionCounts.set(serverId, count);
+    let serverCount = 0;
+    (data || []).forEach(msg => {
+      const isMention = messageMentionsUser(msg.content, username);
+      const isReply = msg.reply_to && myMessageIds.has(msg.reply_to);
+      if (isMention || isReply) {
+        serverCount++;
+        const chId = Number(msg.channel_id);
+        unreadChannelMentionCounts.set(chId, (unreadChannelMentionCounts.get(chId) || 0) + 1);
+      }
+    });
+    unreadMentionCounts.set(serverId, serverCount);
   }));
 
   renderServerList();
+  renderChannelList();
+  updateInboxHeaderBadge();
 }
 
 function subscribeToGlobalMentions() {
@@ -2011,7 +2383,12 @@ function subscribeToGlobalMentions() {
       async (payload) => {
         const message = payload.new;
         if (!message || getDisplayName(message) === username) return;
-        if (!messageMentionsUser(message.content, username)) return;
+
+        const isMention = messageMentionsUser(message.content, username);
+        const isReply = message.reply_to && messageDataMap.has(message.reply_to) &&
+          messageDataMap.get(message.reply_to)?.username === username;
+
+        if (!isMention && !isReply) return;
 
         let serverId = channelServerMap.get(Number(message.channel_id));
         if (!serverId) {
@@ -2027,7 +2404,11 @@ function subscribeToGlobalMentions() {
         }
 
         unreadMentionCounts.set(serverId, (unreadMentionCounts.get(serverId) || 0) + 1);
+        const chId = Number(message.channel_id);
+        unreadChannelMentionCounts.set(chId, (unreadChannelMentionCounts.get(chId) || 0) + 1);
         renderServerList();
+        renderChannelList();
+        updateInboxHeaderBadge();
         await notifyMentionClientSide(message, serverId);
       }
     )
@@ -2450,7 +2831,7 @@ function getDisplayName(user) {
 
 function loadUserPermissions(roleName, customPerms = null) {
   const name = (roleName || "user").toLowerCase();
-  
+
   // 1. Define Base Permissions for standard roles (Fallback only)
   let basePerms = {
     read_messages: true, 
@@ -2479,7 +2860,7 @@ function loadUserPermissions(roleName, customPerms = null) {
     // However, to be safe, let's start with base and let customPerms override specific keys.
     // If you want custom roles to be ENTIRELY independent, uncomment the line below:
     // basePerms = { ...customPerms }; 
-    
+
     // Better approach: Start with base, then apply custom. 
     // If customPerms has a key, it wins. If not, basePerms wins.
     Object.entries(customPerms).forEach(([key, value]) => {
@@ -3400,6 +3781,17 @@ function renderChannelList() {
 
         div.appendChild(label);
 
+        // Channel mention/reply badge
+        if (ch.channel_type !== 'voice') {
+          const chBadgeCount = unreadChannelMentionCounts.get(ch.id) || 0;
+          if (chBadgeCount > 0) {
+            const chBadge = document.createElement("span");
+            chBadge.className = "channel-mention-badge";
+            chBadge.textContent = chBadgeCount > 99 ? "99+" : String(chBadgeCount);
+            div.appendChild(chBadge);
+          }
+        }
+
         // Drag handle for admins
         if (userPermissions.manage_roles) {
           const dragHandle = document.createElement("span");
@@ -4113,6 +4505,13 @@ async function switchChannel(channelId) {
   // 🔥 CRITICAL: Mark this channel as read immediately upon loading
   await markCurrentChannelAsRead();
 
+  // Clear channel mention badge for this channel
+  if (unreadChannelMentionCounts.get(channelId)) {
+    unreadChannelMentionCounts.set(channelId, 0);
+    renderChannelList();
+    updateInboxHeaderBadge();
+  }
+
   // 🔥 Subscribe to realtime for THIS specific channel
   subscribeToCurrentChannel();
 
@@ -4274,10 +4673,10 @@ async function loadUser() {
 
     isBlocked = false; // Reset per-server block state
     mutedUntil = null;
-    
+
     // SCHEMA MATCH: Read 'muted_until' (global mute)
     globalMutedUntil = data?.muted_until || null;
-    
+
     currentNotificationPrefs = Object.assign(
       { mentions: true, replies: true, all_messages: false },
       data?.notification_preferences || {}
@@ -4286,7 +4685,7 @@ async function loadUser() {
     currentBio = data?.profile_description || "";
     currentThemeId = data?.custom_theme_id || null;
     setAvatarUrl(username, data?.avatar_url || "");
-    
+
     loadThemesAndApply().catch(err => console.warn("Theme load failed:", err));
 
     // SCHEMA MATCH: Determine System Role from Booleans
@@ -4307,7 +4706,7 @@ async function loadUser() {
     localStorage.setItem("chatSysAdmin", currentSystemRole === "SysAdmin" ? "true" : "false");
     localStorage.setItem("chatSysManager", currentSystemRole === "SysManager" ? "true" : "false");
     localStorage.setItem("chatRole", currentRole);
-    
+
     console.log("🔐 System role set to:", currentSystemRole);
     console.log("🔐 Server role set to:", currentRole);
 
@@ -4378,7 +4777,7 @@ async function saveName() {
     } else {
       // SCHEMA MATCH: Read 'system_role' for currentRole
       currentRole = normalizeServerRole(data?.[0]?.system_role || "User");
-      
+
       // SCHEMA MATCH: Read booleans for currentSystemRole
       if (data?.[0]?.sys_admin) {
         currentSystemRole = "SysAdmin";
@@ -4405,7 +4804,7 @@ async function saveName() {
   namePrompt.style.display = "none";
   const controls = document.getElementById("controls");
   if (controls) controls.classList.add("visible");
-  
+
   const input = document.getElementById("messageInput");
   const button = document.getElementById("sendButton");
   if (input) input.disabled = false;
@@ -4818,7 +5217,7 @@ function createMessageElement(msg) {
 
     // --- CRITICAL GIF & LINK HANDLING ---
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
-    
+
     if (urlMatch) {
       const url = urlMatch[0];
       const gifUrl = resolveGifUrl(url);
@@ -4847,11 +5246,11 @@ function createMessageElement(msg) {
       const appendLinkPreview = () => {
         // Only show preview if we haven't already embedded a GIF
         if (hasNoEmbed) return;
-        
+
         const previewContainer = document.createElement("div");
         previewContainer.className = "link-preview-container";
         contentDiv.appendChild(previewContainer);
-        
+
         setTimeout(async () => {
           const preview = await buildLinkPreview(url);
           if (preview) {
@@ -4871,7 +5270,7 @@ function createMessageElement(msg) {
         const placeholder = document.createElement("div");
         placeholder.className = "gif-resolving";
         contentDiv.appendChild(placeholder);
-        
+
         setTimeout(async () => {
           const resolved = await resolveGifPageUrlAsync(url);
           placeholder.remove();
@@ -5062,7 +5461,7 @@ document.addEventListener("keydown", async e => {
   if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "i") {
     e.preventDefault();
     e.stopImmediatePropagation();
-    
+
     if (currentSystemRole !== "SysAdmin") {
       return; 
     }
@@ -7102,7 +7501,7 @@ function executeScripts(container) {
     else {
       // A. Create a clone to track if it loads
       const tempScript = newScript.cloneNode();
-      
+
       // B. Set up success/failure handlers BEFORE appending
       tempScript.onload = () => {
         console.log(`✅ External script loaded: ${oldScript.src}`);
@@ -7725,7 +8124,7 @@ async function giveCustomRole(targetUser) {
 
   // 2. Build a selection list
   const roleList = availableRoles.map((r, i) => `${i + 1}. ${r.name} (${r.role || 'Custom'})`).join("\n");
-  
+
   const choice = prompt(
     `Give a custom role to ${targetUser}:\n\n${roleList}\n\nEnter the number (1, 2, etc.):`
   );
@@ -7758,7 +8157,7 @@ async function giveCustomRole(targetUser) {
       .delete()
       .eq("server_id", currentServerId)
       .eq("member_id", (await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single()).data?.id);
-      
+
     // Re-insert the link for the new role
     const memberData = await supabaseClient.from("server_members").select("id").eq("server_id", currentServerId).eq("username", targetUser).single();
     if (memberData.data) {
@@ -7770,7 +8169,7 @@ async function giveCustomRole(targetUser) {
     }
 
     alert(`✅ Assigned role "${selectedRole.name}" to ${targetUser}.`);
-    
+
     // Refresh UI
     await loadServerMembers();
     await refreshServerRole(); // Refresh current user's view if they are the target
@@ -8867,6 +9266,26 @@ if (addBtn) {
     });
   }
 
+  const inboxToggle = document.getElementById("inboxToggle");
+  if (inboxToggle) inboxToggle.addEventListener("click", () => {
+    if (inboxOpen) closeInbox(); else openInbox();
+  });
+  const inboxCloseBtn = document.getElementById("inboxCloseBtn");
+  if (inboxCloseBtn) inboxCloseBtn.addEventListener("click", closeInbox);
+  const inboxRefreshBtn = document.getElementById("inboxRefreshBtn");
+  if (inboxRefreshBtn) inboxRefreshBtn.addEventListener("click", () => renderInbox(true));
+  const inboxOverlay = document.getElementById("inboxOverlay");
+  if (inboxOverlay) inboxOverlay.addEventListener("click", closeInbox);
+  const inboxMarkAllBtn = document.getElementById("inboxMarkAllBtn");
+  if (inboxMarkAllBtn) inboxMarkAllBtn.addEventListener("click", markAllNotificationsRead);
+  const inboxFilterTabs = document.getElementById("inboxFilterTabs");
+  if (inboxFilterTabs) {
+    inboxFilterTabs.addEventListener("click", e => {
+      const tab = e.target.closest(".inbox-tab");
+      if (tab) setInboxFilter(tab.dataset.filter);
+    });
+  }
+
   document.addEventListener("click", (e) => {
     const ml = document.getElementById("memberList");
     if (!ml || !ml.classList.contains("open")) return;
@@ -9358,7 +9777,7 @@ async function updateServerSettingValues(serverId, values = {}) {
   const { error } = await supabaseClient
     .from("server_settings")
     .upsert({ server_id: serverId, ...values }, { onConflict: "server_id" });
-    
+
   if (error) throw error;
 
   // Update local cache
@@ -9733,16 +10152,16 @@ async function changeName(targetUser) {
       `Custom display name for ${actualName}:`,
       currentDisplayName || actualName
     );
-    
+
     if (newNameInput === null) return; 
-    
+
     const cleaned = newNameInput.trim();
-    
+
     if (!cleaned) {
       alert("❌ Name cannot be empty. (Pick Cancel on the first dialog to use the actual name.)");
       return;
     }
-    
+
     if (cleaned === actualName) {
       trimmedName = null;
     } else {
@@ -9823,7 +10242,7 @@ async function changeName(targetUser) {
           // Non-fatal, but log it
         }
       }
-      
+
       // 4. Update the targetUser variable for the rest of the function
       // (Now that the username has changed, we refer to the new name)
       // Note: In a real app, you might need to reload the user object here.
@@ -11503,7 +11922,7 @@ function subscribeToVoiceSignaling(channelId) {
             console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
 
             await peerConn.setRemoteDescription(new RTCSessionDescription(sdpObj));
-            
+
             // Mark that remote description is set
             const state = connectionStates.get(data.from_username) || {};
             state.remoteDescriptionSet = true;
@@ -11524,7 +11943,7 @@ function subscribeToVoiceSignaling(channelId) {
                   sdp: JSON.stringify(answer)
                 });
             }
-            
+
             // Process any pending ICE candidates
             const pending = pendingIceCandidates.get(data.from_username) || [];
             if (pending.length > 0) {
@@ -11541,7 +11960,7 @@ function subscribeToVoiceSignaling(channelId) {
           } else if (data.ice_candidate) {
             // Received ICE Candidate
             console.log(`📩 Received ICE candidate from ${data.from_username}`);
-            
+
             const state = connectionStates.get(data.from_username) || {};
             if (state.remoteDescriptionSet) {
               // Remote description is set, add candidate immediately
@@ -11816,7 +12235,7 @@ peerConn.ontrack = (event) => {
 // --- JOIN VOICE CHANNEL (UPDATED) ---
 async function joinVoiceChannel(channelId) {
   const channel = channels.find(c => c.id === channelId);
-  
+
   if (!channel || channel.channel_type !== 'voice') {
     console.error("❌ Cannot join: Not a voice channel");
     alert("❌ This is not a voice channel.");
@@ -11855,7 +12274,7 @@ async function joinVoiceChannel(channelId) {
       voiceParticipantState.clear(); 
     }
     if (voiceBar) voiceBar.style.display = 'flex';
-    
+
     if (vcStatusChannel) vcStatusChannel.textContent = channel.name;
     if (currentChannelName) {
       currentChannelName.textContent = `🎤 ${channel.name}`;
@@ -11938,7 +12357,7 @@ async function joinVoiceChannel(channelId) {
           await initiateConnection(p.username, channelId);
         }
       }
-      
+
       voiceParticipantState.set(username, { is_muted: false, is_deafened: false, is_admin_muted: false, is_admin_deafened: false });
       renderVoiceParticipant(username, voiceParticipantState.get(username));
     } else {
@@ -12001,7 +12420,7 @@ function leaveVoiceChannel() {
   // 4. Close peer connections
   currentPeerConnections.forEach(conn => conn.close());
   currentPeerConnections.clear();
-  
+
   // Clear WebRTC state maps
   pendingIceCandidates.clear();
   connectionStates.clear();
@@ -12293,7 +12712,7 @@ async function loadThemesAndApply() {
       .select("id, name, display_name, css_variables, is_default")
       .order("is_default", { ascending: false })
       .order("display_name", { ascending: true });
-    
+
     if (!error && Array.isArray(data)) {
       // Filter out any accidental built-in IDs just in case
       dbThemes = data.filter(theme => theme && theme.css_variables && !theme.id.startsWith("__builtin_"));
@@ -12317,7 +12736,7 @@ async function loadThemesAndApply() {
 
   // --- THEME SELECTION ---
   let chosen = null;
-  
+
   // 1. Check Local Storage first
   const localThemeId = localStorage.getItem("chatThemeId");
   if (localThemeId) {
@@ -12359,7 +12778,7 @@ function applyFallbackStyle() {
     "--danger": "#ed4245",
     "--success": "#3ba55d"
   };
-  
+
   // Reset previous vars
   if (root._lastThemeVarKeys && Array.isArray(root._lastThemeVarKeys)) {
     root._lastThemeVarKeys.forEach((k) => root.style.removeProperty(k));
@@ -12374,15 +12793,15 @@ function applyFallbackStyle() {
 async function selectTheme(themeId) {
   const theme = availableThemes.find(t => t.id === themeId);
   if (!theme) return;
-  
+
   applyThemeVariables(theme);
-  
+
   // 🔥 CRITICAL FIX: Update the global state variable
   currentThemeId = themeId;
 
   // Save to Local Storage
   localStorage.setItem("chatThemeId", themeId);
-  
+
   // Optional: Sync to DB
   try {
     await supabaseClient.from("users").update({ custom_theme_id: themeId }).eq("username", username);
@@ -13411,7 +13830,7 @@ async function getMemberPermissions(serverId, memberId) {
 // Comprehensive voice chat diagnostic tool
 window.testVoiceChat = async function() {
   console.log('🔬 Starting Voice Chat Diagnostic Test...');
-  
+
   const results = {
     browserSupport: {},
     permissions: {},
@@ -13429,7 +13848,7 @@ window.testVoiceChat = async function() {
     results.browserSupport.getUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     results.browserSupport.RTCPeerConnection = !!(window.RTCPeerConnection || window.webkitRTCPeerConnection);
     results.browserSupport.AudioContext = !!(window.AudioContext || window.webkitAudioContext);
-    
+
     if (!results.browserSupport.getUserMedia) {
       results.summary.push('❌ getUserMedia not supported - voice chat impossible');
     }
@@ -13460,13 +13879,13 @@ window.testVoiceChat = async function() {
       results.devices.audioInputs = devices.filter(d => d.kind === 'audioinput').length;
       results.devices.audioOutputs = devices.filter(d => d.kind === 'audiooutput').length;
       results.devices.details = devices.filter(d => d.kind === 'audioinput' || d.kind === 'audiooutput');
-      
+
       if (results.devices.audioInputs === 0) {
         results.summary.push('❌ No audio input devices found');
       } else {
         results.summary.push(`✅ Found ${results.devices.audioInputs} audio input devices`);
       }
-      
+
       if (results.devices.audioOutputs === 0) {
         results.summary.push('❌ No audio output devices found');
       } else {
@@ -13486,9 +13905,9 @@ window.testVoiceChat = async function() {
           { urls: "stun:stun1.l.google.com:19302" }
         ]
       });
-      
+
       results.webrtc.connectionCreated = true;
-      
+
       // Test ICE candidate generation
       testConn.onicecandidate = (event) => {
         if (event.candidate) {
@@ -13496,12 +13915,12 @@ window.testVoiceChat = async function() {
           console.log('🧊 ICE candidate generated successfully');
         }
       };
-      
+
       // Create a test offer to verify SDP generation
       const offer = await testConn.createOffer();
       results.webrtc.offerCreated = true;
       results.webrtc.sdpValid = !!offer.sdp;
-      
+
       testConn.close();
       results.summary.push('✅ WebRTC connection test passed');
     } catch (webrtcErr) {
@@ -13515,11 +13934,11 @@ window.testVoiceChat = async function() {
       const testAudio = new Audio();
       results.audio.elementCreated = true;
       results.audio.canPlay = typeof testAudio.play === 'function';
-      
+
       // Test volume control
       testAudio.volume = 0.5;
       results.audio.volumeControl = testAudio.volume === 0.5;
-      
+
       results.summary.push('✅ Audio element test passed');
     } catch (audioErr) {
       results.audio.error = audioErr.message;
@@ -13533,7 +13952,7 @@ window.testVoiceChat = async function() {
         const { data, error } = await supabaseClient
           .from('voice_room_participants')
           .select('count');
-        
+
         if (error) {
           results.database.error = error.message;
           results.summary.push(`⚠️ Database test failed: ${error.message}`);
@@ -13558,7 +13977,7 @@ window.testVoiceChat = async function() {
       results.voiceState.localStream = !!localStream;
       results.voiceState.peerConnections = currentPeerConnections ? currentPeerConnections.size : 0;
       results.voiceState.participantState = voiceParticipantState ? voiceParticipantState.size : 0;
-      
+
       if (currentVoiceChannelId) {
         results.summary.push(`ℹ️ Currently in voice channel: ${currentVoiceChannelId}`);
       }
@@ -13571,11 +13990,11 @@ window.testVoiceChat = async function() {
       results.audio.contextCreated = true;
       results.audio.sampleRate = audioCtx.sampleRate;
       results.audio.state = audioCtx.state;
-      
+
       // Test analyser node creation
       const analyser = audioCtx.createAnalyser();
       results.audio.analyserCreated = true;
-      
+
       audioCtx.close();
       results.summary.push('✅ Audio context test passed');
     } catch (audioCtxErr) {
@@ -13608,51 +14027,51 @@ window.testVoiceChat = async function() {
 // Quick voice chat check function
 window.quickVoiceCheck = function() {
   const issues = [];
-  
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     issues.push('Browser does not support getUserMedia');
   }
-  
+
   if (!window.RTCPeerConnection && !window.webkitRTCPeerConnection) {
     issues.push('Browser does not support WebRTC');
   }
-  
+
   if (typeof currentVoiceChannelId === 'undefined' || !currentVoiceChannelId) {
     issues.push('Not currently in a voice channel');
   }
-  
+
   if (!localStream) {
     issues.push('No local audio stream');
   }
-  
+
   if (issues.length === 0) {
     console.log('✅ Quick voice check: No issues detected');
   } else {
     console.warn('⚠️ Quick voice check issues:', issues);
   }
-  
+
   return issues;
 };
 
 // Test audio playback function
 window.testAudioPlayback = async function() {
   console.log('🔊 Testing audio playback...');
-  
+
   try {
     // Create a simple test tone
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
-    
+
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
-    
+
     oscillator.frequency.value = 440; // A4 note
     gainNode.gain.value = 0.1; // Low volume
-    
+
     oscillator.start();
     oscillator.stop(audioContext.currentTime + 1); // Play for 1 second
-    
+
     console.log('✅ Audio playback test initiated (should hear a 1-second tone)');
     return true;
   } catch (err) {
@@ -13664,56 +14083,56 @@ window.testAudioPlayback = async function() {
 // Audio routing and loopback tests
 window.testAudioRouting = async function() {
   console.log('🔊 Testing audio routing (microphone to speakers)...');
-  
+
   try {
     // Get microphone access
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     console.log('✅ Microphone access granted for routing test');
-    
+
     // Create audio context for processing
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     const gainNode = audioContext.createGain();
-    
+
     // Set up audio processing chain
     source.connect(analyser);
     analyser.connect(gainNode);
     gainNode.connect(audioContext.destination);
-    
+
     // Set low volume to avoid feedback
     gainNode.gain.value = 0.1;
-    
+
     // 🔥 CRITICAL: Unmute all voice audio elements so we can hear them
     document.querySelectorAll('audio[id^="audio-"]').forEach(el => {
       el.muted = false;
       el.volume = 0.1; // Keep volume low to prevent feedback
     });
-    
+
     // Set up analyser for level monitoring
     analyser.fftSize = 256;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     console.log('🎤 Audio routing active - speak into microphone to test');
     console.log('⚠️  Low volume set to prevent feedback');
-    
+
     // Monitor audio levels
     let monitoring = true;
     const checkLevels = () => {
       if (!monitoring) return;
-      
+
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      
+
       if (average > 10) {
         console.log(`🔊 Audio level detected: ${Math.round(average)}`);
       }
-      
+
       requestAnimationFrame(checkLevels);
     };
-    
+
     checkLevels();
-    
+
     // Auto-stop after 10 seconds
     setTimeout(() => {
       monitoring = false;
@@ -13723,9 +14142,9 @@ window.testAudioRouting = async function() {
       stream.getTracks().forEach(track => track.stop());
       console.log('✅ Audio routing test completed');
     }, 10000);
-    
+
     return { success: true, message: 'Audio routing test active for 10 seconds' };
-    
+
   } catch (err) {
     console.error('❌ Audio routing test failed:', err);
     return { success: false, error: err.message };
@@ -13735,7 +14154,7 @@ window.testAudioRouting = async function() {
 // Test simulated peer connection audio flow
 window.testPeerAudioFlow = async function() {
   console.log('🔗 Testing peer connection audio flow simulation...');
-  
+
   try {
     // Create two peer connections to simulate audio flow
     const peer1 = new RTCPeerConnection({
@@ -13744,54 +14163,54 @@ window.testPeerAudioFlow = async function() {
     const peer2 = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
-    
+
     // Get microphone stream
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    
+
     // Add stream to peer1
     stream.getTracks().forEach(track => peer1.addTrack(track, stream));
-    
+
     // Handle incoming tracks on peer2
     peer2.ontrack = (event) => {
       console.log('🎵 Received audio track in simulation');
-      
+
       // Create audio element to play received audio
       const audio = new Audio();
       audio.srcObject = event.streams[0];
       audio.autoplay = true;
       audio.volume = 0.3; // Low volume to prevent feedback
-      
+
       document.body.appendChild(audio);
-      
+
       console.log('🔊 Playing received audio in simulation');
-      
+
       // Remove after 5 seconds
       setTimeout(() => {
         audio.remove();
         console.log('✅ Peer audio flow simulation completed');
       }, 5000);
     };
-    
+
     // Create offer-answer exchange
     const offer = await peer1.createOffer();
     await peer1.setLocalDescription(offer);
     await peer2.setRemoteDescription(offer);
-    
+
     const answer = await peer2.createAnswer();
     await peer2.setLocalDescription(answer);
     await peer1.setRemoteDescription(answer);
-    
+
     console.log('✅ Peer connection simulation established');
-    
+
     // Clean up after 10 seconds
     setTimeout(() => {
       peer1.close();
       peer2.close();
       stream.getTracks().forEach(track => track.stop());
     }, 10000);
-    
+
     return { success: true, message: 'Peer audio flow simulation active' };
-    
+
   } catch (err) {
     console.error('❌ Peer audio flow test failed:', err);
     return { success: false, error: err.message };
@@ -13801,37 +14220,37 @@ window.testPeerAudioFlow = async function() {
 // Real-time audio level monitoring for voice calls
 window.startAudioLevelMonitoring = function() {
   console.log('📊 Starting real-time audio level monitoring...');
-  
+
   if (!localStream) {
     console.warn('⚠️ No local audio stream - join voice channel first');
     return;
   }
-  
+
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(localStream);
     const analyser = audioContext.createAnalyser();
-    
+
     source.connect(analyser);
     analyser.fftSize = 256;
-    
+
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     const monitorLevels = () => {
       if (!localStream) {
         console.log('📊 Audio level monitoring stopped');
         return;
       }
-      
+
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      
+
       // Update UI with audio level
       const level = Math.min(100, Math.round(average * 2));
-      
+
       // Check if speaking
       const isSpeaking = level > 15;
-      
+
       // Update speaking indicator
       const selfParticipant = document.querySelector('.voice-participant.is-self');
       if (selfParticipant) {
@@ -13842,20 +14261,20 @@ window.startAudioLevelMonitoring = function() {
           avatar.classList.remove('speaking');
         }
       }
-      
+
       // Log levels periodically
       if (isSpeaking) {
         console.log(`🎤 Speaking level: ${level}%`);
       }
-      
+
       requestAnimationFrame(monitorLevels);
     };
-    
+
     monitorLevels();
     console.log('✅ Audio level monitoring started');
-    
+
     return { success: true, message: 'Audio monitoring active' };
-    
+
   } catch (err) {
     console.error('❌ Audio level monitoring failed:', err);
     return { success: false, error: err.message };
@@ -13865,27 +14284,27 @@ window.startAudioLevelMonitoring = function() {
 // Test audio device switching
 window.testAudioDeviceSwitching = async function() {
   console.log('🔄 Testing audio device switching...');
-  
+
   try {
     // Get all audio devices
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioInputs = devices.filter(d => d.kind === 'audioinput');
     const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
-    
+
     console.log(`🎤 Found ${audioInputs.length} input devices:`);
     audioInputs.forEach((device, index) => {
       console.log(`  ${index}: ${device.label || 'Unknown'}`);
     });
-    
+
     console.log(`🔊 Found ${audioOutputs.length} output devices:`);
     audioOutputs.forEach((device, index) => {
       console.log(`  ${index}: ${device.label || 'Unknown'}`);
     });
-    
+
     // Test switching between input devices
     if (audioInputs.length > 1) {
       console.log('🔄 Testing input device switching...');
-      
+
       for (let i = 0; i < Math.min(3, audioInputs.length); i++) {
         try {
           const constraints = {
@@ -13893,15 +14312,15 @@ window.testAudioDeviceSwitching = async function() {
               deviceId: audioInputs[i].deviceId
             }
           };
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
           console.log(`✅ Successfully switched to input device ${i}: ${audioInputs[i].label || 'Unknown'}`);
-          
+
           stream.getTracks().forEach(track => track.stop());
-          
+
           // Small delay between switches
           await new Promise(resolve => setTimeout(resolve, 500));
-          
+
         } catch (err) {
           console.warn(`⚠️ Failed to switch to input device ${i}:`, err.message);
         }
@@ -13909,13 +14328,13 @@ window.testAudioDeviceSwitching = async function() {
     } else {
       console.log('ℹ️ Only one input device available, skipping switch test');
     }
-    
+
     return { 
       success: true, 
       inputDevices: audioInputs.length,
       outputDevices: audioOutputs.length 
     };
-    
+
   } catch (err) {
     console.error('❌ Audio device switching test failed:', err);
     return { success: false, error: err.message };
@@ -13925,39 +14344,39 @@ window.testAudioDeviceSwitching = async function() {
 // Comprehensive voice chat audio test suite
 window.runVoiceAudioTests = async function() {
   console.log('🧪 Running comprehensive voice audio tests...');
-  
+
   const results = {
     routing: null,
     peerFlow: null,
     deviceSwitching: null,
     monitoring: null
   };
-  
+
   // Test 1: Audio routing
   console.log('\n📊 Test 1: Audio Routing');
   results.routing = await testAudioRouting();
-  
+
   // Wait a bit between tests
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
+
   // Test 2: Peer audio flow
   console.log('\n📊 Test 2: Peer Audio Flow');
   results.peerFlow = await testPeerAudioFlow();
-  
+
   // Wait a bit between tests
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
+
   // Test 3: Device switching
   console.log('\n📊 Test 3: Device Switching');
   results.deviceSwitching = await testAudioDeviceSwitching();
-  
+
   // Test 4: Start monitoring (if in voice channel)
   console.log('\n📊 Test 4: Audio Level Monitoring');
   results.monitoring = startAudioLevelMonitoring();
-  
+
   console.log('\n✅ Voice audio test suite completed!');
   console.log('Results:', results);
-  
+
   return results;
 };
 
@@ -14649,7 +15068,7 @@ function interceptFetch(output, activeFilters) {
             parts: [`📺 Iframe Created: ${src}`], 
             raw: node 
           });
-          
+
           // Try to attach a load listener (will fail for cross-origin, but we log the attempt)
           try {
             node.addEventListener('load', () => {
@@ -14689,7 +15108,7 @@ function interceptFetch(output, activeFilters) {
         parts: [`🔍 GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`], 
         raw: null 
       });
-      
+
       if (!iframe) {
         appendLine(output, activeFilters, { 
           type: "WARN", 
@@ -14820,7 +15239,7 @@ function executeAdminCommand(command) {
 
 function makeElementDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-  
+
   handle.onmousedown = dragMouseDown;
 
   function dragMouseDown(e) {
@@ -14871,7 +15290,7 @@ if (typeof currentSystemRole !== 'undefined' && currentSystemRole === 'SysAdmin'
  */
 window.silentAudioAnalyzerTest = async function() {
   console.log('🔇 Starting Silent Audio Analyzer Test...');
-  
+
   const results = {
     contextCreated: false,
     analyserCreated: false,
@@ -14884,13 +15303,13 @@ window.silentAudioAnalyzerTest = async function() {
     // 1. Create AudioContext (Does not play sound)
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     if (ctx.state === 'suspended') {
       // Browsers often suspend context until a user gesture. 
       // We try to resume, but if it fails, we might not get data.
       await ctx.resume().catch(e => console.warn("Context resume failed (expected):", e));
     }
-    
+
     results.contextCreated = true;
     console.log('✅ AudioContext created (suspended/resumed state:', ctx.state + ')');
 
@@ -14907,23 +15326,23 @@ window.silentAudioAnalyzerTest = async function() {
     // We connect the analyser to the destination to ensure the graph is valid.
     const dest = ctx.createMediaStreamDestination();
     analyser.connect(dest);
-    
+
     // 4. Run a silent check
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
+
     // Get data immediately
     analyser.getByteFrequencyData(dataArray);
-    
+
     // Calculate average level
     let sum = 0;
     for (let i = 0; i < bufferLength; i++) {
       sum += dataArray[i];
     }
     const average = sum / bufferLength;
-    
+
     results.audioLevel = average;
-    
+
     if (average > 5) {
       results.hasAudioInput = true;
       results.message = `Detected audio activity (Level: ${Math.round(average)}). This implies audio is currently playing or a stream is active.`;
@@ -14939,7 +15358,7 @@ window.silentAudioAnalyzerTest = async function() {
 
     console.log('📊 Silent Test Results:', results);
     console.log('%c' + results.message, 'color: ' + (results.hasAudioInput ? '#3ba55d' : '#949ba4'));
-    
+
     return results;
 
   } catch (err) {
@@ -14979,7 +15398,7 @@ window.simulatePerson = async function() {
     // 1. Setup Audio Context
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContext();
-    
+
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -14988,19 +15407,19 @@ window.simulatePerson = async function() {
     // 2. Generate the Beep (Oscillator)
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
-    
+
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(440, ctx.currentTime); // A4 note
     oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 2); // Slide up
-    
+
     // Volume ramp (Fade in/out to avoid clicking)
     gainNode.gain.setValueAtTime(0, ctx.currentTime);
     gainNode.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.1); // Fade in
     gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 4.9); // Fade out
-    
+
     oscillator.connect(gainNode);
     gainNode.connect(ctx.destination); // Connect to speakers
-    
+
     log('🔊 Beep generator created (440Hz -> 880Hz)', 'info');
 
     // 3. Simulate "Remote Track" Logic
@@ -15008,30 +15427,30 @@ window.simulatePerson = async function() {
     // by creating a MediaStream from our oscillator and treating it like a remote stream.
     const dest = ctx.createMediaStreamDestination();
     gainNode.connect(dest); // Route beep to a stream
-    
+
     const fakeStream = dest.stream;
     const fakeTrack = fakeStream.getAudioTracks()[0];
-    
+
     // Create a fake Peer Connection to trigger your ontrack logic if possible
     // Note: This won't actually connect to the server, but tests the local audio path
     const peerConn = new RTCPeerConnection();
-    
+
     peerConn.ontrack = (event) => {
       log('🎵 [SIM-BOT] Received track event (Simulated)', 'success');
-      
+
       // Create audio element exactly like your real code does
       const audio = document.createElement('audio');
       audio.srcObject = event.streams[0];
       audio.autoplay = true;
-      
+
       // CRITICAL: Your code forces muted=true by default. 
       // We must manually unmute this simulated track to hear it, 
       // mimicking what testAudioRouting() would do.
       audio.muted = false; 
-      
+
       document.body.appendChild(audio);
       log('🔈 Audio element created and UNMUTED for simulation', 'success');
-      
+
       // Cleanup after 5 seconds
       setTimeout(() => {
         audio.remove();
@@ -15041,7 +15460,7 @@ window.simulatePerson = async function() {
 
     // Add the track to the connection (simulating incoming data)
     peerConn.addTrack(fakeTrack, fakeStream);
-    
+
     // Start the beep
     oscillator.start();
     simulationState.started = true;
@@ -15108,7 +15527,7 @@ window.monitorNetworkAudio = async function() {
   // 1. Try to find connections in your custom list first (if it exists)
   const customList = window.activeConnections || {};
   const customKeys = Object.keys(customList);
-  
+
   if (customKeys.length > 0) {
     log(`Found ${customKeys.length} connections in custom list.`, 'success');
     for (const key of customKeys) {
@@ -15119,14 +15538,14 @@ window.monitorNetworkAudio = async function() {
   // 2. CRITICAL FALLBACK: Scan the browser's internal connection registry
   // This catches connections that your app didn't register in 'activeConnections'
   log('Scanning browser internal connection registry...');
-  
+
   // We use a trick: iterate through all global variables looking for PeerConnections
   // Note: This is a bit hacky but necessary if your app doesn't store them globally.
   // A better long-term fix is to ensure your 'initiateConnection' pushes to window.activeConnections.
-  
+
   // Instead of scanning globals (which is unreliable), let's check if you have a global array
   // If you don't, we need to patch your connection logic.
-  
+
   // TEMPORARY FIX: Check if you have a global 'peerConns' or similar
   const possibleGlobals = ['peerConns', 'connections', 'voiceConnections', 'activePeers'];
   let scannedAny = false;
@@ -15188,7 +15607,7 @@ window.monitorNetworkAudio = async function() {
 
 async function fixPlainGifUrls() {
   console.log('🔧 Starting plain GIF URL cleanup...');
-  
+
   if (!username) {
     console.error('❌ Not logged in. Please log in first.');
     return;
@@ -15224,18 +15643,18 @@ async function fixPlainGifUrls() {
 
   for (const msg of messages) {
     processed++;
-    
+
     // Check if content is a plain GIF URL
     const isPlainUrl = GIF_URL_REGEX.test(msg.content.trim());
-    
+
     if (isPlainUrl) {
       const url = msg.content.trim();
       const isGif = GIF_EXTENSIONS.test(url) || TENOR_DOMAIN.test(url) || GIPHY_DOMAIN.test(url);
-      
+
       if (isGif) {
         // Wrap in markdown format that your app expects
         const fixedContent = `[📄 GIF](${url})`;
-        
+
         try {
           const { error: updateError } = await supabaseClient
             .from("messages")
@@ -15261,7 +15680,7 @@ async function fixPlainGifUrls() {
   console.log(`   Processed: ${processed}`);
   console.log(`   Fixed: ${fixed}`);
   console.log(`   Errors: ${errors}`);
-  
+
   if (fixed > 0) {
     console.log('💡 Tip: Reload the page to see the changes reflected in the chat.');
   }
@@ -15274,7 +15693,7 @@ async function fixPlainGifUrls() {
 //     Progress is saved in localStorage so it only shows once.
 // ─────────────────────────────────────────────────────────────────────────────
 const TUTORIAL_KEY = "lla_tutorial_done_v2";
- 
+
 const TUTORIAL_STEPS = [
   {
     selector: ".server-sidebar",
@@ -15313,47 +15732,47 @@ const TUTORIAL_STEPS = [
     position: "top",
   },
 ];
- 
+
 function startTutorial() {
   if (localStorage.getItem(TUTORIAL_KEY)) return; // already done
- 
+
   let step = 0;
- 
+
   // ── overlay pieces ──
   const overlay = document.createElement("div");
   overlay.id = "tutorialOverlay";
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-label", "App tutorial");
- 
+
   const spotlight = document.createElement("div");
   spotlight.id = "tutorialSpotlight";
- 
+
   const card = document.createElement("div");
   card.id = "tutorialCard";
- 
+
   const cardTitle = document.createElement("div");
   cardTitle.id = "tutorialCardTitle";
- 
+
   const cardBody = document.createElement("div");
   cardBody.id = "tutorialCardBody";
- 
+
   const cardFooter = document.createElement("div");
   cardFooter.id = "tutorialCardFooter";
- 
+
   const skipBtn = document.createElement("button");
   skipBtn.className = "tutorial-btn tutorial-btn--skip";
   skipBtn.textContent = "Skip tour";
   skipBtn.addEventListener("click", endTutorial);
- 
+
   const nextBtn = document.createElement("button");
   nextBtn.className = "tutorial-btn tutorial-btn--next";
   nextBtn.textContent = "Next →";
   nextBtn.addEventListener("click", () => advanceTutorial(step + 1));
- 
+
   const dots = document.createElement("div");
   dots.id = "tutorialDots";
- 
+
   cardFooter.appendChild(skipBtn);
   cardFooter.appendChild(dots);
   cardFooter.appendChild(nextBtn);
@@ -15363,26 +15782,26 @@ function startTutorial() {
   overlay.appendChild(spotlight);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
- 
+
   // Keyboard: Esc to skip, right-arrow to advance
   overlay.addEventListener("keydown", (e) => {
     if (e.key === "Escape") endTutorial();
     if (e.key === "ArrowRight") advanceTutorial(step + 1);
   });
- 
+
   advanceTutorial(0);
- 
+
   function advanceTutorial(newStep) {
     step = newStep;
     if (step >= TUTORIAL_STEPS.length) { endTutorial(); return; }
- 
+
     const s = TUTORIAL_STEPS[step];
     const target = document.querySelector(s.selector);
- 
+
     cardTitle.textContent = s.title;
     cardBody.innerHTML = s.body;
     nextBtn.textContent = step === TUTORIAL_STEPS.length - 1 ? "Finish 🎉" : "Next →";
- 
+
     // Dots
     dots.innerHTML = "";
     TUTORIAL_STEPS.forEach((_, i) => {
@@ -15390,28 +15809,28 @@ function startTutorial() {
       dot.className = "tutorial-dot" + (i === step ? " tutorial-dot--active" : "");
       dots.appendChild(dot);
     });
- 
+
     if (!target) {
       // Skip steps whose target isn't in the DOM right now
       advanceTutorial(step + 1);
       return;
     }
- 
+
     // Scroll target into view then position spotlight + card
     target.scrollIntoView({ behavior: "smooth", block: "nearest" });
     requestAnimationFrame(() => positionTutorialStep(target, s.position));
   }
- 
+
   function positionTutorialStep(target, position) {
     const rect = target.getBoundingClientRect();
     const PAD = 8;
- 
+
     // Spotlight
     spotlight.style.left   = (rect.left   - PAD) + "px";
     spotlight.style.top    = (rect.top    - PAD) + "px";
     spotlight.style.width  = (rect.width  + PAD * 2) + "px";
     spotlight.style.height = (rect.height + PAD * 2) + "px";
- 
+
     // Card
     const cw = 280, ch = 160;
     let cx, cy;
@@ -15428,15 +15847,15 @@ function startTutorial() {
       cx = rect.left + rect.width / 2 - cw / 2;
       cy = rect.bottom + 16;
     }
- 
+
     // Clamp to viewport
     cx = Math.max(8, Math.min(cx, window.innerWidth  - cw - 8));
     cy = Math.max(8, Math.min(cy, window.innerHeight - ch - 8));
- 
+
     card.style.left = cx + "px";
     card.style.top  = cy + "px";
   }
- 
+
   function endTutorial() {
     localStorage.setItem(TUTORIAL_KEY, "1");
     overlay.remove();
@@ -15472,14 +15891,14 @@ function toggleMobileSimulation() {
   if (isMobileSim) {
     // --- RESTORE DESKTOP ---
     isMobileSim = false;
-    
+
     // 1. Restore window dimensions (this triggers CSS media queries)
     window.resizeTo(originalWindowWidth, originalWindowHeight);
-    
+
     // 2. Wait for resize to complete, then force JS to re-check
     setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-      
+
       // 3. Clean up any manual overrides
       body.classList.remove('mobile-sim-active');
       html.style.width = '';
@@ -15487,25 +15906,25 @@ function toggleMobileSimulation() {
       body.style.width = '';
       body.style.margin = '';
       body.style.overflowX = '';
-      
+
       // 4. Remove banner
       const banner = document.getElementById('mobile-sim-banner');
       if (banner) banner.remove();
-      
+
       console.log('✅ Restored to desktop view');
     }, 300);
 
   } else {
     // --- ENTER MOBILE SIMULATION ---
     isMobileSim = true;
-    
+
     // 1. Save current dimensions
     originalWindowWidth = window.innerWidth;
     originalWindowHeight = window.innerHeight;
-    
+
     // 2. Resize window to phone dimensions (forces CSS media queries)
     window.resizeTo(375, 667); // iPhone SE size
-    
+
     // 3. Add visual styling for the simulation frame
     body.classList.add('mobile-sim-active');
     html.style.width = '375px';
@@ -15514,7 +15933,7 @@ function toggleMobileSimulation() {
     body.style.margin = '0 auto';
     body.style.overflowX = 'hidden';
     body.style.backgroundColor = '#1e1f22';
-    
+
     // 4. Add banner
     const banner = document.createElement('div');
     banner.id = 'mobile-sim-banner';
@@ -15535,11 +15954,11 @@ function toggleMobileSimulation() {
       pointer-events: none;
     `;
     document.body.appendChild(banner);
-    
+
     // 5. Force JS to re-evaluate mobile state
     setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-      
+
       // 6. Manually trigger mobile-specific UI changes if needed
       // (Adjust selectors based on your app's structure)
       const sidebar = document.querySelector('.server-sidebar, .channel-sidebar');
@@ -15547,12 +15966,12 @@ function toggleMobileSimulation() {
         sidebar.classList.add('mobile-hidden');
         sidebar.style.display = 'none';
       }
-      
+
       const hamburger = document.querySelector('.hamburger-menu, .mobile-toggle');
       if (hamburger) {
         hamburger.style.display = 'block';
       }
-      
+
       console.log('✅ Mobile simulation activated');
     }, 350);
   }
@@ -15575,13 +15994,13 @@ style.textContent = `
     z-index: 10000;
     box-shadow: 0 0 60px rgba(0,0,0,0.6);
   }
-  
+
   /* Ensure mobile elements are visible */
   body.mobile-sim-active .hamburger-menu,
   body.mobile-sim-active .mobile-toggle {
     display: block !important;
   }
-  
+
   body.mobile-sim-active .server-sidebar,
   body.mobile-sim-active .channel-sidebar {
     display: none !important;
@@ -15653,59 +16072,59 @@ const MOBILE_TUTORIAL_STEPS = [
     highlightId: null,
   },
 ];
- 
+
 function startMobileTutorial() {
   if (localStorage.getItem(TUTORIAL_KEY)) return;
- 
+
   let step = 0;
- 
+
   // ── Build the sheet ──────────────────────────────────────────────────────
   const sheet = document.createElement("div");
   sheet.id = "mobileTutorialSheet";
- 
+
   const handle = document.createElement("div");
   handle.className = "mts-handle";
- 
+
   const stepCounter = document.createElement("div");
   stepCounter.className = "mts-counter";
- 
+
   const title = document.createElement("div");
   title.className = "mts-title";
- 
+
   const body = document.createElement("div");
   body.className = "mts-body";
- 
+
   const footer = document.createElement("div");
   footer.className = "mts-footer";
- 
+
   const skipBtn = document.createElement("button");
   skipBtn.className = "mts-btn mts-btn--skip";
   skipBtn.textContent = "Skip tour";
   skipBtn.addEventListener("click", endTutorial);
- 
+
   const dots = document.createElement("div");
   dots.className = "mts-dots";
- 
+
   const nextBtn = document.createElement("button");
   nextBtn.className = "mts-btn mts-btn--next";
   nextBtn.addEventListener("click", () => advanceStep(step + 1));
- 
+
   footer.appendChild(skipBtn);
   footer.appendChild(dots);
   footer.appendChild(nextBtn);
- 
+
   sheet.appendChild(handle);
   sheet.appendChild(stepCounter);
   sheet.appendChild(title);
   sheet.appendChild(body);
   sheet.appendChild(footer);
   document.body.appendChild(sheet);
- 
+
   // ── Coach-mark highlight element (floats over highlighted element) ──────
   const coachMark = document.createElement("div");
   coachMark.id = "mobileTutorialCoachMark";
   document.body.appendChild(coachMark);
- 
+
   // ── Swipe-down to skip ───────────────────────────────────────────────────
   let touchStartY = 0;
   sheet.addEventListener("touchstart", (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
@@ -15713,24 +16132,24 @@ function startMobileTutorial() {
     const delta = e.changedTouches[0].clientY - touchStartY;
     if (delta > 60) endTutorial(); // swipe down 60px = dismiss
   }, { passive: true });
- 
+
   advanceStep(0);
- 
+
   function advanceStep(newStep) {
     step = newStep;
     if (step >= MOBILE_TUTORIAL_STEPS.length) { endTutorial(); return; }
- 
+
     const s = MOBILE_TUTORIAL_STEPS[step];
- 
+
     // Run any side-effect (open sidebar etc.) before showing the step
     if (s.action) s.action();
- 
+
     // Update text
     stepCounter.textContent = `${step + 1} of ${MOBILE_TUTORIAL_STEPS.length}`;
     title.innerHTML = s.title;
     body.innerHTML  = s.body;
     nextBtn.textContent = step === MOBILE_TUTORIAL_STEPS.length - 1 ? "Let's go! 🚀" : "Next →";
- 
+
     // Dots
     dots.innerHTML = "";
     MOBILE_TUTORIAL_STEPS.forEach((_, i) => {
@@ -15738,38 +16157,38 @@ function startMobileTutorial() {
       dot.className = "mts-dot" + (i === step ? " mts-dot--active" : "");
       dots.appendChild(dot);
     });
- 
+
     // Coach mark
     updateCoachMark(s.highlightId);
- 
+
     // Slide sheet in
     sheet.classList.remove("mts-sheet--hidden");
     requestAnimationFrame(() => sheet.classList.add("mts-sheet--visible"));
   }
- 
+
   function updateCoachMark(id) {
     coachMark.classList.remove("mts-coach--visible");
- 
+
     if (!id) return;
     const target = document.getElementById(id);
     if (!target) return;
- 
+
     // Only highlight if actually visible in viewport
     const rect = target.getBoundingClientRect();
     const inView = rect.width > 0 && rect.height > 0 &&
                    rect.top  >= 0 && rect.top  <= window.innerHeight &&
                    rect.left >= 0 && rect.left <= window.innerWidth;
     if (!inView) return;
- 
+
     const PAD = 6;
     coachMark.style.left   = (rect.left   - PAD) + "px";
     coachMark.style.top    = (rect.top    - PAD + window.scrollY) + "px";
     coachMark.style.width  = (rect.width  + PAD * 2) + "px";
     coachMark.style.height = (rect.height + PAD * 2) + "px";
- 
+
     requestAnimationFrame(() => coachMark.classList.add("mts-coach--visible"));
   }
- 
+
   function endTutorial() {
     localStorage.setItem(TUTORIAL_KEY, "1");
     sheet.classList.remove("mts-sheet--visible");
