@@ -1,5 +1,6 @@
 /* global URLSearchParams, Sortable, requestAnimationFrame, localStorage, console, alert, prompt, confirm, fetch, document, window, Date, Blob, URL, Notification, emailjs */
 
+
 /* =============================================================================
  * LLA Realtime Chat — script.js
  *
