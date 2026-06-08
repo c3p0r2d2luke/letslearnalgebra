@@ -1392,8 +1392,8 @@ async function notifyMentionClientSide(msg, serverId = null) {
   const body = String(msg.content || "").slice(0, 140) || "Open chat to view the message.";
   const targetServer = serverId || channelServerMap.get(Number(msg.channel_id));
   const url = targetServer
-    ? `/chatwithteachers?server=${encodeURIComponent((servers.find(server => server.id === targetServer)?.slug) || "")}`
-    : "/chatwithteachers";
+    ? `/chat.html?server=${encodeURIComponent((servers.find(server => server.id === targetServer)?.slug) || "")}`
+    : "/chat.html";
 
   try {
     if ("serviceWorker" in navigator) {
