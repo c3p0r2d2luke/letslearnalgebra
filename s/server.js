@@ -34,6 +34,25 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
 var _channelRealtimeSub = null;
 var _categoryRealtimeSub = null;
 var _customEmojiRealtimeSub = null;
+// Remember the last server before entering DM "server" view so we can restore it
+var previousServerIdBeforeDm = null;
+
+// Ensure sidebar shows only DMs when in DM mode, or shows channels when not
+function setSidebarForDmMode(isDm) {
+  const channelListEl = document.getElementById('channelList');
+  const channelHeader = document.querySelector('.channel-header');
+  const dmSection = document.querySelector('.dm-section');
+  if (isDm) {
+    if (channelListEl) channelListEl.style.display = 'none';
+    if (channelHeader) channelHeader.style.display = 'none';
+    if (dmSection) dmSection.style.display = 'block';
+  } else {
+    if (channelListEl) channelListEl.style.display = '';
+    if (channelHeader) channelHeader.style.display = '';
+    if (dmSection) dmSection.style.display = 'none';
+  }
+}
+
 
 function subscribeToServerRealtime(serverId) {
   // Clean up previous server's subscriptions
@@ -304,6 +323,9 @@ async function switchServer(serverId, updateUrl = true) {
   currentConversationType = "channel";
   currentDmConversationId = null;
   currentServerId = serverId;
+  // Remove DM icon active state when switching to a server
+  const _dmIcon = document.getElementById('dmServerIcon');
+  if (_dmIcon) _dmIcon.classList.remove('active');
   await subscribeToCurrentDmConversation(null);
   const server = servers.find(s => s.id === serverId);
 
@@ -375,6 +397,8 @@ async function switchServer(serverId, updateUrl = true) {
   }
 
   console.log("✅ switchServer complete!");
+  // Ensure sidebar is in channel mode after switching
+  try { setSidebarForDmMode(false); } catch (e) {}
 }
 
 function renderServerList() {
@@ -386,9 +410,33 @@ function renderServerList() {
   }
   serverList.innerHTML = "";
 
+  // Add a fixed Direct Messages icon at the top (Discord-style)
+  const dmIcon = document.createElement("div");
+  dmIcon.className = `server-icon dm-icon${currentConversationType === 'dm' ? ' active' : ''}`;
+  dmIcon.id = "dmServerIcon";
+  dmIcon.title = "Direct Messages";
+  dmIcon.setAttribute("draggable", "false");
+  dmIcon.style.userSelect = "none";
+  dmIcon.style.webkitUserSelect = "none";
+  dmIcon.style.webkitTouchCallout = "none";
+  dmIcon.addEventListener("selectstart", (event) => event.preventDefault());
+  dmIcon.innerHTML = `<span style="font-size:18px;">✉️</span>`;
+  dmIcon.onclick = async (e) => {
+    e.stopPropagation();
+    if (shouldSuppressClick(suppressServerClickUntil)) return;
+    // Toggle a DM panel anchored to the server sidebar
+    toggleServerDmPanel();
+  };
+  serverList.appendChild(dmIcon);
+
+  // If DM panel should auto-open when in DM mode, ensure it's visible
+  if (currentConversationType === 'dm') setTimeout(() => { dmIcon.classList.add('active'); toggleServerDmPanel(true); }, 0);
+
+  // Then list real servers (sortable)
   servers.forEach(server => {
     const icon = document.createElement("div");
-    icon.className = `server-icon ${server.id === currentServerId ? 'active' : ''}`;
+    // Only mark active if we're in channel mode and this server matches
+    icon.className = `server-icon ${currentConversationType === 'channel' && server.id === currentServerId ? 'active' : ''}`;
     icon.dataset.serverId = server.id;
     icon.title = server.name;
     icon.setAttribute("draggable", "false");
@@ -414,6 +462,7 @@ function renderServerList() {
     icon.onclick = (e) => {
       e.stopPropagation();
       if (shouldSuppressClick(suppressServerClickUntil)) return;
+      currentConversationType = 'channel';
       switchServer(server.id);
       if (window.innerWidth <= 768) closeServerSidebar();
     };
@@ -425,6 +474,7 @@ function renderServerList() {
     const mobileDrag = isMobileContextMenuMode();
     _serverSortableInstance = Sortable.create(serverList, {
       animation: 150,
+      // Only make actual servers sortable; DM icon is not draggable because it lacks data-server-id
       draggable: ".server-icon[data-server-id]",
       delay: mobileDrag ? 450 : 0,
       delayOnTouchOnly: mobileDrag,
@@ -447,6 +497,59 @@ function renderServerList() {
     });
   }
 }
+
+// ------------------------ Server DM Panel (now acts like a server) ------------------------
+async function toggleServerDmPanel(forceOpen = false) {
+  // Behavior: switch the left channel/sidebar into DM mode (non-floating)
+  const dmIcon = document.getElementById('dmServerIcon');
+
+  if (currentConversationType === 'dm' && !forceOpen) {
+    // If already in DM mode and not forced, switch back to the previous server (if remembered)
+    if (previousServerIdBeforeDm) {
+      const target = previousServerIdBeforeDm;
+      previousServerIdBeforeDm = null;
+      await switchServer(target);
+      // Restore channel-sidebar visibility
+      setSidebarForDmMode(false);
+    } else if (servers && servers.length > 0) {
+      // Fall back to first available server
+      const target = servers[0].id;
+      await switchServer(target);
+      setSidebarForDmMode(false);
+    } else {
+      // No servers to return to — just clear DM state
+      currentConversationType = 'channel';
+      currentDmConversationId = null;
+      if (dmIcon) dmIcon.classList.remove('active');
+      renderChannelList();
+      renderDmList();
+      updateConversationHeaderAndInput();
+    }
+    return;
+  }
+
+  // Enter DM "server" view — remember previous server so we can restore it
+  previousServerIdBeforeDm = currentServerId || previousServerIdBeforeDm;
+  currentConversationType = 'dm';
+  currentServerId = null;
+  currentChannelId = null;
+  if (dmIcon) dmIcon.classList.add('active');
+  // Deactivate actual server icons
+  document.querySelectorAll('.server-icon[data-server-id]').forEach(el => el.classList.remove('active'));
+
+  try {
+  await loadDirectConversations(); // populates directConversations
+  // Use helper to set sidebar into DM-only mode
+  setSidebarForDmMode(true);
+
+  renderDmList();
+  updateConversationHeaderAndInput();
+  subscribeToDirectMessages();
+  } catch (err) {
+  console.error('Failed to open DM server view:', err);
+  }
+}
+
 
 function showNoServerScreen() {
   const controlsEl = document.getElementById("controls");

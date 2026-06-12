@@ -250,6 +250,12 @@ function sortDirectConversations() {
 }
 
 function renderDmList() {
+  const dmSection = document.querySelector('.dm-section');
+  if (dmSection) {
+    // Only show the channel-sidebar DM section when in DM mode
+    dmSection.style.display = currentConversationType === 'dm' ? 'block' : 'none';
+  }
+
   if (!dmListEl) return;
 
   if (!directConversations.length) {
@@ -268,6 +274,16 @@ function renderDmList() {
       if (window.innerWidth <= 768) closeSidebar();
     });
 
+    // Avatar on the left (render profile pic)
+    let avatarNode = null;
+    try {
+      avatarNode = buildAvatarElement(conversation.otherUsername, 'dm-avatar');
+    } catch (e) {
+      avatarNode = document.createElement('div');
+      avatarNode.className = 'dm-avatar';
+      avatarNode.textContent = conversation.otherUsername.charAt(0).toUpperCase();
+    }
+
     const nameEl = document.createElement("span");
     nameEl.className = "dm-name";
     nameEl.textContent = `@${conversation.otherUsername}`;
@@ -283,6 +299,7 @@ function renderDmList() {
       await deleteDirectConversation(conversation.id, conversation.otherUsername);
     });
 
+    item.appendChild(avatarNode);
     item.appendChild(nameEl);
     item.appendChild(deleteBtn);
     fragment.appendChild(item);
@@ -720,6 +737,15 @@ async function loadCategories() {
 }
 
 async function loadChannels() {
+  // If we're in DM "server" view or no server selected, don't load server channels
+  if (!currentServerId) {
+    channels = [];
+    categories = [];
+    renderChannelList();
+    console.log("📋 Skipping channel load — in DM view or no server selected.");
+    return;
+  }
+
   let channelQuery = supabaseClient.from("channels").select("*").order("sort_order");
   if (currentServerId) channelQuery = channelQuery.eq("server_id", currentServerId);
   const [{ data: categoryData, error: categoriesError }, { data, error }] = await Promise.all([
