@@ -4099,4 +4099,4 @@ async function ensureGeneralCategoryAndFixOrphans(serverId, options = {}) {
   return { changed, generalCategoryId: generalCategory.id };
 }
 
-
+initSpotifyPresence();

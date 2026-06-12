@@ -489,6 +489,13 @@
         <button id="profileCloseBtn" class="modal-btn modal-btn-secondary" style="flex: 1;">Close</button>
         <button id="profileEditBtn" class="modal-btn" style="flex: 1; display: none;">Edit Profile</button>
       </div>
+
+      <!-- Spotify Link Button (shows in profile modal) -->
+      <div style="padding:12px 16px; display:flex; gap:8px; align-items:center; justify-content:center;">
+        <button id="linkSpotifyBtn" class="modal-btn modal-btn-secondary" type="button" style="flex:1; max-width:260px;">🎵 Link Spotify Account</button>
+        <button id="unlinkSpotifyBtn" class="modal-btn" type="button" style="flex:1; max-width:260px; display:none;">❌ Unlink Spotify</button>
+      </div>
+      <div style="text-align:center; font-size:12px; color:var(--text-muted); padding-bottom:12px;">Connecting uses Spotify's OAuth — configure your client ID in spotify.js (placeholder).</div>
     </div>
   </div>
 </div>
@@ -922,5 +929,6 @@
 <script src="server.js" defer></script>
 <script src="commands.js" defer></script>
 <script src="admin_debug.js" defer></script>
+<script src="spotify.js?cb=2" defer></script>
 </body>
 </html>
