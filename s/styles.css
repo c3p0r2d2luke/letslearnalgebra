@@ -13,11 +13,6 @@
   --bg-modal: #313338;
   --bg-message-hover: rgba(4,4,5,0.07);
 
-  --body-gradient-1: rgba(88, 101, 242, 0.18);
-  --body-gradient-2: rgba(0, 168, 252, 0.12);
-  --body-bg-from: #24262b;
-  --body-bg-to: #1b1d20;
-
   --text-main: #dbdee1;
   --text-muted: #949ba4;
   --text-link: #00a8fc;
@@ -37,10 +32,7 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, var(--body-gradient-1), transparent 26%),
-    radial-gradient(circle at bottom right, var(--body-gradient-2), transparent 24%),
-    linear-gradient(180deg, var(--body-bg-from) 0%, var(--body-bg-to) 100%);
+  background: var(--bg-deepest);
   color: var(--text-main);
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
                "Helvetica Neue", Arial, sans-serif;
@@ -59,62 +51,39 @@ body {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  background:
-    linear-gradient(135deg, rgba(88, 101, 242, 0.1), rgba(0, 168, 252, 0.06)),
-    var(--bg-secondary);
+  background: var(--bg-secondary);
 }
 
 .auth-backdrop {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .auth-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(8px);
+  display: none;
 }
 
 .auth-orb-one {
-  width: 360px;
-  height: 360px;
-  top: -80px;
-  left: -100px;
-  background: radial-gradient(circle, rgba(88, 101, 242, 0.34) 0%, rgba(88, 101, 242, 0) 72%);
+  display: none;
 }
 
 .auth-orb-two {
-  width: 420px;
-  height: 420px;
-  right: -120px;
-  bottom: -140px;
-  background: radial-gradient(circle, rgba(0, 168, 252, 0.24) 0%, rgba(0, 168, 252, 0) 72%);
+  display: none;
 }
 
 .auth-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 90%);
+  display: none;
 }
 
 #authBox {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
-    var(--bg-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--surface-border);
-  border-radius: 20px;
+  border-radius: 12px;
   padding: 40px 36px;
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(16px);
 }
 
 .auth-brand {
@@ -136,16 +105,16 @@ body {
   min-width: 52px;
   height: 52px;
   padding: 0 14px;
-  border-radius: 16px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--text-link));
+  background: var(--accent);
   color: white;
   font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.14em;
-  box-shadow: 0 10px 24px rgba(88, 101, 242, 0.35);
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.2);
 }
 
 #authBox h2 {
@@ -183,22 +152,21 @@ body {
 #authBox button {
   display: block;
   width: 100%;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 12px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   margin-top: 4px;
-  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
 #authBox button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 28px rgba(88, 101, 242, 0.34);
-  filter: brightness(1.05);
+  background: #4752c4;
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.25);
 }
 
 .auth-secondary-btn {
@@ -340,43 +308,28 @@ body {
   display: flex;
   height: 100vh;
   height: 100dvh;
-  background: rgba(30, 31, 34, 0.84);
+  background: var(--bg-main);
   margin: 0;
   width: 100%;
   max-width: 100%;
   overflow: hidden;
   position: relative;
-  backdrop-filter: blur(16px);
 }
 
 .app-backdrop {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
+  display: none;
 }
 
 .app-glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(14px);
-  opacity: 0.45;
+  display: none;
 }
 
 .app-glow-left {
-  width: 320px;
-  height: 320px;
-  top: 10%;
-  left: -140px;
-  background: radial-gradient(circle, rgba(88, 101, 242, 0.24) 0%, transparent 72%);
+  display: none;
 }
 
 .app-glow-right {
-  width: 420px;
-  height: 420px;
-  right: -180px;
-  bottom: 5%;
-  background: radial-gradient(circle, rgba(0, 168, 252, 0.18) 0%, transparent 74%);
+  display: none;
 }
 
 /* ===============================
@@ -385,9 +338,7 @@ body {
 
 .server-sidebar {
   width: 72px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%),
-    var(--bg-secondary);
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -415,7 +366,7 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)), var(--bg-tertiary);
+  background: var(--bg-tertiary);
   margin-bottom: 8px;
   cursor: pointer;
   transition: transform 0.2s ease, border-radius 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
@@ -484,7 +435,7 @@ body {
 .divider {
   width: 32px;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  background: var(--surface-border);
   margin: 8px 0 16px 0;
 }
 
@@ -497,9 +448,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 16%),
-    var(--bg-secondary);
+  background: var(--bg-main);
   border-left: 1px solid var(--surface-border);
   position: relative;
 }
@@ -515,9 +464,7 @@ body {
   padding: 18px 0 28px;
   list-style: none;
   margin: 0;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.02), transparent 14%),
-    linear-gradient(90deg, rgba(255,255,255,0.015), transparent 18%, transparent 82%, rgba(255,255,255,0.015));
+  background: transparent;
 }
 
 /* Individual message row */
@@ -1308,9 +1255,7 @@ li[data-pinned="true"] {
 /* CHANNEL SIDEBAR */
 .channel-sidebar {
   width: 240px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.04), transparent 14%),
-    var(--bg-tertiary);
+  background: var(--bg-tertiary);
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--surface-border);
@@ -1323,8 +1268,7 @@ li[data-pinned="true"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.16);
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  background: var(--bg-tertiary);
 }
 
 #channelList {

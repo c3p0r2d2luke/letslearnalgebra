@@ -181,6 +181,19 @@
         <div id="dmList"></div>
       </div>
       <div id="channelList"></div>
+
+      <!-- USER PANEL FOOTER (Discord-style) -->
+      <div class="user-panel-cluster">
+        <button id="profileBtn" title="View/Edit Profile" aria-label="View Profile">
+          <span class="avatar-fallback" style="font-size: 14px;">?</span>
+          <span id="profileBtnPresenceDot" class="presence-dot" data-status="online" title="Status: online"></span>
+        </button>
+        <div class="user-panel-name-info">
+          <span id="userPanelUsername">Loading...</span>
+        </div>
+        <button id="selfMuteBtn" class="user-panel-icon" type="button" title="Mute yourself" aria-label="Mute yourself" aria-pressed="false" style="display:none;">🎤</button>
+        <button id="openSettingsBtn" class="user-panel-icon" type="button" title="User Settings" aria-label="User Settings">⚙️</button>
+      </div>
     </div>
 
     <!-- CHAT -->
@@ -233,14 +246,6 @@
 
       <div id="controls">
         <input type="file" id="fileInput" style="display:none;" />
-        <div class="user-panel-cluster">
-          <button id="profileBtn" title="View/Edit Profile" aria-label="View Profile">
-            <span class="avatar-fallback" style="font-size: 14px;">?</span>
-            <span id="profileBtnPresenceDot" class="presence-dot" data-status="online" title="Status: online"></span>
-          </button>
-          <button id="selfMuteBtn" class="user-panel-icon" type="button" title="Mute yourself" aria-label="Mute yourself" aria-pressed="false" style="display:none;">🎤</button>
-          <button id="openSettingsBtn" class="user-panel-icon" type="button" title="User Settings" aria-label="User Settings">⚙️</button>
-        </div>
         <input type="file" id="avatarInput" style="display:none;" accept="image/*" />
         <button id="uploadBtn">📎</button>
         <textarea id="messageInput" placeholder="Message..." disabled></textarea>
@@ -910,6 +915,12 @@
   </div>
 </div>
 
-<script src="script.js" defer></script>
+<script src="constants.js" defer></script>
+<script src="auth.js" defer></script>
+<script src="realtime.js" defer></script>
+<script src="chat.js" defer></script>
+<script src="server.js" defer></script>
+<script src="commands.js" defer></script>
+<script src="admin_debug.js" defer></script>
 </body>
 </html>
