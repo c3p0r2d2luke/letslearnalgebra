@@ -150,21 +150,31 @@ async function initSpotifyPresence() {
                             'Content-Type': 'application/json',
                             apikey: typeof supabaseKey !== 'undefined' ? supabaseKey : ''
                         },
-                        body: JSON.stringify({ code: data.code, redirect_uri: REDIRECT_URI, code_verifier: verifier, client_id: clientId })
+                        body: JSON.stringify({
+                            code: data.code,
+                            redirect_uri: localStorage.getItem('spotify_redirect_uri') || (window.location.origin + '/s/spotify-callback.html'),
+                            code_verifier: verifier,
+                            client_id: clientId
+                        })
                     });
 
-                    const json = await resp.json();
-                    console.debug('[spotify] server exchange response:', json);
+                    // Debug: capture raw response body and status (helps diagnose invalid_grant / redirect mismatches)
+                    const respText = await resp.text();
+                    let json = null;
+                    try { json = respText ? JSON.parse(respText) : null; } catch (parseErr) { console.debug('[spotify] server exchange parse error', parseErr, 'body:', respText); }
+                    console.debug('[spotify] server exchange status:', resp.status, 'body:', json || respText);
 
-                    if (!json || !json.body || !json.body.access_token) {
-                        console.error('[spotify] Server exchange failed or returned no access_token:', json);
+                    // Support either { body: { access_token... } } (proxy) or direct token object
+                    const tokenData = (json && (json.body || json)) || null;
+                    const accessToken = tokenData?.access_token || tokenData?.accessToken;
+                    if (!accessToken) {
+                        console.error('[spotify] Server exchange failed or returned no access_token:', tokenData || json || respText);
                         alert('Spotify token exchange failed on server. Check console.');
                         return;
                     }
 
-                    const tokenData = json.body;
-                    spotifyAccessToken = tokenData.access_token;
-                    const expiresIn = Number(tokenData.expires_in) || 3600;
+                    spotifyAccessToken = accessToken;
+                    const expiresIn = Number(tokenData?.expires_in || tokenData?.expiresIn) || 3600;
                     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
                     // Persist tokens to users row
@@ -313,6 +323,8 @@ async function linkSpotify() {
 
     try { localStorage.setItem('spotify_client_id', SPOTIFY_CLIENT_ID); } catch (e) { console.warn('[spotify] Failed to store client id in localStorage', e); }
 
+    try { localStorage.setItem('spotify_redirect_uri', redirectUri); } catch (e) { console.warn('[spotify] Failed to store redirect uri in localStorage', e); }
+
     const authUrl = 'https://accounts.spotify.com/authorize' +
         `?response_type=code&client_id=${encodeURIComponent(SPOTIFY_CLIENT_ID)}` +
         `&scope=${encodeURIComponent(SPOTIFY_SCOPES.join(' '))}` +
@@ -384,6 +396,15 @@ async function fetchNowPlaying() {
     if (!spotifyAccessToken) return;
 
     try {
+        // Debug: inspect /me to log product (premium check) and scopes
+        try {
+            const meRes = await fetch('https://api.spotify.com/v1/me', { headers: { 'Authorization': `Bearer ${spotifyAccessToken}` } });
+            const meText = await meRes.text();
+            let meJson = null;
+            try { meJson = meText ? JSON.parse(meText) : null; } catch (e) { /* ignore parse */ }
+            console.debug('[spotify] /me status:', meRes.status, 'body:', meJson || meText);
+        } catch (e) { console.debug('[spotify] /me fetch failed:', e); }
+
         const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
             headers: { 'Authorization': `Bearer ${spotifyAccessToken}` }
         });

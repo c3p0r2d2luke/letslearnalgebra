@@ -1689,7 +1689,8 @@ const CONNECTION_PROVIDERS = [
   { id: "google",   name: "Google",    icon: "G",  brand: "#ea4335" },
   { id: "github",   name: "GitHub",    icon: "GH", brand: "#1f2328" },
   { id: "discord",  name: "Discord",   icon: "D",  brand: "#5865f2" },
-  { id: "azure",    name: "Microsoft", icon: "M",  brand: "#0067b8" }
+  { id: "azure",    name: "Microsoft", icon: "M",  brand: "#0067b8" },
+  { id: "spotify",  name: "Spotify",   icon: "♫",  brand: "#1DB954" }
 ];
 
 function getProviderHandleFromIdentity(identity) {
@@ -1714,10 +1715,26 @@ async function refreshSettingsConnections() {
   }
   if (status) { status.textContent = ""; status.classList.remove("error"); }
 
+  // Also fetch the user's spotify token state from users table so Spotify can be shown here
+  let spotifyRow = null;
+  try {
+    const { data: userRow } = await supabaseClient.from('users').select('spotify_access_token').eq('username', username).maybeSingle();
+    spotifyRow = userRow || null;
+  } catch (e) {
+    console.warn('[settings] Could not read spotify link state:', e && e.message);
+  }
+
   list.innerHTML = "";
   CONNECTION_PROVIDERS.forEach(p => {
-    const linked = identities.find(i => i.provider === p.id);
-    const handle = linked ? getProviderHandleFromIdentity(linked) : "";
+    let linked = identities.find(i => i.provider === p.id);
+    let handle = linked ? getProviderHandleFromIdentity(linked) : "";
+
+    // Special-case Spotify: not an auth.identity in Supabase, tracked on users table
+    if (p.id === 'spotify') {
+      const isLinked = !!(spotifyRow && spotifyRow.spotify_access_token);
+      linked = isLinked ? { provider: 'spotify' } : null;
+      handle = isLinked ? 'Connected' : '';
+    }
 
     const card = document.createElement("div");
     card.className = "connection-card" + (linked ? " is-linked" : "");
@@ -1735,6 +1752,19 @@ async function refreshSettingsConnections() {
       </button>
     `;
     list.appendChild(card);
+
+    // If this is Spotify and the app requires Premium for the owner, grey it out so users cannot start the flow.
+    if (p.id === 'spotify' && !(spotifyRow && spotifyRow.spotify_access_token)) {
+      // Disable the button and show reason
+      const btnEl = card.querySelector('.connection-card-btn');
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.classList.add('disabled');
+        btnEl.textContent = 'Disabled (Premium required)';
+        btnEl.title = 'Disabled: App owner requires an active Spotify Premium subscription to enable playback features';
+        btnEl.dataset.action = 'disabled';
+      }
+    }
   });
 
   // Wire buttons (delegated each refresh — fine since list was rebuilt).
@@ -1744,12 +1774,30 @@ async function refreshSettingsConnections() {
       const action = btn.dataset.action;
       btn.disabled = true;
       try {
-        if (action === "connect") {
-          await linkOAuthIdentity(provider);
+        if (provider === 'spotify') {
+          if (action === 'connect') {
+            // Spotify uses PKCE flow in spotify.js
+            await linkSpotify();
+            // allow popup flow to complete, then refresh
+            setTimeout(() => refreshSettingsConnections(), 1200);
+          } else if (action === 'disconnect') {
+            if (!confirm('Disconnect your Spotify account?')) { btn.disabled = false; return; }
+            await unlinkSpotify();
+            await refreshSettingsConnections();
+          } else {
+            // disabled or unknown action — ignore
+            console.debug('[settings] Spotify connect is disabled for this deployment.');
+            btn.disabled = false;
+            return;
+          }
         } else {
-          if (!confirm(`Disconnect your ${provider} account?`)) { btn.disabled = false; return; }
-          await unlinkOAuthIdentity(provider);
-          await refreshSettingsConnections();
+          if (action === "connect") {
+            await linkOAuthIdentity(provider);
+          } else {
+            if (!confirm(`Disconnect your ${provider} account?`)) { btn.disabled = false; return; }
+            await unlinkOAuthIdentity(provider);
+            await refreshSettingsConnections();
+          }
         }
       } finally {
         btn.disabled = false;

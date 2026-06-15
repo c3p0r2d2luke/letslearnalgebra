@@ -31,7 +31,9 @@
               const body = new URLSearchParams();
               body.set('grant_type', 'authorization_code');
               body.set('code', code);
-              body.set('redirect_uri', window.location.origin + '/spotify-callback.html');
+              // Use the exact redirect URI that initiated the flow (stored by the opener)
+              const storedRedirect = localStorage.getItem('spotify_redirect_uri');
+              body.set('redirect_uri', storedRedirect || (window.location.origin + window.location.pathname));
               const clientId = localStorage.getItem('spotify_client_id') || '';
               if (clientId) body.set('client_id', clientId);
               body.set('code_verifier', verifier);

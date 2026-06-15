@@ -1184,6 +1184,9 @@ function renderMessage(msg) {
   const isNearBottom = messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight < 150;
   if (isNearBottom) scrollToBottom();
 
+  // AD injection (non-intrusive): ask adManager to insert if needed
+  try { if (window.adManager && typeof window.adManager.maybeInsertAd === 'function') window.adManager.maybeInsertAd(); } catch(e) { console.debug('adManager call failed', e); }
+
 }
 
 function createMessageElement(msg) {

@@ -518,6 +518,19 @@ body {
   border-radius: 12px;
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
   align-items: flex-start;
+}
+
+/* AD message styling */
+#messages li.ad-message {
+  border-left: 4px solid rgba(255, 215, 0, 0.9);
+  background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  opacity: 0.95;
+}
+
+#messages li.ad-message .username { color: var(--warning); font-weight: 800; }
+
+#messages li.ad-message .content { color: var(--text-muted); font-style: italic; }
+
   background: transparent;
 }
 
