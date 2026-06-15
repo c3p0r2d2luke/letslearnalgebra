@@ -245,88 +245,130 @@ function initAdminDebugPanel() {
   }
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
-const SUGGESTIONS = [
-  // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
-  "servers",
-  "channels",
-  "username",
-  "currentRole",
-  "currentSystemRole",
-  "currentServerId",
-  "currentChannelId",
-  "serverMembers",
-  "messagesMap",
-  "userPermissions",
-  "voiceParticipantState",
-  "currentPeerConnections.size",
-  "currentVoiceChannelId",
-  "availableThemes",
+  const STATIC_SUGGESTIONS = [
+    // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
+    "servers",
+    "channels",
+    "username",
+    "currentRole",
+    "currentSystemRole",
+    "currentServerId",
+    "currentChannelId",
+    "serverMembers",
+    "messagesMap",
+    "userPermissions",
+    "voiceParticipantState",
+    "currentPeerConnections.size",
+    "currentVoiceChannelId",
+    "availableThemes",
 
-  // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
-  "loadServers()",
-  "loadServerMembers()",
-  "loadMessages()",
-  "renderChannelList()",
-  "subscribeToCurrentChannel()",
-  "refreshServerRole()",
-  "refreshUnreadMentionCounts()",
-  "markServerMentionsRead(currentServerId)",
-  "toggleMobileSimulation()",
-  "startTutorial()",
+    // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
+    "loadServers()",
+    "loadServerMembers()",
+    "loadMessages()",
+    "renderChannelList()",
+    "subscribeToCurrentChannel()",
+    "refreshServerRole()",
+    "refreshUnreadMentionCounts()",
+    "markServerMentionsRead(currentServerId)",
+    "toggleMobileSimulation()",
+    "startTutorial()",
 
-  // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
-  "forceLogout('target_username')",
-  "globalMuteUser('target_username', 60)",
-  "globalUnmuteUser('target_username')",
-  "deleteUser('target_username')",
-  "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
-  "promote('target_username', 'Admin')",
-  "changeName('target_username')",
-  "userInfo('target_username')",
-  "transferOwnership()",
+    // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
+    "forceLogout('target_username')",
+    "globalMuteUser('target_username', 60)",
+    "globalUnmuteUser('target_username')",
+    "deleteUser('target_username')",
+    "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
+    "promote('target_username', 'Admin')",
+    "changeName('target_username')",
+    "userInfo('target_username')",
+    "transferOwnership()",
 
-  // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
-  "fixPlainGifUrls()",
-  "deleteKeyword('spam_word')",
-  "exportChat()",
-  "censorContent('test text')",
-  "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
+    // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
+    "fixPlainGifUrls()",
+    "deleteKeyword('spam_word')",
+    "exportChat()",
+    "censorContent('test text')",
+    "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
 
-  // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
-  "testVoiceChat()",
-  "quickVoiceCheck()",
-  "runVoiceAudioTests()",
-  "simulatePerson()",
-  "monitorNetworkAudio()",
-  "silentAudioAnalyzerTest()",
-  "testAudioPlayback()",
-  "testAudioRouting()",
-  "startAudioLevelMonitoring()",
-  "leaveVoiceChannel()",
-  "joinVoiceChannel()",
+    // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
+    "testVoiceChat()",
+    "quickVoiceCheck()",
+    "runVoiceAudioTests()",
+    "simulatePerson()",
+    "monitorNetworkAudio()",
+    "silentAudioAnalyzerTest()",
+    "testAudioPlayback()",
+    "testAudioRouting()",
+    "startAudioLevelMonitoring()",
+    "leaveVoiceChannel()",
+    "joinVoiceChannel()",
 
-  // --- 🎨 THEMES & UI ---
-  "loadThemesAndApply()",
-  "selectTheme('theme_id_here')",
-  "document.querySelectorAll('audio').length",
+    // --- 🎨 THEMES & UI ---
+    "loadThemesAndApply()",
+    "selectTheme('theme_id_here')",
+    "document.querySelectorAll('audio').length",
 
-  // --- 🌐 BROWSER & NETWORK (Native) ---
-  "document.title",
-  "document.cookie",
-  "window.location.href",
-  "localStorage",
-  "sessionStorage",
-  "navigator.userAgent",
-  "performance.memory",
-  "performance.now()",
-  "supabaseClient",
-  "supabaseClient.auth.getUser()",
-  "supabaseClient.auth.getSession()"
-];
+    // --- 🌐 BROWSER & NETWORK (Native) ---
+    "document.title",
+    "document.cookie",
+    "window.location.href",
+    "localStorage",
+    "sessionStorage",
+    "navigator.userAgent",
+    "performance.memory",
+    "performance.now()",
+    "supabaseClient",
+    "supabaseClient.auth.getUser()",
+    "supabaseClient.auth.getSession()",
+    // ad manager helpers (kept for discoverability)
+    "adManager.maybeInsertAd()",
+    "adManager.forceInsertAd()",
+    "adManager.scanAndInsertAds()",
+    "adManager.removeAllAds()",
+    "adManager.listAds()",
+    "adManager.setInterval(7,10)"
+  ];
+
+  function getDynamicSuggestions(prefix) {
+    const results = new Set(STATIC_SUGGESTIONS);
+    const p = (prefix || "").toLowerCase();
+    try {
+      Object.getOwnPropertyNames(window).forEach(name => {
+        // ignore huge globals
+        if (name.length > 80) return;
+        try {
+          const val = window[name];
+          if (typeof val === 'function') {
+            const rep = name + '()';
+            if (!p || name.toLowerCase().startsWith(p) || rep.toLowerCase().startsWith(p)) results.add(rep);
+          } else if (val && typeof val === 'object') {
+            // top-level object name match
+            if (!p || name.toLowerCase().startsWith(p)) results.add(name);
+            // include methods of small objects (first-level)
+            try {
+              Object.getOwnPropertyNames(val).slice(0, 40).forEach(prop => {
+                if (prop.length > 60) return;
+                try {
+                  if (typeof val[prop] === 'function') {
+                    const rep = `${name}.${prop}()`;
+                    if (!p || rep.toLowerCase().startsWith(p) || prop.toLowerCase().startsWith(p)) results.add(rep);
+                  }
+                } catch(e){}
+              });
+            } catch(e){}
+          }
+        } catch(e){}
+      });
+    } catch(e){}
+    return Array.from(results);
+  }
 
   function updateAutocomplete(val) {
     if (!val) { hideAutocomplete(); return; }
-    const matches = SUGGESTIONS.filter(s => s.toLowerCase().startsWith(val.toLowerCase()) && s !== val);
+    const suggestions = getDynamicSuggestions(val);
+    const matches = suggestions.filter(s => s.toLowerCase().startsWith(val.toLowerCase()) && s !== val);
     if (!matches.length) { hideAutocomplete(); return; }
     autocompleteBox.innerHTML = "";
     matches.slice(0, 10).forEach((m, i) => {
