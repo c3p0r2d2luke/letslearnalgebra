@@ -1686,7 +1686,7 @@ const saveNameBtn = document.getElementById("saveNameButton");
 
 // ------------------------ Supabase Setup ------------------------
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
+const supabaseKey = "sb_publishable_pAump1Ft6WZgP1bakuvBbg_PpfVxxHD"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,

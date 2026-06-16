@@ -26,9 +26,8 @@
         <div class="content ad-content"></div>\
       </div>\
     `;
-    // Insert external ad script into the ad-content container
-    const adContainer = li.querySelector('.ad-content');
-    appendAdScript(adContainer);
+    // Do NOT append provider script until the node is inserted into the DOM
+    // (some providers compute positions relative to document at load time)
     return li;
   }
 
@@ -107,6 +106,8 @@
         }
         const adEl = createAdElement();
         if (node.parentNode) node.parentNode.insertBefore(adEl, next);
+        // ensure provider script runs with the ad in-place
+        ensureAdLoaded(adEl);
         // after inserting, skip the newly inserted ad
         i += 2;
         continue;
@@ -127,6 +128,8 @@
       if (isAdNode(last)) return; // avoid consecutive ads
       const adEl = createAdElement();
       list.appendChild(adEl);
+      // ensure provider script runs with the ad in-place
+      ensureAdLoaded(adEl);
       // optional: keep scroll at bottom
       list.scrollTop = list.scrollHeight;
     }

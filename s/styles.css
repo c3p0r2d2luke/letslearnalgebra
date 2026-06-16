@@ -531,6 +531,23 @@ body {
 
 #messages li.ad-message .content { color: var(--text-muted); font-style: italic; }
 
+/* Contain third-party ad iframes so they don't position relative to body */
+#messages li.ad-message .ad-content {
+  position: relative;
+  min-height: 120px;
+  max-width: 360px;
+  overflow: hidden;
+}
+
+#messages li.ad-message .ad-content iframe {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: 360px;
+  border: none !important;
+}
+
   background: transparent;
 }
 
