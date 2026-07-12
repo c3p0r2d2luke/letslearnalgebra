@@ -245,88 +245,130 @@ function initAdminDebugPanel() {
   }
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
-const SUGGESTIONS = [
-  // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
-  "servers",
-  "channels",
-  "username",
-  "currentRole",
-  "currentSystemRole",
-  "currentServerId",
-  "currentChannelId",
-  "serverMembers",
-  "messagesMap",
-  "userPermissions",
-  "voiceParticipantState",
-  "currentPeerConnections.size",
-  "currentVoiceChannelId",
-  "availableThemes",
+  const STATIC_SUGGESTIONS = [
+    // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
+    "servers",
+    "channels",
+    "username",
+    "currentRole",
+    "currentSystemRole",
+    "currentServerId",
+    "currentChannelId",
+    "serverMembers",
+    "messagesMap",
+    "userPermissions",
+    "voiceParticipantState",
+    "currentPeerConnections.size",
+    "currentVoiceChannelId",
+    "availableThemes",
 
-  // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
-  "loadServers()",
-  "loadServerMembers()",
-  "loadMessages()",
-  "renderChannelList()",
-  "subscribeToCurrentChannel()",
-  "refreshServerRole()",
-  "refreshUnreadMentionCounts()",
-  "markServerMentionsRead(currentServerId)",
-  "toggleMobileSimulation()",
-  "startTutorial()",
+    // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
+    "loadServers()",
+    "loadServerMembers()",
+    "loadMessages()",
+    "renderChannelList()",
+    "subscribeToCurrentChannel()",
+    "refreshServerRole()",
+    "refreshUnreadMentionCounts()",
+    "markServerMentionsRead(currentServerId)",
+    "toggleMobileSimulation()",
+    "startTutorial()",
 
-  // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
-  "forceLogout('target_username')",
-  "globalMuteUser('target_username', 60)",
-  "globalUnmuteUser('target_username')",
-  "deleteUser('target_username')",
-  "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
-  "promote('target_username', 'Admin')",
-  "changeName('target_username')",
-  "userInfo('target_username')",
-  "transferOwnership()",
+    // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
+    "forceLogout('target_username')",
+    "globalMuteUser('target_username', 60)",
+    "globalUnmuteUser('target_username')",
+    "deleteUser('target_username')",
+    "kickMemberFromCurrentServer(serverMembers.find(m=>m.username==='target'))",
+    "promote('target_username', 'Admin')",
+    "changeName('target_username')",
+    "userInfo('target_username')",
+    "transferOwnership()",
 
-  // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
-  "fixPlainGifUrls()",
-  "deleteKeyword('spam_word')",
-  "exportChat()",
-  "censorContent('test text')",
-  "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
+    // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
+    "fixPlainGifUrls()",
+    "deleteKeyword('spam_word')",
+    "exportChat()",
+    "censorContent('test text')",
+    "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
 
-  // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
-  "testVoiceChat()",
-  "quickVoiceCheck()",
-  "runVoiceAudioTests()",
-  "simulatePerson()",
-  "monitorNetworkAudio()",
-  "silentAudioAnalyzerTest()",
-  "testAudioPlayback()",
-  "testAudioRouting()",
-  "startAudioLevelMonitoring()",
-  "leaveVoiceChannel()",
-  "joinVoiceChannel()",
+    // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
+    "testVoiceChat()",
+    "quickVoiceCheck()",
+    "runVoiceAudioTests()",
+    "simulatePerson()",
+    "monitorNetworkAudio()",
+    "silentAudioAnalyzerTest()",
+    "testAudioPlayback()",
+    "testAudioRouting()",
+    "startAudioLevelMonitoring()",
+    "leaveVoiceChannel()",
+    "joinVoiceChannel()",
 
-  // --- 🎨 THEMES & UI ---
-  "loadThemesAndApply()",
-  "selectTheme('theme_id_here')",
-  "document.querySelectorAll('audio').length",
+    // --- 🎨 THEMES & UI ---
+    "loadThemesAndApply()",
+    "selectTheme('theme_id_here')",
+    "document.querySelectorAll('audio').length",
 
-  // --- 🌐 BROWSER & NETWORK (Native) ---
-  "document.title",
-  "document.cookie",
-  "window.location.href",
-  "localStorage",
-  "sessionStorage",
-  "navigator.userAgent",
-  "performance.memory",
-  "performance.now()",
-  "supabaseClient",
-  "supabaseClient.auth.getUser()",
-  "supabaseClient.auth.getSession()"
-];
+    // --- 🌐 BROWSER & NETWORK (Native) ---
+    "document.title",
+    "document.cookie",
+    "window.location.href",
+    "localStorage",
+    "sessionStorage",
+    "navigator.userAgent",
+    "performance.memory",
+    "performance.now()",
+    "supabaseClient",
+    "supabaseClient.auth.getUser()",
+    "supabaseClient.auth.getSession()",
+    // ad manager helpers (kept for discoverability)
+    "adManager.maybeInsertAd()",
+    "adManager.forceInsertAd()",
+    "adManager.scanAndInsertAds()",
+    "adManager.removeAllAds()",
+    "adManager.listAds()",
+    "adManager.setInterval(7,10)"
+  ];
+
+  function getDynamicSuggestions(prefix) {
+    const results = new Set(STATIC_SUGGESTIONS);
+    const p = (prefix || "").toLowerCase();
+    try {
+      Object.getOwnPropertyNames(window).forEach(name => {
+        // ignore huge globals
+        if (name.length > 80) return;
+        try {
+          const val = window[name];
+          if (typeof val === 'function') {
+            const rep = name + '()';
+            if (!p || name.toLowerCase().startsWith(p) || rep.toLowerCase().startsWith(p)) results.add(rep);
+          } else if (val && typeof val === 'object') {
+            // top-level object name match
+            if (!p || name.toLowerCase().startsWith(p)) results.add(name);
+            // include methods of small objects (first-level)
+            try {
+              Object.getOwnPropertyNames(val).slice(0, 40).forEach(prop => {
+                if (prop.length > 60) return;
+                try {
+                  if (typeof val[prop] === 'function') {
+                    const rep = `${name}.${prop}()`;
+                    if (!p || rep.toLowerCase().startsWith(p) || prop.toLowerCase().startsWith(p)) results.add(rep);
+                  }
+                } catch(e){}
+              });
+            } catch(e){}
+          }
+        } catch(e){}
+      });
+    } catch(e){}
+    return Array.from(results);
+  }
 
   function updateAutocomplete(val) {
     if (!val) { hideAutocomplete(); return; }
-    const matches = SUGGESTIONS.filter(s => s.toLowerCase().startsWith(val.toLowerCase()) && s !== val);
+    const suggestions = getDynamicSuggestions(val);
+    const matches = suggestions.filter(s => s.toLowerCase().startsWith(val.toLowerCase()) && s !== val);
     if (!matches.length) { hideAutocomplete(); return; }
     autocompleteBox.innerHTML = "";
     matches.slice(0, 10).forEach((m, i) => {
@@ -1484,141 +1526,9 @@ function removeLocalStorageKey(key) {
   }
 }
 
-// ======================== ULTIMATE MOBILE SIMULATION ========================
-// Shortcut: Ctrl + Alt + M
-// Forces BOTH CSS media queries AND JavaScript mobile logic to activate
+// Mobile simulation removed per request. UI will use real viewport and mobile behaviors.
+function toggleMobileSimulation() { console.log('Mobile simulation disabled'); }
 
-let isMobileSim = false;
-let originalWindowWidth = window.innerWidth;
-let originalWindowHeight = window.innerHeight;
-
-function toggleMobileSimulation() {
-  const body = document.body;
-  const html = document.documentElement;
-
-  if (isMobileSim) {
-    // --- RESTORE DESKTOP ---
-    isMobileSim = false;
-    
-    // 1. Restore window dimensions (this triggers CSS media queries)
-    window.resizeTo(originalWindowWidth, originalWindowHeight);
-    
-    // 2. Wait for resize to complete, then force JS to re-check
-    setTimeout(() => {
-      window.dispatchEvent(new Event('resize'));
-      
-      // 3. Clean up any manual overrides
-      body.classList.remove('mobile-sim-active');
-      html.style.width = '';
-      html.style.height = '';
-      body.style.width = '';
-      body.style.margin = '';
-      body.style.overflowX = '';
-      
-      // 4. Remove banner
-      const banner = document.getElementById('mobile-sim-banner');
-      if (banner) banner.remove();
-      
-      console.log('✅ Restored to desktop view');
-    }, 300);
-
-  } else {
-    // --- ENTER MOBILE SIMULATION ---
-    isMobileSim = true;
-    
-    // 1. Save current dimensions
-    originalWindowWidth = window.innerWidth;
-    originalWindowHeight = window.innerHeight;
-    
-    // 2. Resize window to phone dimensions (forces CSS media queries)
-    window.resizeTo(375, 667); // iPhone SE size
-    
-    // 3. Add visual styling for the simulation frame
-    body.classList.add('mobile-sim-active');
-    html.style.width = '375px';
-    html.style.height = '667px';
-    body.style.width = '375px';
-    body.style.margin = '0 auto';
-    body.style.overflowX = 'hidden';
-    body.style.backgroundColor = '#1e1f22';
-    
-    // 4. Add banner
-    const banner = document.createElement('div');
-    banner.id = 'mobile-sim-banner';
-    banner.textContent = '📱 MOBILE SIMULATION (Ctrl+Alt+M to exit)';
-    banner.style.cssText = `
-      position: fixed;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #ed4245;
-      color: white;
-      padding: 6px 16px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      z-index: 10002;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      pointer-events: none;
-    `;
-    document.body.appendChild(banner);
-    
-    // 5. Force JS to re-evaluate mobile state
-    setTimeout(() => {
-      window.dispatchEvent(new Event('resize'));
-      
-      // 6. Manually trigger mobile-specific UI changes if needed
-      // (Adjust selectors based on your app's structure)
-      const sidebar = document.querySelector('.server-sidebar, .channel-sidebar');
-      if (sidebar) {
-        sidebar.classList.add('mobile-hidden');
-        sidebar.style.display = 'none';
-      }
-      
-      const hamburger = document.querySelector('.hamburger-menu, .mobile-toggle');
-      if (hamburger) {
-        hamburger.style.display = 'block';
-      }
-      
-      console.log('✅ Mobile simulation activated');
-    }, 350);
-  }
-}
-
-// Attach key listener
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.altKey && (e.key === 'm' || e.key === 'M')) {
-    e.preventDefault();
-    toggleMobileSimulation();
-  }
-});
-
-// Add CSS for smooth animation
-const style = document.createElement('style');
-style.textContent = `
-  body.mobile-sim-active {
-    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-    position: relative;
-    z-index: 10000;
-    box-shadow: 0 0 60px rgba(0,0,0,0.6);
-  }
-  
-  /* Ensure mobile elements are visible */
-  body.mobile-sim-active .hamburger-menu,
-  body.mobile-sim-active .mobile-toggle {
-    display: block !important;
-  }
-  
-  body.mobile-sim-active .server-sidebar,
-  body.mobile-sim-active .channel-sidebar {
-    display: none !important;
-  }
-`;
-document.head.appendChild(style);
-
-console.log('✅ Ultimate Mobile Simulation ready. Press Ctrl+Alt+M to toggle.');
-
-const MOBILE_TUTORIAL_STEPS = [
   {
     title: "👋 Welcome to LLA Chat!",
     body: "This quick tour shows you around. Tap <b>Next</b> to continue, or <b>Skip</b> to jump straight in.",

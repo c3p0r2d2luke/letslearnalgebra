@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Spotify OAuth Callback</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script>
+      // Parse access_token from URL hash and postMessage it to the opener window
+      (async function(){
+        try {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+
+        if (code) {
+          // Try PKCE exchange in the popup (no client secret required)
+          try {
+            const verifier = localStorage.getItem('spotify_pkce_verifier');
+            const expectedState = localStorage.getItem('spotify_pkce_state');
+
+            if (expectedState && state && expectedState !== state) {
+              console.error('Spotify PKCE state mismatch');
+              // still attempt exchange but warn
+            }
+
+            if (!verifier) {
+              console.error('No PKCE verifier found in localStorage');
+              // send back code so main window can decide to exchange server-side
+              if (window.opener) window.opener.postMessage({ type: 'spotify_auth_code', code, state }, window.location.origin);
+            } else {
+              const body = new URLSearchParams();
+              body.set('grant_type', 'authorization_code');
+              body.set('code', code);
+              // Use the exact redirect URI that initiated the flow (stored by the opener)
+              const storedRedirect = localStorage.getItem('spotify_redirect_uri');
+              body.set('redirect_uri', storedRedirect || (window.location.origin + window.location.pathname));
+              const clientId = localStorage.getItem('spotify_client_id') || '';
+              if (clientId) body.set('client_id', clientId);
+              body.set('code_verifier', verifier);
+
+              try {
+                const resp = await fetch('https://accounts.spotify.com/api/token', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                  body: body.toString()
+                });
+
+                if (!resp.ok) {
+                  const text = await resp.text();
+                  console.error('Token exchange failed', resp.status, text);
+                  // send code back to main window so it can handle server-side exchange
+                  if (window.opener) window.opener.postMessage({ type: 'spotify_auth_code', code, state, error: 'token_exchange_failed', status: resp.status, body: text }, window.location.origin);
+                } else {
+                  const data = await resp.json();
+                  // data contains access_token, token_type, expires_in, refresh_token (if allowed)
+                  if (window.opener) window.opener.postMessage({ type: 'spotify_auth', access_token: data.access_token, refresh_token: data.refresh_token, expires_in: data.expires_in }, window.location.origin);
+                }
+              } catch (ex) {
+                console.error('Token exchange error', ex);
+                if (window.opener) window.opener.postMessage({ type: 'spotify_auth_code', code, state, error: 'token_exchange_exception' }, window.location.origin);
+              }
+            }
+          } catch (e) {
+            console.error('PKCE exchange error', e);
+            if (window.opener) window.opener.postMessage({ type: 'spotify_auth_code', code, state, error: 'pkce_error' }, window.location.origin);
+          }
+        } else {
+          // Fallback for implicit flow (hash)
+          const hash = window.location.hash.substring(1);
+          const hparams = new URLSearchParams(hash);
+          const access_token = hparams.get('access_token');
+          const token_type = hparams.get('token_type');
+          const expires_in = hparams.get('expires_in');
+          if (access_token && window.opener) {
+            window.opener.postMessage({ type: 'spotify_auth', access_token, token_type, expires_in }, window.location.origin);
+          }
+        }
+        } catch (e) {
+        console.error('Callback handler error', e);
+        }
+        // Close popup shortly after posting message
+        setTimeout(() => { try { window.close(); } catch (e) {} }, 700);
+      })();
+    </script>
+  </head>
+  <body>
+    <p style="font-family: sans-serif; text-align:center; padding:20px;">Completing Spotify sign-in…</p>
+  </body>
+</html>
