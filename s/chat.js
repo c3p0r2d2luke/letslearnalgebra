@@ -729,15 +729,25 @@ async function loadUser() {
 
   try {
     console.log("📡 Fetching user data from users table for:", username);
-    // SCHEMA MATCH: Select 'system_role', 'sys_admin', 'sys_manager', 'muted_until'
+    // SCHEMA MATCH: Select 'system_role', 'blocked', 'muted_until', 'avatar_url', etc. and join user_system_roles
     const { data, error } = await supabaseClient
       .from("users")
-      .select("sys_admin, sys_manager, blocked, muted_until, auth_id, avatar_url, notification_preferences, profile_status, profile_description, custom_theme_id, system_role")
+      .select("blocked, muted_until, auth_id, avatar_url, notification_preferences, profile_status, profile_description, custom_theme_id, system_role, user_system_roles (role)")
       .eq("username", username)
       .maybeSingle();
 
     console.log("   User data:", data);
     console.log("   Error:", error);
+
+    if (data) {
+      const roles = data.user_system_roles;
+      data.sys_admin = Array.isArray(roles)
+        ? roles.some(r => r?.role === "SysAdmin")
+        : roles?.role === "SysAdmin";
+      data.sys_manager = Array.isArray(roles)
+        ? roles.some(r => r?.role === "SysManager")
+        : roles?.role === "SysManager";
+    }
 
     if (!data) {
       console.warn("⚠️ User record not found in database! Creating one...");
@@ -746,9 +756,7 @@ async function loadUser() {
         await supabaseClient.from("users").insert({
           username,
           auth_id: authId,
-          system_role: "User",
-          sys_admin: false,
-          sys_manager: false
+          system_role: "User"
         });
         console.log("✅ Created user record");
       }
@@ -830,7 +838,7 @@ async function saveName() {
     // 1. Check if user exists
     const { data: existingUser, error: checkError } = await supabaseClient
       .from("users")
-      .select("system_role, sys_admin, sys_manager")
+      .select("system_role, user_system_roles (role)")
       .eq("username", name)
       .maybeSingle();
 
@@ -838,26 +846,44 @@ async function saveName() {
       console.error("Check error:", checkError);
     }
 
+    if (existingUser) {
+      const roles = existingUser.user_system_roles;
+      existingUser.sys_admin = Array.isArray(roles)
+        ? roles.some(r => r?.role === "SysAdmin")
+        : roles?.role === "SysAdmin";
+      existingUser.sys_manager = Array.isArray(roles)
+        ? roles.some(r => r?.role === "SysManager")
+        : roles?.role === "SysManager";
+    }
+
     // 2. Upsert user (create if missing)
-    // SCHEMA MATCH: Use 'system_role' (text) and 'sys_admin'/'sys_manager' (bool)
+    // SCHEMA MATCH: Use 'system_role' (text)
     const { data, error } = await supabaseClient
       .from("users")
       .upsert({
         username: name,
         // Preserve existing roles if they exist, otherwise default to 'User'
-        system_role: existingUser?.system_role || "User",
-        sys_admin: existingUser?.sys_admin || false,
-        sys_manager: existingUser?.sys_manager || false
+        system_role: existingUser?.system_role || "User"
       }, {
         onConflict: ["username"]
       })
-      .select("system_role, sys_admin, sys_manager");
+      .select("system_role, user_system_roles (role)");
 
     if (error) {
       console.error("Failed to save user:", error);
       currentRole = "User";
       currentSystemRole = "User";
     } else {
+      if (data && data[0]) {
+        const roles = data[0].user_system_roles;
+        data[0].sys_admin = Array.isArray(roles)
+          ? roles.some(r => r?.role === "SysAdmin")
+          : roles?.role === "SysAdmin";
+        data[0].sys_manager = Array.isArray(roles)
+          ? roles.some(r => r?.role === "SysManager")
+          : roles?.role === "SysManager";
+      }
+
       // SCHEMA MATCH: Read 'system_role' for currentRole
       currentRole = normalizeServerRole(data?.[0]?.system_role || "User");
       

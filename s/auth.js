@@ -37,12 +37,21 @@ async function ensureUserProfileRow(authUser) {
 
   const { data: existing, error: fetchError } = await supabaseClient
     .from("users")
-    .select("username, sys_admin, sys_manager, blocked, muted_until, avatar_url")
+    .select("username, blocked, muted_until, avatar_url, user_system_roles (role)")
     .eq("auth_id", authId)
     .maybeSingle();
 
   if (fetchError) throw fetchError;
-  if (existing) return existing;
+  if (existing) {
+    const roles = existing.user_system_roles;
+    existing.sys_admin = Array.isArray(roles)
+      ? roles.some(r => r?.role === "SysAdmin")
+      : roles?.role === "SysAdmin";
+    existing.sys_manager = Array.isArray(roles)
+      ? roles.some(r => r?.role === "SysManager")
+      : roles?.role === "SysManager";
+    return existing;
+  }
 
   // If the auth user exists but no app profile row exists yet, create one now.
   // This happens for first-time OAuth sign-in and (optionally) magic-link users.
@@ -79,8 +88,6 @@ async function ensureUserProfileRow(authUser) {
   const { error: insertError } = await supabaseClient.from("users").insert({
     username: chosen,
     auth_id: authId,
-    sys_admin: false,
-    sys_manager: false,
     blocked: false,
     forceLogout: false,
     avatar_url: avatarUrl
@@ -201,8 +208,6 @@ async function doSignUp() {
     .insert({
       username: usernameVal,
       auth_id: userId, 
-      sys_admin: false,
-      sys_manager: false,
       blocked: false,
       forceLogout: false,
       avatar_url: null
@@ -1686,7 +1691,7 @@ const saveNameBtn = document.getElementById("saveNameButton");
 
 // ------------------------ Supabase Setup ------------------------
 const supabaseUrl = "https://qjajtkdchvapthnidtwj.supabase.co";
-const supabaseKey = "sb_publishable_1HWGEhoX-b4jj05hDKsGYw_H004LgVz"; 
+const supabaseKey = "sb_publishable_pAump1Ft6WZgP1bakuvBbg_PpfVxxHD"; 
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
