@@ -454,7 +454,16 @@ function subscribeToVoiceSignaling(channelId) {
             const sdpObj = JSON.parse(data.sdp);
             console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
 
-            await peerConn.setRemoteDescription(new RTCSessionDescription(sdpObj));
+            if (
+                sdpObj.type === "answer" &&
+                peerConn.signalingState !== "have-local-offer"
+            ) {
+              console.warn(
+                  "Ignoring unexpected answer:",
+                  peerConn.signalingState
+              );
+              return;
+            }
             
             // Mark that remote description is set
             const state = connectionStates.get(data.from_username) || {};
