@@ -309,7 +309,14 @@ async function linkSpotify() {
         return;
     }
 
-    const redirectUri = `https://vscode.lla.ipv64.net/proxy/5500/s/spotify-callback.html`;
+    const redirectUri = (function() {
+        try {
+            return new URL('spotify-callback.html', window.location.href).href;
+        } catch (e) {
+            return window.location.origin + '/s/spotify-callback.html';
+        }
+    })();
+    console.debug('[spotify] using redirectUri:', redirectUri);
 
     // Generate PKCE code verifier/challenge
     const codeVerifier = generateCodeVerifier(64);
