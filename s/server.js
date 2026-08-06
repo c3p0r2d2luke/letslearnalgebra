@@ -194,16 +194,34 @@ function sendTyping(status) {
 }
 
 function subscribeToTyping() {
-  supabaseClient
-    .channel("typing-channel")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "typing" },
-      () => {
-        updateTypingUI();
-      }
-    )
-    .subscribe();
+  if (typingSubscription) {
+    console.debug("[server] typing subscription already active");
+    return;
+  }
+
+  if (typeof supabaseClient.getChannels === "function") {
+    const existing = supabaseClient.getChannels().find((c) => c?.topic === "realtime:typing-channel");
+    if (existing) {
+      typingSubscription = existing;
+      console.debug("[server] reused existing typing subscription channel");
+      return;
+    }
+  }
+
+  try {
+    typingSubscription = supabaseClient
+      .channel("typing-channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "typing" },
+        () => {
+          updateTypingUI();
+        }
+      )
+      .subscribe();
+  } catch (err) {
+    console.warn("[server] typing subscription setup failed:", err);
+  }
 }
 
 function subscribeToServerMemberships() {
@@ -3349,52 +3367,81 @@ async function updateAccountLinkButtons() {
     google: document.getElementById("linkGoogleBtn"),
     github: document.getElementById("linkGithubBtn"),
     discord: document.getElementById("linkDiscordBtn"),
-    azure: document.getElementById("linkAzureBtn")
-   // spotify: document.getElementById("linkSpotifyBtn")
+    azure: document.getElementById("linkAzureBtn"),
+    spotify: document.getElementById("linkSpotifyBtn")
   };
 
   const providerNames = {
     google: "Google",
     github: "GitHub",
     discord: "Discord",
-    azure: "Azure"
-   // spotify: "Spotify"
+    azure: "Azure",
+    spotify: "Spotify"
   };
 
   const providerIcons = {
     google: "🔵",
     github: "🐙",
     discord: "💬",
-    azure: "🐦"
-    //spotify: "🎵"
+    azure: "🐦",
+    spotify: "🎵"
   };
+
+  let spotifyLinked = false;
+  try {
+    const { data: spotifyRow, error } = await supabaseClient.from('users').select('spotify_access_token').eq('username', username).maybeSingle();
+    spotifyLinked = !error && !!spotifyRow?.spotify_access_token;
+  } catch (err) {
+    console.warn('Could not determine Spotify linked state:', err);
+  }
+
+  linked.spotify = spotifyLinked;
 
   Object.keys(buttons).forEach(provider => {
     const button = buttons[provider];
     if (!button) return;
 
     if (linked[provider]) {
-      // Account is linked - show unlink option
-      button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> ${providerNames[provider]} Linked! :) Unlink?`;
-      button.style.background = "linear-gradient(135deg, #dc3545, #c82333)";
+      button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> ${providerNames[provider]} Linked`;
+      button.style.background = "linear-gradient(135deg, #22c55e, #16a34a)";
       button.onclick = async () => {
+        if (provider === 'spotify') {
+          if (confirm('Disconnect your Spotify account?')) {
+            await unlinkSpotify();
+            await updateAccountLinkButtons();
+          }
+          return;
+        }
         if (confirm(`Are you sure you want to unlink your ${providerNames[provider]} account?`)) {
           await unlinkOAuthIdentity(provider);
         }
       };
     } else {
-      // Account is not linked - show link option
       button.innerHTML = `<span style="margin-right: 8px;">${providerIcons[provider]}</span> Link ${providerNames[provider]} Account`;
 
-      // Restore original gradient colors
       const originalGradients = {
         google: "linear-gradient(135deg, #4285f4, #34a853)",
         github: "linear-gradient(135deg, #24292e, #5865f2)",
         discord: "linear-gradient(135deg, #5865f2, #99aab5)",
-        azure: "linear-gradient(135deg, #1da1f2, #14171a)"
+        azure: "linear-gradient(135deg, #1da1f2, #14171a)",
+        spotify: "linear-gradient(135deg, #1db954, #1da1f2)"
       };
       button.style.background = originalGradients[provider];
-      button.onclick = async () => await linkOAuthIdentity(provider);
+      button.onclick = async () => {
+        if (provider === 'spotify') {
+          await linkSpotify();
+          setTimeout(() => updateAccountLinkButtons(), 1200);
+        } else {
+          await linkOAuthIdentity(provider);
+        }
+      };
+    }
+
+    if (provider === 'spotify') {
+      const unlinkBtn = document.getElementById('unlinkSpotifyBtn');
+      if (unlinkBtn) {
+        unlinkBtn.style.display = linked.spotify ? 'inline-block' : 'none';
+      }
     }
   });
 }

@@ -1278,26 +1278,32 @@ async function loadThemesAndApply() {
 
   // --- THEME SELECTION ---
   let chosen = null;
-  
-  // 1. Check Local Storage first
   const localThemeId = localStorage.getItem("chatThemeId");
-  if (localThemeId) {
+  const preferredThemeId = currentThemeId || localThemeId;
+
+  // 1. Prefer the user's saved custom theme from their profile
+  if (preferredThemeId) {
+    chosen = availableThemes.find(t => t.id === preferredThemeId);
+  }
+
+  // 2. Fall back to local storage if the saved profile theme was unavailable
+  if (!chosen && localThemeId) {
     chosen = availableThemes.find(t => t.id === localThemeId);
   }
 
-  // 2. Fallback to the DB's default flag
+  // 3. Fallback to the DB's default flag
   if (!chosen) {
     chosen = availableThemes.find(t => t.is_default === true);
   }
 
-  // 3. Fallback to the first theme if no default exists
+  // 4. Fallback to the first theme if no default exists
   if (!chosen) {
     chosen = availableThemes[0];
   }
 
   if (chosen) {
     applyThemeVariables(chosen);
-    // Sync local storage if we picked a DB theme
+    currentThemeId = chosen.id;
     localStorage.setItem("chatThemeId", chosen.id);
   }
 
@@ -1761,7 +1767,7 @@ async function refreshSettingsConnections() {
       </button>
     `;
     list.appendChild(card);
-
+/*
     // If this is Spotify and the app requires Premium for the owner, grey it out so users cannot start the flow.
     if (p.id === 'spotify' && !(spotifyRow && spotifyRow.spotify_access_token)) {
       // Disable the button and show reason
@@ -1773,7 +1779,7 @@ async function refreshSettingsConnections() {
         btnEl.title = 'Disabled: App owner requires an active Spotify Premium subscription to enable playback features';
         btnEl.dataset.action = 'disabled';
       }
-    }
+    }*/
   });
 
   // Wire buttons (delegated each refresh — fine since list was rebuilt).

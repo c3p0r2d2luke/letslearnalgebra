@@ -1529,6 +1529,7 @@ function removeLocalStorageKey(key) {
 // Mobile simulation removed per request. UI will use real viewport and mobile behaviors.
 function toggleMobileSimulation() { console.log('Mobile simulation disabled'); }
 
+const MOBILE_TUTORIAL_STEPS = [
   {
     title: "👋 Welcome to LLA Chat!",
     body: "This quick tour shows you around. Tap <b>Next</b> to continue, or <b>Skip</b> to jump straight in.",

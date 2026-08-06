@@ -3,7 +3,7 @@
 // Placeholder: Put your Spotify Client ID here (or set via environment/config).
 // For a production setup, use a server-side exchange (PKCE or your backend) to securely obtain refresh tokens.
 const SPOTIFY_CLIENT_ID = '32ddb467fffb4e0f9e8bb4d814797d4a'; // <-- REPLACE ME
-const SPOTIFY_SCOPES = ['user-read-currently-playing','user-read-playback-state'];
+const SPOTIFY_SCOPES = ['user-read-private','user-read-currently-playing','user-read-playback-state'];
 
 // PKCE helpers
 function base64UrlEncode(arrayBuffer) {
@@ -39,6 +39,150 @@ async function generateCodeChallenge(verifier) {
 let spotifyChannel = null;
 let spotifyAccessToken = null;
 let spotifyPollingInterval = null;
+
+async function ensureSpotifyClient(timeoutMs = 10000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (typeof supabaseClient !== 'undefined' && supabaseClient && typeof supabaseClient.from === 'function') {
+            try { window.supabaseClient = supabaseClient; } catch (e) {}
+            return supabaseClient;
+        }
+        if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+            return window.supabaseClient;
+        }
+        await new Promise(r => setTimeout(r, 250));
+    }
+    return null;
+}
+
+function scheduleUpdateAccountLinkButtons(attempts = 0) {
+    if (typeof updateAccountLinkButtons === 'function') {
+        try { updateAccountLinkButtons(); } catch (err) { console.warn('[spotify] updateAccountLinkButtons error:', err); }
+        return;
+    }
+    if (attempts >= 6) return;
+    setTimeout(() => scheduleUpdateAccountLinkButtons(attempts + 1), 500);
+}
+
+function markSpotifyAsLinked() {
+    toggleSpotifyButtons(true);
+    const linkBtn = document.getElementById('linkSpotifyBtn');
+    if (linkBtn) {
+        linkBtn.disabled = false;
+        linkBtn.textContent = 'Linked';
+    }
+    if (typeof refreshSettingsConnections === 'function') {
+        refreshSettingsConnections();
+    }
+    scheduleUpdateAccountLinkButtons();
+}
+
+async function handleSpotifyCallbackMessage(ev) {
+    try {
+        if (ev.origin !== window.location.origin) return;
+        const data = ev.data || {};
+        if (!data || (!data.type && !data.access_token && !data.code)) return;
+
+        const client = await ensureSpotifyClient();
+        if (!client) {
+            console.warn('[spotify] Supabase client not ready for callback message');
+        }
+
+        if (data.type === 'spotify_auth' && data.access_token) {
+            console.debug('[spotify] Received auth message from popup');
+            spotifyAccessToken = data.access_token;
+            const expiresIn = Number(data.expires_in) || 3600;
+            const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+            try {
+                const authUser = client ? await client.auth.getUser() : null;
+                const authId = authUser?.data?.user?.id;
+                let updateQuery = client.from('users').update({
+                    spotify_access_token: spotifyAccessToken,
+                    spotify_token_expires: expiresAt,
+                    spotify_refresh_token: data.refresh_token || null
+                });
+                if (authId) {
+                    updateQuery = updateQuery.eq('auth_id', authId);
+                } else if (typeof username === 'string' && username) {
+                    updateQuery = updateQuery.eq('username', username);
+                }
+                const { error: saveError } = await updateQuery;
+                if (saveError) throw saveError;
+                console.debug('[spotify] Saved spotify_access_token to users row for', authId || username);
+            } catch (err) {
+                console.error('[spotify] Failed to save spotify token:', err);
+            }
+            markSpotifyAsLinked();
+            return;
+        }
+
+        if (data.type === 'spotify_auth_code' && data.code) {
+            console.warn('[spotify] Received authorization code from popup (no client-side exchange performed):', data);
+            try {
+                const verifier = localStorage.getItem('spotify_pkce_verifier');
+                const clientId = localStorage.getItem('spotify_client_id') || SPOTIFY_CLIENT_ID;
+                const exchangeUrl = (client && client.supabaseUrl) ? `${client.supabaseUrl}/functions/v1/spotify-exchange` : null;
+                console.debug('[spotify] attempting server-side exchange at', exchangeUrl);
+                if (!exchangeUrl) {
+                    alert('No server exchange endpoint available. Deploy a Supabase Edge Function named spotify-exchange and try again.');
+                    return;
+                }
+
+                const resp = await fetch(exchangeUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: data.code,
+                        redirect_uri: localStorage.getItem('spotify_redirect_uri') || (window.location.origin + window.location.pathname),
+                        code_verifier: verifier,
+                        client_id: clientId
+                    })
+                });
+                const respText = await resp.text();
+                let json = null;
+                try { json = respText ? JSON.parse(respText) : null; } catch (parseErr) { console.debug('[spotify] server exchange parse error', parseErr, 'body:', respText); }
+                console.debug('[spotify] server exchange status:', resp.status, 'body:', json || respText);
+                const tokenData = (json && (json.body || json)) || null;
+                const accessToken = tokenData?.access_token || tokenData?.accessToken;
+                if (!accessToken) {
+                    console.error('[spotify] Server exchange failed or returned no access_token:', tokenData || json || respText);
+                    alert('Spotify token exchange failed on server. Check console.');
+                    return;
+                }
+                spotifyAccessToken = accessToken;
+                const expiresIn = Number(tokenData?.expires_in || tokenData?.expiresIn) || 3600;
+                const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+                try {
+                    const authUser = client ? await client.auth.getUser() : null;
+                    const authId = authUser?.data?.user?.id;
+                    let updateQuery = client.from('users').update({
+                        spotify_access_token: spotifyAccessToken,
+                        spotify_refresh_token: tokenData.refresh_token || null,
+                        spotify_token_expires: expiresAt
+                    });
+                    if (authId) {
+                        updateQuery = updateQuery.eq('auth_id', authId);
+                    } else if (typeof username === 'string' && username) {
+                        updateQuery = updateQuery.eq('username', username);
+                    }
+                    const { error: saveError } = await updateQuery;
+                    if (saveError) throw saveError;
+                    console.debug('[spotify] Saved spotify tokens to users row for', authId || username);
+                } catch (err) {
+                    console.error('[spotify] Failed to save spotify tokens:', err);
+                }
+                markSpotifyAsLinked();
+            } catch (err) {
+                console.error('[spotify] Error performing server-side exchange:', err);
+                alert('Server-side exchange failed. Check console for details.');
+            }
+        }
+    } catch (err) {
+        console.error('[spotify] Error handling message event:', err);
+    }
+}
+
+window.addEventListener('message', handleSpotifyCallbackMessage);
 
 async function initSpotifyPresence() {
     console.debug('[spotify] initSpotifyPresence called — checking for supabase client');
@@ -94,119 +238,6 @@ async function initSpotifyPresence() {
     } catch (e) {
         console.error('[spotify] loadSpotifyUsers failed:', e);
     }
-
-    // Listen for OAuth callback messages from popup
-    window.addEventListener('message', async (ev) => {
-        try {
-            if (ev.origin !== window.location.origin) return; // only accept same-origin
-            const data = ev.data || {};
-
-            if (data && data.type === 'spotify_auth' && data.access_token) {
-                console.debug('[spotify] Received auth message from popup');
-                spotifyAccessToken = data.access_token;
-                const expiresIn = Number(data.expires_in) || 3600;
-                const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-                // Persist the token to the user's row so server-side functions/other tabs can use it if needed
-                try {
-                    if (typeof username !== 'string' || !username) {
-                        console.warn('[spotify] No username in global scope; cannot save spotify token.');
-                    } else {
-                        await client.from('users').update({
-                            spotify_access_token: spotifyAccessToken,
-                            spotify_token_expires: expiresAt,
-                            spotify_refresh_token: data.refresh_token || null
-                        }).eq('username', username);
-                        console.debug('[spotify] Saved spotify_access_token to users row for', username);
-                    }
-                } catch (err) {
-                    console.error('[spotify] Failed to save spotify token:', err);
-                }
-
-                startSpotifyPolling();
-                // Show unlink button if present
-                toggleSpotifyButtons(true);
-                const linkBtn = document.getElementById('linkSpotifyBtn');
-                try { if (linkBtn) { linkBtn.disabled = false; linkBtn.textContent = 'Linked'; setTimeout(() => linkBtn.textContent = 'Linked', 2000); } } catch(e){}
-                return;
-            }
-
-            if (data && data.type === 'spotify_auth_code') {
-                console.warn('[spotify] Received authorization code from popup (no client-side exchange performed):', data);
-                // Attempt server-side exchange via Supabase Edge Function
-                try {
-                    const verifier = localStorage.getItem('spotify_pkce_verifier');
-                    const clientId = localStorage.getItem('spotify_client_id') || SPOTIFY_CLIENT_ID;
-                    const exchangeUrl = (supabaseClient && supabaseClient.supabaseUrl) ? `${supabaseClient.supabaseUrl}/functions/v1/spotify-exchange` : null;
-                    console.debug('[spotify] attempting server-side exchange at', exchangeUrl);
-                    if (!exchangeUrl) {
-                        alert('No server exchange endpoint available. Deploy a Supabase Edge Function named spotify-exchange and try again.');
-                        return;
-                    }
-
-                    const resp = await fetch(exchangeUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            apikey: typeof supabaseKey !== 'undefined' ? supabaseKey : ''
-                        },
-                        body: JSON.stringify({
-                            code: data.code,
-                            redirect_uri: localStorage.getItem('spotify_redirect_uri') || (window.location.origin + '/s/spotify-callback.html'),
-                            code_verifier: verifier,
-                            client_id: clientId
-                        })
-                    });
-
-                    // Debug: capture raw response body and status (helps diagnose invalid_grant / redirect mismatches)
-                    const respText = await resp.text();
-                    let json = null;
-                    try { json = respText ? JSON.parse(respText) : null; } catch (parseErr) { console.debug('[spotify] server exchange parse error', parseErr, 'body:', respText); }
-                    console.debug('[spotify] server exchange status:', resp.status, 'body:', json || respText);
-
-                    // Support either { body: { access_token... } } (proxy) or direct token object
-                    const tokenData = (json && (json.body || json)) || null;
-                    const accessToken = tokenData?.access_token || tokenData?.accessToken;
-                    if (!accessToken) {
-                        console.error('[spotify] Server exchange failed or returned no access_token:', tokenData || json || respText);
-                        alert('Spotify token exchange failed on server. Check console.');
-                        return;
-                    }
-
-                    spotifyAccessToken = accessToken;
-                    const expiresIn = Number(tokenData?.expires_in || tokenData?.expiresIn) || 3600;
-                    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-                    // Persist tokens to users row
-                    try {
-                        if (typeof username !== 'string' || !username) {
-                            console.warn('[spotify] No username in global scope; cannot save spotify token.');
-                        } else {
-                            await supabaseClient.from('users').update({
-                                spotify_access_token: spotifyAccessToken,
-                                spotify_refresh_token: tokenData.refresh_token || null,
-                                spotify_token_expires: expiresAt
-                            }).eq('username', username);
-                            console.debug('[spotify] Saved spotify tokens to users row for', username);
-                        }
-                    } catch (err) {
-                        console.error('[spotify] Failed to save spotify tokens:', err);
-                    }
-
-                    startSpotifyPolling();
-                    toggleSpotifyButtons(true);
-                    const linkBtn = document.getElementById('linkSpotifyBtn');
-                    try { if (linkBtn) { linkBtn.disabled = false; linkBtn.textContent = 'Linked'; setTimeout(() => linkBtn.textContent = 'Linked', 2000); } } catch(e){}
-                } catch (err) {
-                    console.error('[spotify] Error performing server-side exchange:', err);
-                    alert('Server-side exchange failed. Check console for details.');
-                }
-                return;
-            }
-        } catch (err) {
-            console.error('[spotify] Error handling message event:', err);
-        }
-    });
 
     // Wire up UI buttons (if present) — do it immediately in case DOMContentLoaded already fired
     function wireUpButtons() {
@@ -309,7 +340,14 @@ async function linkSpotify() {
         return;
     }
 
-    const redirectUri = `https://vscode.lla.ipv64.net/proxy/5500/s/spotify-callback.html`;
+    const redirectUri = (function() {
+        try {
+            return new URL('spotify-callback.html', window.location.href).href;
+        } catch (e) {
+            return window.location.origin + '/s/spotify-callback.html';
+        }
+    })();
+    console.debug('[spotify] using redirectUri:', redirectUri);
 
     // Generate PKCE code verifier/challenge
     const codeVerifier = generateCodeVerifier(64);
@@ -484,6 +522,9 @@ async function unlinkSpotify() {
         }).eq('username', username);
     }
     toggleSpotifyButtons(false);
+    if (typeof refreshSettingsConnections === 'function') {
+      refreshSettingsConnections();
+    }
 }
 
 function toggleSpotifyButtons(linked) {

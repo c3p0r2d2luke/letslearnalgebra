@@ -108,46 +108,62 @@ async function ensureUserProfileRow(authUser) {
 // In your auth section
 
 async function handleAuthSuccess(user) {
-  const authId = user.id;
-  console.log("🔑 Auth Success. Fetching profile for auth_id:", authId);
+  if (authHandling) {
+    console.log("Auth success already being handled — skipping duplicate event.");
+    return;
+  }
+  authHandling = true;
 
-  let userData;
   try {
-    userData = await ensureUserProfileRow(user);
-  } catch (profileError) {
-    console.error("❌ DB Error fetching/creating profile:", profileError);
-    alert("Database error. Please try again.");
-    return;
+    const authId = user.id;
+    console.log("🔑 Auth Success. Fetching profile for auth_id:", authId);
+
+    let userData;
+    try {
+      userData = await ensureUserProfileRow(user);
+    } catch (profileError) {
+      console.error("❌ DB Error fetching/creating profile:", profileError);
+      alert("Database error. Please try again.");
+      return;
+    }
+
+    if (!userData) {
+      alert("Sign-in canceled. Please sign in again to continue.");
+      await supabaseClient.auth.signOut();
+      showAuthGate();
+      return;
+    }
+
+    // 2. CRITICAL: Set Global State & Save to LocalStorage IMMEDIATELY
+    username = userData.username;
+    setAvatarUrl(username, userData.avatar_url || "");
+    localStorage.setItem("chatUsername", username); // <--- This is the key
+
+    // Store flags
+    localStorage.setItem("chatSysAdmin", userData.sys_admin ? "true" : "false");
+    localStorage.setItem("chatSysManager", userData.sys_manager ? "true" : "false");
+
+    // 3. Update Local Mute/Block State
+    isBlocked = userData.blocked || false;
+    mutedUntil = userData.muted_until || null;
+
+    // 4. Hide Auth Gate
+    hideAuthGate();
+
+    console.log("✅ Logged in as:", username);
+
+    // 5. Load the App (This will now see the username in localStorage)
+    await waitForGlobalFunction("loadUser", 10000);
+    const loadUserFn = window["loadUser"];
+    if (typeof loadUserFn !== "function") {
+      console.error("[auth] loadUser did not become available after waiting.");
+      return;
+    }
+    await loadUserFn();
+    subscribeToGlobalMentions();
+  } finally {
+    authHandling = false;
   }
-
-  if (!userData) {
-    alert("Sign-in canceled. Please sign in again to continue.");
-    await supabaseClient.auth.signOut();
-    showAuthGate();
-    return;
-  }
-
-  // 2. CRITICAL: Set Global State & Save to LocalStorage IMMEDIATELY
-  username = userData.username;
-  setAvatarUrl(username, userData.avatar_url || "");
-  localStorage.setItem("chatUsername", username); // <--- This is the key
-
-  // Store flags
-  localStorage.setItem("chatSysAdmin", userData.sys_admin ? "true" : "false");
-  localStorage.setItem("chatSysManager", userData.sys_manager ? "true" : "false");
-
-  // 3. Update Local Mute/Block State
-  isBlocked = userData.blocked || false;
-  mutedUntil = userData.muted_until || null;
-
-  // 4. Hide Auth Gate
-  hideAuthGate();
-
-  console.log("✅ Logged in as:", username);
-
-  // 5. Load the App (This will now see the username in localStorage)
-  await loadUser(); 
-  subscribeToGlobalMentions();
 
     // ── TUTORIAL: show only on first-ever login ──
   // We check whether this auth_id has ever been seen before.
@@ -252,6 +268,14 @@ async function doSignUp() {
 let authBootstrapped = false;
 let authHandling = false;
 
+async function waitForGlobalFunction(name, timeoutMs = 10000, intervalMs = 100) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (typeof window[name] === "function") return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 async function handleAuthRedirectIfNeeded() {
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
@@ -322,9 +346,18 @@ async function bootstrapAuth() {
     }
 
     const { data: { session } } = await supabaseClient.auth.getSession();
+    let authUser = session?.user;
 
-    if (session?.user) {
-      await handleAuthSuccess(session.user);
+    if (!authUser) {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      authUser = user;
+      if (authUser) {
+        console.log("✅ Restored auth user from getUser()");
+      }
+    }
+
+    if (authUser) {
+      await handleAuthSuccess(authUser);
     } else {
       showAuthGate();
     }
@@ -493,6 +526,7 @@ let globalMentionSubscription = null;
 let serverMembershipSubscription = null;
 let dmMembershipSubscription = null;
 let dmRealtimeSubscription = null;
+let typingSubscription = null;
 let isBlocked = false;
 let mutedUntil = null;          // per-server mute (admin imposed)
 let globalMutedUntil = null;    // global sysadmin mute (users.muted_until)
@@ -1697,6 +1731,23 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true
+  }
+});
+
+supabaseClient.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'SIGNED_IN' && session?.user) {
+    console.log('Supabase auth state changed:', event);
+    try {
+      await handleAuthSuccess(session.user);
+    } catch (err) {
+      console.error('Auth state handler failed:', err);
+    }
+    return;
+  }
+
+  if (event === 'SIGNED_OUT') {
+    console.log('Supabase auth state changed:', event);
+    showAuthGate();
   }
 });
 

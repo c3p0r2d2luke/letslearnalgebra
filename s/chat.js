@@ -1606,7 +1606,13 @@ async function enablePush() {
   if(!("serviceWorker" in navigator)) return;
   const permission = await Notification.requestPermission();
   if(permission!=="granted") return;
-  await navigator.serviceWorker.register("/sw.js");
+  try {
+    const swUrl = new URL("sw.js", window.location.href).href;
+    await navigator.serviceWorker.register(swUrl);
+  } catch (swError) {
+    console.warn("[push] Service worker registration failed:", swError);
+    return;
+  }
   const registration = await navigator.serviceWorker.ready;
   await showLocalTestNotification();
   let subscription = await registration.pushManager.getSubscription();
@@ -4128,4 +4134,12 @@ async function ensureGeneralCategoryAndFixOrphans(serverId, options = {}) {
   return { changed, generalCategoryId: generalCategory.id };
 }
 
-initSpotifyPresence();
+if (typeof window.initSpotifyPresence === 'function') {
+  window.initSpotifyPresence();
+} else {
+  window.addEventListener('load', () => {
+    if (typeof window.initSpotifyPresence === 'function') {
+      window.initSpotifyPresence();
+    }
+  });
+}
