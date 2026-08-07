@@ -2,93 +2,91 @@
 -- Table order and constraints may not be valid for execution.
 
 CREATE TABLE public.users (
-  spotify_album_art text,
-  spotify_is_playing boolean DEFAULT false,
-  spotify_track text,
-  spotify_artist text,
-  spotify_updated_at timestamp with time zone,
+  username text NOT NULL UNIQUE,
+  blocked boolean DEFAULT false,
+  forceLogout boolean DEFAULT false,
+  muted_until timestamp without time zone,
+  system_role text DEFAULT 'User'::text,
+  auth_id uuid,
+  avatar_url text,
   profile_description text,
   profile_status text,
   custom_theme_id uuid,
   notification_preferences jsonb DEFAULT '{"replies": true, "mentions": true, "all_messages": false}'::jsonb,
-  username text NOT NULL UNIQUE,
-  blocked boolean DEFAULT false,
-  muted_until timestamp without time zone,
-  forceLogout boolean DEFAULT false,
   display_name text,
-  avatar_url text,
-  auth_id uuid,
-  sys_admin boolean DEFAULT false,
-  sys_manager boolean DEFAULT false,
-  system_role text DEFAULT 'User'::text,
   spotify_access_token text,
   spotify_refresh_token text,
   spotify_token_expires timestamp with time zone,
+  spotify_track text,
+  spotify_artist text,
+  spotify_album_art text,
+  spotify_is_playing boolean DEFAULT false,
+  spotify_updated_at timestamp with time zone,
   CONSTRAINT users_pkey PRIMARY KEY (username),
   CONSTRAINT users_auth_id_fkey FOREIGN KEY (auth_id) REFERENCES auth.users(id),
   CONSTRAINT users_custom_theme_fkey FOREIGN KEY (custom_theme_id) REFERENCES public.themes(id)
 );
 CREATE TABLE public.messages (
-  server_role_id uuid,
+  id bigint NOT NULL DEFAULT nextval('messages_id_seq'::regclass),
   username text NOT NULL,
   content text NOT NULL,
   ip text,
-  id bigint NOT NULL DEFAULT nextval('messages_id_seq'::regclass),
   inserted_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
-  reply_to bigint,
-  channel_id bigint,
   role text,
   is_pinned boolean DEFAULT false,
+  reply_to bigint,
+  channel_id bigint,
+  server_role_id uuid,
   CONSTRAINT messages_pkey PRIMARY KEY (id),
   CONSTRAINT fk_messages_user FOREIGN KEY (username) REFERENCES public.users(username),
   CONSTRAINT messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.channels(id),
   CONSTRAINT messages_reply_to_fkey FOREIGN KEY (reply_to) REFERENCES public.messages(id)
 );
 CREATE TABLE public.push_subscriptions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   username text UNIQUE,
   subscription jsonb NOT NULL,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp without time zone DEFAULT now(),
   CONSTRAINT push_subscriptions_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.reactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   message_id bigint,
   username text NOT NULL,
   emoji text NOT NULL,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   inserted_at timestamp with time zone DEFAULT now(),
   CONSTRAINT reactions_pkey PRIMARY KEY (id),
   CONSTRAINT reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.messages(id)
 );
 CREATE TABLE public.reports (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   reporter text,
   reported_user text,
   message_id bigint,
   content text,
   reason text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   email_sent boolean DEFAULT false,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT reports_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.channels (
-  category_id uuid,
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   name text NOT NULL,
   created_by text,
   created_at timestamp without time zone DEFAULT now(),
-  channel_type text DEFAULT 'text'::text CHECK (channel_type = ANY (ARRAY['text'::text, 'voice'::text])),
   sort_order integer DEFAULT 0,
   server_id uuid,
+  category_id uuid,
+  channel_type text DEFAULT 'text'::text CHECK (channel_type = ANY (ARRAY['text'::text, 'voice'::text])),
   CONSTRAINT channels_pkey PRIMARY KEY (id),
   CONSTRAINT channels_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
   CONSTRAINT channels_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
 CREATE TABLE public.categories (
-  name text NOT NULL,
-  created_by text,
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
   sort_order integer DEFAULT 0,
+  created_by text,
   server_id uuid,
   CONSTRAINT categories_pkey PRIMARY KEY (id),
   CONSTRAINT categories_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
@@ -100,38 +98,38 @@ CREATE TABLE public.typing (
   CONSTRAINT typing_pkey PRIMARY KEY (username)
 );
 CREATE TABLE public.servers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,
   slug text NOT NULL UNIQUE,
   owner_username text NOT NULL,
   icon_url text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT servers_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.server_members (
-  sort_order integer DEFAULT 0,
-  primary_role_id uuid,
-  blocked boolean NOT NULL DEFAULT false,
-  muted_until timestamp with time zone,
-  role text DEFAULT 'member'::text,
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   server_id uuid,
   username text NOT NULL,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   joined_at timestamp with time zone DEFAULT now(),
+  sort_order integer DEFAULT 0,
+  primary_role_id uuid,
   profile_display_name text,
   profile_avatar_url text,
   profile_description text DEFAULT ''::text,
+  blocked boolean NOT NULL DEFAULT false,
+  muted_until timestamp with time zone,
+  role text DEFAULT 'member'::text,
   CONSTRAINT server_members_pkey PRIMARY KEY (id),
   CONSTRAINT server_members_primary_role_fkey FOREIGN KEY (primary_role_id) REFERENCES public.server_roles(id),
   CONSTRAINT server_members_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
 CREATE TABLE public.server_invites (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   server_id uuid,
   code text NOT NULL UNIQUE,
   created_by text NOT NULL,
   expires_at timestamp with time zone,
   max_uses integer,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   use_count integer DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT server_invites_pkey PRIMARY KEY (id),
@@ -147,10 +145,10 @@ CREATE TABLE public.channel_presence (
   CONSTRAINT channel_presence_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.channels(id)
 );
 CREATE TABLE public.server_roles (
-  server_id uuid NOT NULL,
-  description text,
-  role text NOT NULL DEFAULT 'User'::text,
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  server_id uuid NOT NULL,
+  role text NOT NULL DEFAULT 'User'::text,
+  description text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   name text DEFAULT 'User'::text,
@@ -160,10 +158,10 @@ CREATE TABLE public.server_roles (
   CONSTRAINT server_roles_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
 CREATE TABLE public.server_member_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   server_id uuid NOT NULL,
   member_id uuid NOT NULL,
   role_id uuid NOT NULL,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT server_member_roles_pkey PRIMARY KEY (id),
@@ -172,11 +170,11 @@ CREATE TABLE public.server_member_roles (
   CONSTRAINT server_member_roles_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
 CREATE TABLE public.custom_emojis (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   server_id uuid,
   name text NOT NULL,
   url text NOT NULL,
   created_by text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   visibility text NOT NULL DEFAULT 'everyone'::text CHECK (visibility = ANY (ARRAY['everyone'::text, 'admins'::text, 'owner'::text])),
   is_active boolean NOT NULL DEFAULT true,
@@ -210,11 +208,11 @@ CREATE TABLE public.dm_messages (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   conversation_id uuid NOT NULL,
   username text NOT NULL,
+  content text NOT NULL DEFAULT ''::text,
   role text,
+  is_pinned boolean NOT NULL DEFAULT false,
   ip text,
   reply_to bigint,
-  content text NOT NULL DEFAULT ''::text,
-  is_pinned boolean NOT NULL DEFAULT false,
   inserted_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT dm_messages_pkey PRIMARY KEY (id),
   CONSTRAINT dm_messages_username_fkey FOREIGN KEY (username) REFERENCES public.users(username),
@@ -222,41 +220,41 @@ CREATE TABLE public.dm_messages (
   CONSTRAINT dm_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.direct_conversations(id)
 );
 CREATE TABLE public.themes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL UNIQUE,
   display_name text NOT NULL,
-  created_by text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   is_default boolean DEFAULT false,
   css_variables jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_by text,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT themes_pkey PRIMARY KEY (id),
   CONSTRAINT themes_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(username)
 );
 CREATE TABLE public.word_filters (
-  word text NOT NULL UNIQUE,
-  created_by text,
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  word text NOT NULL UNIQUE,
   replacement text NOT NULL DEFAULT '****'::text,
   is_active boolean DEFAULT true,
+  created_by text,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT word_filters_pkey PRIMARY KEY (id),
   CONSTRAINT word_filters_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(username)
 );
 CREATE TABLE public.notification_read_status (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   username text NOT NULL,
   message_id bigint NOT NULL,
   notification_type text NOT NULL CHECK (notification_type = ANY (ARRAY['mention'::text, 'reply'::text])),
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   read_at timestamp with time zone DEFAULT now(),
   CONSTRAINT notification_read_status_pkey PRIMARY KEY (id),
   CONSTRAINT notification_read_status_username_fkey FOREIGN KEY (username) REFERENCES public.users(username),
   CONSTRAINT notification_read_status_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.messages(id)
 );
 CREATE TABLE public.user_message_history (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   username text NOT NULL,
   message_id bigint NOT NULL,
   original_username text NOT NULL,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   changed_at timestamp with time zone DEFAULT now(),
   CONSTRAINT user_message_history_pkey PRIMARY KEY (id),
   CONSTRAINT user_message_history_username_fkey FOREIGN KEY (username) REFERENCES public.users(username),
@@ -274,37 +272,37 @@ CREATE TABLE public.server_settings (
   CONSTRAINT server_settings_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
 CREATE TABLE public.server_word_filters (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   server_id uuid NOT NULL,
   word text NOT NULL,
-  created_by text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   replacement text NOT NULL DEFAULT '****'::text,
   is_active boolean NOT NULL DEFAULT true,
+  created_by text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT server_word_filters_pkey PRIMARY KEY (id),
   CONSTRAINT server_word_filters_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id),
   CONSTRAINT server_word_filters_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(username)
 );
 CREATE TABLE public.channel_permissions (
-  created_at timestamp with time zone DEFAULT now(),
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   channel_id bigint NOT NULL,
   role_id uuid,
   username text,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   can_view boolean DEFAULT true,
   can_send boolean DEFAULT true,
   can_manage boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT channel_permissions_pkey PRIMARY KEY (id),
   CONSTRAINT channel_permissions_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.channels(id),
   CONSTRAINT channel_permissions_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.server_roles(id),
   CONSTRAINT channel_permissions_username_fkey FOREIGN KEY (username) REFERENCES public.users(username)
 );
 CREATE TABLE public.voice_room_participants (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   channel_id bigint NOT NULL,
   username text NOT NULL,
-  disconnected_at timestamp with time zone,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   joined_at timestamp with time zone DEFAULT now(),
+  disconnected_at timestamp with time zone,
   is_muted boolean DEFAULT false,
   is_deafened boolean DEFAULT false,
   is_admin_muted boolean DEFAULT false,
@@ -313,13 +311,20 @@ CREATE TABLE public.voice_room_participants (
   CONSTRAINT fk_voice_participants_channel FOREIGN KEY (channel_id) REFERENCES public.channels(id)
 );
 CREATE TABLE public.voice_signaling (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
   channel_id bigint NOT NULL,
   from_username text NOT NULL,
   to_username text NOT NULL,
   sdp text,
   ice_candidate jsonb,
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT voice_signaling_pkey PRIMARY KEY (id),
   CONSTRAINT voice_signaling_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.channels(id)
+);
+CREATE TABLE public.user_system_roles (
+  username text NOT NULL,
+  role text NOT NULL CHECK (role = ANY (ARRAY['SysAdmin'::text, 'SysManager'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_system_roles_pkey PRIMARY KEY (username, role),
+  CONSTRAINT user_system_roles_username_fkey FOREIGN KEY (username) REFERENCES public.users(username)
 );

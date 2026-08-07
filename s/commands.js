@@ -1793,8 +1793,21 @@ async function refreshSettingsConnections() {
           if (action === 'connect') {
             // Spotify uses PKCE flow in spotify.js
             await linkSpotify();
-            // allow popup flow to complete, then refresh
-            setTimeout(() => refreshSettingsConnections(), 1200);
+            // Poll the users table until spotify_access_token appears (popup flow may be delayed)
+            const start = Date.now();
+            const timeout = 10000; // ms
+            const interval = 800; // ms
+            let found = false;
+            while (Date.now() - start < timeout) {
+              try {
+                const { data: userRow } = await supabaseClient.from('users').select('spotify_access_token').eq('username', username).maybeSingle();
+                if (userRow && userRow.spotify_access_token) { found = true; break; }
+              } catch (e) { /* ignore transient errors */ }
+              await new Promise(r => setTimeout(r, interval));
+            }
+            // Refresh UI regardless; if not found, refresh will show not-connected.
+            await refreshSettingsConnections();
+            if (!found) console.debug('[settings] Spotify token not observed after connect; UI refreshed anyway.');
           } else if (action === 'disconnect') {
             if (!confirm('Disconnect your Spotify account?')) { btn.disabled = false; return; }
             await unlinkSpotify();

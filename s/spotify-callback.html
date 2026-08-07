@@ -78,6 +78,15 @@
         } catch (e) {
         console.error('Callback handler error', e);
         }
+        // Also attempt to directly notify the opener via function calls if available
+        try {
+          if (window.opener) {
+            try { if (typeof window.opener.markSpotifyAsLinked === 'function') window.opener.markSpotifyAsLinked(); } catch (e) {}
+            try { if (typeof window.opener.refreshSettingsConnections === 'function') window.opener.refreshSettingsConnections(); } catch (e) {}
+            try { if (typeof window.opener.updateAccountLinkButtons === 'function') window.opener.updateAccountLinkButtons(); } catch (e) {}
+          }
+        } catch (e) { /* ignore */ }
+
         // Close popup shortly after posting message
         setTimeout(() => { try { window.close(); } catch (e) {} }, 700);
       })();

@@ -49,7 +49,7 @@ self.addEventListener("push", event => {
   const data = event.data?.json() || {};
   const isImportant = data.important === true;
   const isMention = data.mention === true;
-  const targetUrl = data.url || "/chatwithteachers";
+  const targetUrl = data.url || "/chat.html";
 
   const options = {
     body: data.body,
@@ -79,13 +79,13 @@ self.addEventListener("push", event => {
 self.addEventListener("notificationclick", event => {
   event.notification.close();
 
-  const targetUrl = event.notification?.data?.url || "/chatwithteachers";
+  const targetUrl = event.notification?.data?.url || "/chat.html";
 
   if (event.action === "open" || !event.action) {
     event.waitUntil(
       clients.matchAll({ type: "window", includeUncontrolled: true }).then(windowClients => {
         for (const client of windowClients) {
-          if ("focus" in client && client.url.includes("/chatwithteachers")) {
+          if ("focus" in client && client.url.includes("/chat.html")) {
             return client.focus();
           }
         }
