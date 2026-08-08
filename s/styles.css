@@ -501,6 +501,7 @@ body {
   flex: 1;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px 0 28px;
   list-style: none;
   margin: 0;
@@ -644,9 +645,11 @@ li[data-pinned="true"] {
   color: var(--text-main);
   white-space: pre-wrap;
   word-break: break-word;
-  overflow-wrap: break-word;
+  /* prefer breaking very long tokens to avoid layout blowout */
+  overflow-wrap: anywhere;
   max-width: 100%;
   overflow-x: auto;
+  min-width: 0; /* allow this flex child to shrink when needed */
 }
 
 /* Handle very long messages */
@@ -1263,6 +1266,9 @@ li[data-pinned="true"] {
 .mention .mention-mark,
 .mention .mention-name {
   line-height: inherit;
+  /* allow mention parts to break on very long usernames */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .mention:hover {
