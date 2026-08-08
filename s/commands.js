@@ -283,17 +283,6 @@ async function censorContent(text, serverId = currentServerId) {
   }
 }
 
-async function fetchLinkPreviewEdge(url) {
-  try {
-    const res = await fetch(`${supabaseClient.supabaseUrl}/functions/v1/get-link-preview?url=${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("Preview failed");
-    return await res.json();
-  } catch (err) {
-    console.warn("Preview error:", err);
-    return null;
-  }
-}
-
 async function resolveGifEdge(query) {
   try {
     const { data, error } = await supabaseClient.functions.invoke("resolve-gif", {
@@ -308,11 +297,21 @@ async function resolveGifEdge(query) {
 }
 
 async function logIpEdge() {
+  if (window._logIpUnavailable) return;
   try {
     await supabaseClient.functions.invoke("log-ip", {
       body: { username }
     });
   } catch (err) {
+    try {
+      const status = err?.status || (err?.response && err.response.status) || null;
+      if (status === 404) {
+        // Mark unavailable to avoid noisy repeated 404s
+        window._logIpUnavailable = true;
+        console.debug('[log-ip] function not found (404). Disabling further attempts.');
+        return;
+      }
+    } catch (e) {}
     console.warn("IP log failed:", err);
   }
 }
@@ -442,10 +441,48 @@ function subscribeToVoiceSignaling(channelId) {
         // Only process messages intended for me
         if (data.to_username !== username) return;
 
-        const peerConn = currentPeerConnections.get(data.from_username);
+        let peerConn = currentPeerConnections.get(data.from_username);
+
+        // If we don't have a PeerConnection yet, try to handle two cases:
+        // - Incoming ICE candidate before PC exists -> buffer it
+        // - Incoming SDP offer -> create/initiate a connection as the callee
         if (!peerConn) {
-          console.warn("⚠️ Received signal from unknown user:", data.from_username);
-          return;
+          if (data.ice_candidate) {
+            const pending = pendingIceCandidates.get(data.from_username) || [];
+            pending.push(data.ice_candidate);
+            pendingIceCandidates.set(data.from_username, pending);
+            console.log(`🧊 Buffered ICE candidate for ${data.from_username} (no peer yet)`);
+            return;
+          }
+
+          if (data.sdp) {
+            try {
+              const sdpProbe = JSON.parse(data.sdp);
+              if (sdpProbe.type === 'offer') {
+                // Create a peer connection and wiring for incoming offer
+                try {
+                  await initiateConnection(data.from_username, channelId);
+                  peerConn = currentPeerConnections.get(data.from_username);
+                  if (!peerConn) {
+                    console.warn('⚠️ initiateConnection did not create a peer connection for', data.from_username);
+                    return;
+                  }
+                } catch (initErr) {
+                  console.warn('⚠️ Failed to init peer connection for incoming offer:', initErr);
+                  return;
+                }
+              } else {
+                console.warn('⚠️ Received SDP for unknown peer (not an offer):', data.from_username, sdpProbe.type);
+                return;
+              }
+            } catch (e) {
+              console.warn('⚠️ Malformed SDP payload from', data.from_username);
+              return;
+            }
+          } else {
+            console.warn('⚠️ Received signaling for unknown user:', data.from_username);
+            return;
+          }
         }
 
         try {
@@ -454,39 +491,44 @@ function subscribeToVoiceSignaling(channelId) {
             const sdpObj = JSON.parse(data.sdp);
             console.log(`📩 Processing SDP from ${data.from_username}: ${sdpObj.type}`);
 
-            if (
-                sdpObj.type === "answer" &&
-                peerConn.signalingState !== "have-local-offer"
-            ) {
-              console.warn(
-                  "Ignoring unexpected answer:",
-                  peerConn.signalingState
-              );
-              return;
-            }
-            
-            // Mark that remote description is set
-            const state = connectionStates.get(data.from_username) || {};
-            state.remoteDescriptionSet = true;
-            connectionStates.set(data.from_username, state);
+            // For offers, set remote description first, then create an answer.
+            try {
+              if (sdpObj.type === 'offer') {
+                await peerConn.setRemoteDescription(sdpObj);
 
-            if (sdpObj.type === 'offer') {
-              // Create Answer
-              const answer = await peerConn.createAnswer();
-              await peerConn.setLocalDescription(answer);
+                // Mark that remote description is set only after successful setRemoteDescription
+                const state = connectionStates.get(data.from_username) || {};
+                state.remoteDescriptionSet = true;
+                connectionStates.set(data.from_username, state);
 
-              // Send Answer back
-              await supabaseClient
-                .from("voice_signaling")
-                .insert({
-                  channel_id: channelId,
-                  from_username: username,
-                  to_username: data.from_username,
-                  sdp: JSON.stringify(answer)
-                });
+                const answer = await peerConn.createAnswer();
+                await peerConn.setLocalDescription(answer);
+
+                // Send Answer back
+                await supabaseClient
+                  .from("voice_signaling")
+                  .insert({
+                    channel_id: channelId,
+                    from_username: username,
+                    to_username: data.from_username,
+                    sdp: JSON.stringify(answer)
+                  });
+              } else if (sdpObj.type === 'answer') {
+                // Answers should be applied as remote description
+                await peerConn.setRemoteDescription(sdpObj);
+
+                const state = connectionStates.get(data.from_username) || {};
+                state.remoteDescriptionSet = true;
+                connectionStates.set(data.from_username, state);
+              } else {
+                // Unexpected SDP type — ignore
+                console.warn('⚠️ Unsupported SDP type:', sdpObj.type);
+              }
+            } catch (sdpErr) {
+              console.error('❌ Failed to process incoming SDP:', sdpErr);
             }
-            
-            // Process any pending ICE candidates
+
+            // Process any pending ICE candidates (if remote description now set)
             const pending = pendingIceCandidates.get(data.from_username) || [];
             if (pending.length > 0) {
               console.log(`🧊 Processing ${pending.length} pending ICE candidates for ${data.from_username}`);
@@ -701,7 +743,7 @@ peerConn.ontrack = (event) => {
   audio.className = 'remote-voice';
   audio.autoplay = true;
   audio.muted = selfDeafened;
-  audio.volume = (cachedUserVoiceVolume || 100) / 100;
+  audio.volume = Math.min(1, ((cachedUserVoiceVolume || 100) / 100) * 0.75);
   document.body.appendChild(audio);
 
   // Unlock AudioContext and force playback
@@ -790,7 +832,17 @@ async function joinVoiceChannel(channelId) {
 
   try {
     console.log("🎤 Requesting microphone access...");
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const voiceConstraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 48000
+      },
+      video: false
+    };
+    localStream = await navigator.mediaDevices.getUserMedia(voiceConstraints);
     console.log("✅ Microphone access granted.");
 
     // CALL THE HELPER HERE
@@ -2695,7 +2747,16 @@ window.testAudioRouting = async function() {
   
   try {
     // Get microphone access
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 48000
+      },
+      video: false
+    });
     console.log('✅ Microphone access granted for routing test');
     
     // Create audio context for processing

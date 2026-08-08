@@ -598,8 +598,16 @@ function getEffectiveAvatarUrl(usernameValue, serverId = currentConversationType
 
 function bustAvatarUrl(url) {
   if (!url) return "";
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}t=${Date.now()}`;
+  try {
+    // Resolve relative URLs and safely set/replace the cache-bust `t` param
+    const resolved = new URL(url, window.location.href);
+    resolved.searchParams.set('t', String(Date.now()));
+    return resolved.href;
+  } catch (e) {
+    // Fallback: simple append
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}t=${Date.now()}`;
+  }
 }
 
 function setAvatarUrl(usernameValue, url) {
@@ -650,8 +658,25 @@ function buildAvatarElement(usernameValue, className) {
     img.className = "avatar-image";
     img.alt = `${displayLabel} avatar`;
     img.loading = "lazy";
-    img.src = avatarUrl;
+    // Normalize and safely set src
+    try {
+      const safe = new URL(avatarUrl, window.location.href).href;
+      img.src = safe;
+    } catch (e) {
+      img.src = encodeURI(avatarUrl);
+    }
     img.onerror = () => {
+      // Fallback: try removing query params and retry once
+      try {
+        const short = (new URL(img.src)).origin + (new URL(img.src)).pathname;
+        if (short && short !== img.src) {
+          img.onerror = null;
+          img.src = short;
+          return;
+        }
+      } catch (e) {}
+      // Clear cached broken avatar to avoid repeated failing requests
+      try { setAvatarUrl(usernameValue, ""); } catch (e) {}
       img.remove();
       avatar.classList.remove("has-image");
     };
@@ -694,6 +719,8 @@ function updateProfileButton() {
     img.src = avatarUrl;
     img.onload = () => btn.classList.add("has-image");
     img.onerror = () => {
+      // Clear cached broken avatar for current user
+      try { setAvatarUrl(username, ""); } catch (e) {}
       img.remove();
       btn.classList.remove("has-image");
     };
@@ -753,13 +780,17 @@ async function showLocalTestNotification() {
   if (Notification.permission !== "granted") return;
 
   try {
+    const iconUrl = (function() {
+      try { return new URL('/logo.png', window.location.href).href; } catch (e) { return '/logo.png'; }
+    })();
+
     if ("serviceWorker" in navigator) {
       const registration = await navigator.serviceWorker.ready;
       await registration.showNotification("Notifications enabled", {
         body: "Local notification test successful.",
         tag: "local-notification-test",
-        icon:  "/logo.png",
-        badge: "/logo.png",
+        icon:  iconUrl,
+        badge: iconUrl,
         requireInteraction: true,
         silent: false,
         vibrate: [120, 60, 120],

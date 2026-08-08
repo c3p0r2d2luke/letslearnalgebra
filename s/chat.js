@@ -539,14 +539,6 @@ async function performDeleteCategory(catName) {
   renderChannelList();
 }
 
-async function deleteChannel(channelId, channelName) {
-  // Legacy compat — just call the inline delete show
-  showInlineDelete("channel", channelId, channelName);
-  return; // old code below kept as dead code just in case
-
-}
-
-
 async function switchChannel(channelId) {
   // 🔥 If currently in a voice channel, leave it before switching to a text channel
   if (currentVoiceChannelId) {
@@ -1601,13 +1593,23 @@ document.addEventListener("keydown", async e => {
 
 // ------------------------ Push ------------------------
 const VAPID_PUBLIC_KEY = "BASYo0tS0nRAG504ReCj95aY9QacgW9vPLQKkMJRU8LXPDMtYIg-oeA__TvgyDJlop9mQqeRC1j_7ydtlKCk0zA";
+function resolveAssetUrl(assetPath) {
+  const baseUrl = document.currentScript?.src || window.location.href;
+  try {
+    return new URL(assetPath, baseUrl).href;
+  } catch (err) {
+    console.warn("[push] Failed to resolve asset URL for", assetPath, err);
+    return assetPath;
+  }
+}
+
 async function enablePush() {
   if (!username) return;
   if(!("serviceWorker" in navigator)) return;
   const permission = await Notification.requestPermission();
   if(permission!=="granted") return;
   try {
-    const swUrl = new URL("sw.js", window.location.href).href;
+    const swUrl = resolveAssetUrl("sw.js");
     await navigator.serviceWorker.register(swUrl);
   } catch (swError) {
     console.warn("[push] Service worker registration failed:", swError);
@@ -1649,9 +1651,6 @@ const menuToggleBtn = document.getElementById("menuToggle");
 const sidebarOverlay = document.getElementById("sidebarOverlay");
 const serverSwitchBtn = document.getElementById("serverSwitchBtn");
 
-function openSidebar() {
-  document.body.classList.add("sidebar-open");
-}
 function closeSidebar() {
   document.body.classList.remove("sidebar-open");
 }
@@ -3209,16 +3208,6 @@ function attachHoverControls(li, msg) {
 
 // call this inside renderMessage AFTER message content is created
 
-function enhanceMessage(li, msg) {
-
-  attachHoverControls(li, msg);
-
-  // renderReply is now handled in renderMessage with replyContext for Discord-style
-  // renderReply(msg, li);
-
-}
-
-
 // ======================== THREAD SYSTEM ========================
 
 function displayName(u) {
@@ -3228,8 +3217,23 @@ function displayName(u) {
 
 // ===================== Force Logout Logic =====================
 function watchForceLogout(currentUsername) {
+  // Use a unique channel name if a similarly-named channel already exists,
+  // to avoid attempting to add callbacks after an existing channel was subscribed.
+  let channelName = 'force-logout';
+  try {
+    if (typeof supabaseClient.getChannels === 'function') {
+      const existing = supabaseClient.getChannels().find((c) => c?.topic?.includes('force-logout') || c?.topic === 'realtime:force-logout');
+      if (existing) {
+        channelName = `force-logout-${Math.random().toString(36).slice(2)}`;
+        console.debug('[chat] Existing force-logout channel found; using', channelName);
+      }
+    }
+  } catch (e) {
+    console.debug('[chat] error checking existing channels for force-logout:', e);
+  }
+
   supabaseClient
-    .channel('force-logout')
+    .channel(channelName)
     .on(
       'postgres_changes',
       {
@@ -3536,17 +3540,6 @@ document.addEventListener("click", (e) => {
     messagesList.scrollTo({ top: messagesList.scrollHeight, behavior: "smooth" });
   });
 })();
-
-function handleReaction(messageId, emoji) {
-  const li = messagesMap.get(Number(messageId));
-  if (!li) return;
-
-  // Trigger the database update
-  addReaction(messageId, emoji);
-
-  // Immediately re-render to show the change
-  renderReactions(messageId, li);
-}
 
 function formatMessageContent(content, role) {
   // Handle extremely long messages by truncating them
@@ -4134,12 +4127,22 @@ async function ensureGeneralCategoryAndFixOrphans(serverId, options = {}) {
   return { changed, generalCategoryId: generalCategory.id };
 }
 
-if (typeof window.initSpotifyPresence === 'function') {
-  window.initSpotifyPresence();
-} else {
-  window.addEventListener('load', () => {
-    if (typeof window.initSpotifyPresence === 'function') {
+function attemptSpotifyInit() {
+  if (typeof window.initSpotifyPresence === 'function') {
+    try {
       window.initSpotifyPresence();
+    } catch (err) {
+      console.warn("[chat] initSpotifyPresence failed:", err);
+    }
+    return true;
+  }
+  return false;
+}
+
+if (!attemptSpotifyInit()) {
+  window.addEventListener('load', () => {
+    if (!attemptSpotifyInit()) {
+      setTimeout(attemptSpotifyInit, 500);
     }
   });
 }

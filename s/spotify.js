@@ -217,8 +217,23 @@ async function initSpotifyPresence() {
     // Make sure window.supabaseClient exists for other checks in this file
     try { window.supabaseClient = client; } catch (e) {}
 
+    // Avoid adding on(...) callbacks to an already-subscribed channel object
+    // by choosing a unique channel name if one already exists.
+    let spotifyChannelName = 'spotify-presence';
+    try {
+        if (typeof client.getChannels === 'function') {
+            const existing = client.getChannels().find((c) => c?.topic?.includes('spotify-presence') || c?.topic === 'realtime:spotify-presence');
+            if (existing) {
+                spotifyChannelName = `spotify-presence-${Math.random().toString(36).slice(2)}`;
+                console.debug('[spotify] existing spotify-presence channel detected; using', spotifyChannelName);
+            }
+        }
+    } catch (e) {
+        console.debug('[spotify] error checking existing channels:', e);
+    }
+
     spotifyChannel = client
-        .channel('spotify-presence')
+        .channel(spotifyChannelName)
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users' }, (payload) => {
             try {
                 if (!payload || !payload.new) {

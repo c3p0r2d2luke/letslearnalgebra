@@ -9,7 +9,7 @@ function initAdminDebugPanel() {
   if (window.innerWidth <= 768 || window.matchMedia("(pointer: coarse)").matches) return;
   if (adminDebugPanel) return;
 
-  // ── Build DOM ──────────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Build DOM \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   adminDebugPanel = document.createElement("div");
   adminDebugPanel.id = "admin-debug-panel";
   Object.assign(adminDebugPanel.style, {
@@ -21,7 +21,7 @@ function initAdminDebugPanel() {
     display: "flex", flexDirection: "column", overflow: "hidden", resize: "both"
   });
 
-  // ── Toolbar ────────────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Toolbar \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const toolbar = document.createElement("div");
   Object.assign(toolbar.style, {
     display: "flex", alignItems: "center", gap: "6px",
@@ -30,7 +30,7 @@ function initAdminDebugPanel() {
   });
 
   const title = document.createElement("span");
-  title.textContent = "🛡️ SysAdmin Console";
+  title.textContent = "\u{1f6e1}\u{fe0f} SysAdmin Console";
   Object.assign(title.style, { color: "#3ba55d", fontWeight: "bold", fontSize: "13px", marginRight: "auto", cursor: "move" });
 
   // Filter buttons
@@ -57,14 +57,14 @@ function initAdminDebugPanel() {
   const clearBtn = makeToolbarBtn("Clear", "#ed4245");
   clearBtn.addEventListener("click", clearConsole);
 
-  const closeBtn = makeToolbarBtn("✕", "#555");
+  const closeBtn = makeToolbarBtn("\u{2715}", "#555");
   closeBtn.addEventListener("click", () => { adminDebugPanel.style.display = "none"; });
 
   toolbar.insertBefore(title, toolbar.firstChild);
   toolbar.appendChild(clearBtn);
   toolbar.appendChild(closeBtn);
 
-  // ── Output area ────────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Output area \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const output = document.createElement("div");
   output.id = "admin-console-output";
   Object.assign(output.style, {
@@ -73,7 +73,7 @@ function initAdminDebugPanel() {
     fontSize: "12px", lineHeight: "1.5", fontFamily: "inherit"
   });
 
-  // ── Input row ──────────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Input row \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const inputRow = document.createElement("div");
   Object.assign(inputRow.style, {
     display: "flex", alignItems: "center", gap: "6px",
@@ -82,7 +82,7 @@ function initAdminDebugPanel() {
   });
 
   const promptLabel = document.createElement("span");
-  promptLabel.textContent = "❯";
+  promptLabel.textContent = "\u{276f}";
   promptLabel.style.cssText = "color:#3ba55d;font-weight:bold;font-size:14px;flex-shrink:0;";
 
   const inputEl = document.createElement("input");
@@ -92,11 +92,11 @@ function initAdminDebugPanel() {
     borderRadius: "4px", color: "#dbdee1", padding: "4px 8px",
     fontFamily: "inherit", fontSize: "12px", outline: "none"
   });
-  inputEl.placeholder = "Run any JS… try: document.title, fetch(), supabaseClient, servers";
+  inputEl.placeholder = "Run any JS\u{2026} try: document.title, fetch(), supabaseClient, servers";
   inputEl.addEventListener("focus", () => { inputEl.style.borderColor = "#5865f2"; });
   inputEl.addEventListener("blur",  () => { inputEl.style.borderColor = "#3a3d44"; });
 
-  const runBtn = makeToolbarBtn("Run ▶", "#3ba55d");
+  const runBtn = makeToolbarBtn("Run \u{25b6}", "#3ba55d");
   runBtn.addEventListener("click", () => runCommand());
 
   // Autocomplete dropdown
@@ -117,7 +117,7 @@ function initAdminDebugPanel() {
   adminDebugPanel.appendChild(inputRow);
   document.body.appendChild(adminDebugPanel);
 
-  // ── Drag to move ──────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Drag to move \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   let drag = null;
   title.addEventListener("mousedown", e => {
     drag = { x: e.clientX - adminDebugPanel.offsetLeft, y: e.clientY - adminDebugPanel.offsetTop };
@@ -131,7 +131,7 @@ function initAdminDebugPanel() {
   });
   document.addEventListener("mouseup", () => { drag = null; });
 
-  // ── Keyboard handler ──────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Keyboard handler \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   inputEl.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); runCommand(); return; }
     if (e.key === "ArrowUp") {
@@ -155,14 +155,14 @@ function initAdminDebugPanel() {
     if (!inputRow.contains(e.target)) hideAutocomplete();
   });
 
-  // ── Intercept ALL console output ──────────────────────────────────────────
+  // \u{2500}\u{2500} Intercept ALL console output \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   interceptConsole(output, activeFilters);
 
-  // ── Intercept window errors ────────────────────────────────────────────────
+  // \u{2500}\u{2500} Intercept window errors \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   window.addEventListener("error", ev => {
     appendLine(output, activeFilters, {
       type: "ERROR",
-      parts: [`🔴 Uncaught ${ev.message}`, `  at ${ev.filename}:${ev.lineno}:${ev.colno}`],
+      parts: [`\u{1f534} Uncaught ${ev.message}`, `  at ${ev.filename}:${ev.lineno}:${ev.colno}`],
       raw: null
     });
   });
@@ -171,18 +171,18 @@ function initAdminDebugPanel() {
     const msg = ev.reason instanceof Error
       ? ev.reason.stack || ev.reason.message
       : String(ev.reason);
-    appendLine(output, activeFilters, { type: "ERROR", parts: [`🔴 Unhandled Promise Rejection: ${msg}`], raw: null });
+    appendLine(output, activeFilters, { type: "ERROR", parts: [`\u{1f534} Unhandled Promise Rejection: ${msg}`], raw: null });
   });
 
-  // ── Intercept fetch (network tab) ─────────────────────────────────────────
+  // \u{2500}\u{2500} Intercept fetch (network tab) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   interceptFetch(output, activeFilters);
 
-  // ── Welcome message ───────────────────────────────────────────────────────
-  appendLine(output, activeFilters, { type: "INFO",  parts: ["🛡️  SysAdmin Console — full browser-console replacement"], raw: null });
+  // \u{2500}\u{2500} Welcome message \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
+  appendLine(output, activeFilters, { type: "INFO",  parts: ["\u{1f6e1}\u{fe0f}  SysAdmin Console \u{2014} full browser-console replacement"], raw: null });
   appendLine(output, activeFilters, { type: "INFO",  parts: ["   All errors, warnings, network requests and console output captured."], raw: null });
   appendLine(output, activeFilters, { type: "INFO",  parts: ["   Use Tab for autocomplete. Arrow keys for history. Click any object to expand."], raw: null });
 
-  // ── Helper functions (scoped) ─────────────────────────────────────────────
+  // \u{2500}\u{2500} Helper functions (scoped) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
 
   function makeToolbarBtn(label, bg) {
     const b = document.createElement("button");
@@ -229,24 +229,24 @@ function initAdminDebugPanel() {
     hideAutocomplete();
 
     // Echo input
-    appendLine(output, activeFilters, { type: "LOG", parts: ["❯ " + cmd], raw: null, dimmed: true });
+    appendLine(output, activeFilters, { type: "LOG", parts: ["\u{276f} " + cmd], raw: null, dimmed: true });
 
     try {
       // Use indirect eval so it runs in global scope with access to all vars
       const result = (0, eval)(cmd);
       if (result !== undefined) {
-        appendLine(output, activeFilters, { type: "LOG", parts: [null], raw: result, prefix: "◀ " });
+        appendLine(output, activeFilters, { type: "LOG", parts: [null], raw: result, prefix: "\u{25c0} " });
       }
     } catch (err) {
-      appendLine(output, activeFilters, { type: "ERROR", parts: ["✖ " + err.message], raw: null });
+      appendLine(output, activeFilters, { type: "ERROR", parts: ["\u{2716} " + err.message], raw: null });
     }
 
     output.scrollTop = output.scrollHeight;
   }
 
-  // ── Autocomplete ──────────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Autocomplete \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const STATIC_SUGGESTIONS = [
-    // --- 🟢 CORE VARIABLES & STATE (Quick Access) ---
+    // --- \u{1f7e2} CORE VARIABLES & STATE (Quick Access) ---
     "servers",
     "channels",
     "username",
@@ -262,7 +262,7 @@ function initAdminDebugPanel() {
     "currentVoiceChannelId",
     "availableThemes",
 
-    // --- 🔧 SYSTEM & NAVIGATION (Quick Fixes) ---
+    // --- \u{1f527} SYSTEM & NAVIGATION (Quick Fixes) ---
     "loadServers()",
     "loadServerMembers()",
     "loadMessages()",
@@ -274,7 +274,7 @@ function initAdminDebugPanel() {
     "toggleMobileSimulation()",
     "startTutorial()",
 
-    // --- 🛡️ USER & MEMBER MANAGEMENT (Moderation) ---
+    // --- \u{1f6e1}\u{fe0f} USER & MEMBER MANAGEMENT (Moderation) ---
     "forceLogout('target_username')",
     "globalMuteUser('target_username', 60)",
     "globalUnmuteUser('target_username')",
@@ -285,14 +285,14 @@ function initAdminDebugPanel() {
     "userInfo('target_username')",
     "transferOwnership()",
 
-    // --- 🗄️ DATABASE & DATA HYGIENE (Bulk Actions) ---
+    // --- \u{1f5c4}\u{fe0f} DATABASE & DATA HYGIENE (Bulk Actions) ---
     "fixPlainGifUrls()",
     "deleteKeyword('spam_word')",
     "exportChat()",
     "censorContent('test text')",
     "clearServerCache()", // Note: Ensure this function exists or use manual cache clear
 
-    // --- 🎤 VOICE & MEDIA DIAGNOSTICS (Advanced) ---
+    // --- \u{1f3a4} VOICE & MEDIA DIAGNOSTICS (Advanced) ---
     "testVoiceChat()",
     "quickVoiceCheck()",
     "runVoiceAudioTests()",
@@ -305,12 +305,12 @@ function initAdminDebugPanel() {
     "leaveVoiceChannel()",
     "joinVoiceChannel()",
 
-    // --- 🎨 THEMES & UI ---
+    // --- \u{1f3a8} THEMES & UI ---
     "loadThemesAndApply()",
     "selectTheme('theme_id_here')",
     "document.querySelectorAll('audio').length",
 
-    // --- 🌐 BROWSER & NETWORK (Native) ---
+    // --- \u{1f310} BROWSER & NETWORK (Native) ---
     "document.title",
     "document.cookie",
     "window.location.href",
@@ -395,7 +395,7 @@ function initAdminDebugPanel() {
   }
 }
 
-// ── Shared helpers (outside initAdminDebugPanel so interceptFetch can call appendLine) ──
+// \u{2500}\u{2500} Shared helpers (outside initAdminDebugPanel so interceptFetch can call appendLine) \u{2500}\u{2500}
 
 function typeColor(type) {
   return { ERROR: "#ed4245", WARN: "#faa61a", INFO: "#5865f2", NET: "#3ba55d", LOG: "#5e6272" }[type] || "#5e6272";
@@ -412,9 +412,9 @@ function serializeValue(val, depth) {
   if (typeof val === "boolean") return { text: String(val), color: "#f1c40f" };
   if (typeof val === "number") return { text: String(val), color: "#f1c40f" };
   if (typeof val === "string") return { text: depth > 0 ? `"${val}"` : val, color: depth > 0 ? "#a8c97f" : "#dbdee1" };
-  if (typeof val === "function") return { text: `ƒ ${val.name || "anonymous"}()`, color: "#c792ea" };
+  if (typeof val === "function") return { text: `\u{192} ${val.name || "anonymous"}()`, color: "#c792ea" };
   if (val instanceof Error) return { text: val.stack || val.message, color: "#ff6b6b" };
-  if (val instanceof Promise) return { text: "Promise {…}", color: "#c792ea" };
+  if (val instanceof Promise) return { text: "Promise {\u{2026}}", color: "#c792ea" };
   if (typeof val === "object") {
     const isArr = Array.isArray(val);
     try {
@@ -422,10 +422,10 @@ function serializeValue(val, depth) {
       const preview = keys.slice(0, 3).map(k => {
         const v = val[k];
         const vt = typeof v;
-        const vs = v === null ? "null" : vt === "object" ? (Array.isArray(v) ? "[…]" : "{…}") : vt === "function" ? "ƒ" : String(v).slice(0, 20);
+        const vs = v === null ? "null" : vt === "object" ? (Array.isArray(v) ? "[\u{2026}]" : "{\u{2026}}") : vt === "function" ? "\u{192}" : String(v).slice(0, 20);
         return isArr ? vs : `${k}: ${vs}`;
       }).join(", ");
-      const more = keys.length > 3 ? `, …+${keys.length - 3}` : "";
+      const more = keys.length > 3 ? `, \u{2026}+${keys.length - 3}` : "";
       const label = isArr ? `Array(${val.length})` : (val.constructor?.name && val.constructor.name !== "Object" ? val.constructor.name : "Object");
       return { text: `${label} { ${preview}${more} }`, color: "#c792ea", expandable: true, value: val };
     } catch { return { text: "[Object]", color: "#949ba4" }; }
@@ -454,13 +454,13 @@ function buildExpandableTree(val, depth) {
   const header = document.createElement("div");
   header.style.cssText = "display:flex;align-items:center;gap:4px;cursor:pointer;";
   const arrow = document.createElement("span");
-  arrow.textContent = "▶"; arrow.style.cssText = "color:#949ba4;font-size:10px;width:10px;flex-shrink:0;transition:transform 0.15s;";
+  arrow.textContent = "\u{25b6}"; arrow.style.cssText = "color:#949ba4;font-size:10px;width:10px;flex-shrink:0;transition:transform 0.15s;";
   const headerText = document.createElement("span");
   headerText.style.color = "#c792ea";
   headerText.textContent = `${label} ${open}`;
   if (keys.length > 0) {
     const preview = keys.slice(0, 3).map(k => {
-      try { const v = val[k]; return isArr ? serializeValue(v, 1).text : `${k}: ${serializeValue(v, 1).text}`; } catch { return "…"; }
+      try { const v = val[k]; return isArr ? serializeValue(v, 1).text : `${k}: ${serializeValue(v, 1).text}`; } catch { return "\u{2026}"; }
     }).join(", ");
     const moreCount = keys.length > 3 ? `, +${keys.length - 3} more` : "";
     const previewSpan = document.createElement("span");
@@ -503,7 +503,7 @@ function buildExpandableTree(val, depth) {
       });
       if (keys.length === 200 && !isArr) {
         const more = document.createElement("div");
-        more.textContent = "  … (truncated at 200 keys)"; more.style.color = "#949ba4"; more.style.marginLeft = "14px";
+        more.textContent = "  \u{2026} (truncated at 200 keys)"; more.style.color = "#949ba4"; more.style.marginLeft = "14px";
         body.appendChild(more);
       }
     }
@@ -623,15 +623,15 @@ function shortenUrl(url) {
   if (!url) return "";
   try {
     const u = new URL(url);
-    const path = u.pathname.length > 40 ? u.pathname.slice(0, 37) + "…" : u.pathname;
+    const path = u.pathname.length > 40 ? u.pathname.slice(0, 37) + "\u{2026}" : u.pathname;
     const host = u.hostname.replace("www.", "");
-    return `${host}${path}${u.search ? "?" + u.search.slice(1, 20) + (u.search.length > 21 ? "…" : "") : ""}`;
+    return `${host}${path}${u.search ? "?" + u.search.slice(1, 20) + (u.search.length > 21 ? "\u{2026}" : "") : ""}`;
   } catch {
-    return url.length > 80 ? url.slice(0, 77) + "…" : url;
+    return url.length > 80 ? url.slice(0, 77) + "\u{2026}" : url;
   }
 }
 
-// ── ULTIMATE NETWORK & EMBED MONITOR ────────────────────────────────────────
+// \u{2500}\u{2500} ULTIMATE NETWORK & EMBED MONITOR \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
 function interceptFetch(output, activeFilters) {
   // 1. Patch Fetch (Global)
   const originalFetch = window.fetch;
@@ -640,21 +640,21 @@ function interceptFetch(output, activeFilters) {
     const method = args[1]?.method || 'GET';
     appendLine(output, activeFilters, { 
       type: "NET", 
-      parts: [`🌐 Fetch: ${method} ${typeof url === 'string' ? url : url.url}`], 
+      parts: [`\u{1f310} Fetch: ${method} ${typeof url === 'string' ? url : url.url}`], 
       raw: null 
     });
     try {
       const res = await originalFetch.apply(this, args);
       appendLine(output, activeFilters, { 
         type: "NET", 
-        parts: [`✅ ${res.status} ${res.statusText}`], 
+        parts: [`\u{2705} ${res.status} ${res.statusText}`], 
         raw: res 
       });
       return res;
     } catch (err) {
       appendLine(output, activeFilters, { 
         type: "ERROR", 
-        parts: [`❌ Fetch Failed: ${err.message}`], 
+        parts: [`\u{274c} Fetch Failed: ${err.message}`], 
         raw: err 
       });
       throw err;
@@ -667,7 +667,7 @@ function interceptFetch(output, activeFilters) {
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     appendLine(output, activeFilters, { 
       type: "NET", 
-      parts: [`🌐 XHR: ${method.toUpperCase()} ${url}`], 
+      parts: [`\u{1f310} XHR: ${method.toUpperCase()} ${url}`], 
       raw: null 
     });
     return originalXHROpen.apply(this, [method, url, ...rest]);
@@ -680,7 +680,7 @@ function interceptFetch(output, activeFilters) {
   document.addEventListener('securitypolicyviolation', (e) => {
     appendLine(output, activeFilters, { 
       type: "ERROR", 
-      parts: [`🚫 CSP BLOCKED: ${e.blockedURI} (Directive: ${e.violatedDirective})`], 
+      parts: [`\u{1f6ab} CSP BLOCKED: ${e.blockedURI} (Directive: ${e.violatedDirective})`], 
       raw: e 
     });
   });
@@ -690,7 +690,7 @@ function interceptFetch(output, activeFilters) {
     if (e.message.toLowerCase().includes('gofundme') || e.filename?.includes('gofundme')) {
       appendLine(output, activeFilters, { 
         type: "ERROR", 
-        parts: [`💥 GoFundMe Error: ${e.message}`, `  at ${e.filename}:${e.lineno}`], 
+        parts: [`\u{1f4a5} GoFundMe Error: ${e.message}`, `  at ${e.filename}:${e.lineno}`], 
         raw: e 
       });
     }
@@ -701,7 +701,7 @@ function interceptFetch(output, activeFilters) {
     if (msg.includes('gofundme') || msg.includes('embed')) {
       appendLine(output, activeFilters, { 
         type: "ERROR", 
-        parts: [`💥 GoFundMe Promise Rejection: ${msg}`], 
+        parts: [`\u{1f4a5} GoFundMe Promise Rejection: ${msg}`], 
         raw: e.reason 
       });
     }
@@ -715,7 +715,7 @@ function interceptFetch(output, activeFilters) {
           const src = node.src || '(no src)';
           appendLine(output, activeFilters, { 
             type: "NET", 
-            parts: [`📺 Iframe Created: ${src}`], 
+            parts: [`\u{1f4fa} Iframe Created: ${src}`], 
             raw: node 
           });
           
@@ -724,21 +724,21 @@ function interceptFetch(output, activeFilters) {
             node.addEventListener('load', () => {
               appendLine(output, activeFilters, { 
                 type: "INFO", 
-                parts: [`✅ Iframe Loaded: ${src}`], 
+                parts: [`\u{2705} Iframe Loaded: ${src}`], 
                 raw: null 
               });
             });
             node.addEventListener('error', () => {
               appendLine(output, activeFilters, { 
                 type: "ERROR", 
-                parts: [`❌ Iframe Failed to Load: ${src}`], 
+                parts: [`\u{274c} Iframe Failed to Load: ${src}`], 
                 raw: null 
               });
             });
           } catch (err) {
             appendLine(output, activeFilters, { 
               type: "WARN", 
-              parts: [`⚠️ Cannot monitor iframe events (Cross-Origin): ${src}`], 
+              parts: [`\u{26a0}\u{fe0f} Cannot monitor iframe events (Cross-Origin): ${src}`], 
               raw: null 
             });
           }
@@ -755,14 +755,14 @@ function interceptFetch(output, activeFilters) {
       const iframe = embed.querySelector('iframe');
       appendLine(output, activeFilters, { 
         type: "INFO", 
-        parts: [`🔍 GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`], 
+        parts: [`\u{1f50d} GoFundMe Embed Found:`, `  Container: ${!!embed}`, `  Iframe: ${!!iframe}`, `  Src: ${iframe?.src || 'None'}`], 
         raw: null 
       });
       
       if (!iframe) {
         appendLine(output, activeFilters, { 
           type: "WARN", 
-          parts: [`⚠️ No iframe found inside .gfm-embed! Script might not have loaded.`], 
+          parts: [`\u{26a0}\u{fe0f} No iframe found inside .gfm-embed! Script might not have loaded.`], 
           raw: null 
         });
       }
@@ -779,7 +779,7 @@ function formatArg(a) {
   try { return JSON.stringify(a, null, 0).slice(0, 300); } catch { return "[Object]"; }
 }
 
-// ── Re-init trigger ──────────────────────────────────────────────────────────
+// \u{2500}\u{2500} Re-init trigger \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
     if (typeof currentSystemRole !== "undefined" && currentSystemRole === "SysAdmin") initAdminDebugPanel();
@@ -870,23 +870,6 @@ function logToAdminConsole(message, type = 'log') {
   output.scrollTop = output.scrollHeight;
 }
 
-function executeAdminCommand(command) {
-  logToAdminConsole(`> ${command}`, 'info');
-
-  try {
-    const result = new Function('return ' + command)();
-    logToAdminConsole(`✅ ${result}`, 'success');
-  } catch (error) {
-    // Try direct evaluation if it's a statement
-    try {
-      eval(command);
-      logToAdminConsole(`✅ Command executed (no return value)`, 'success');
-    } catch (evalError) {
-      logToAdminConsole(`❌ ${evalError.message}`, 'error');
-    }
-  }
-}
-
 function makeElementDraggable(element, handle) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
   
@@ -939,7 +922,7 @@ if (typeof currentSystemRole !== 'undefined' && currentSystemRole === 'SysAdmin'
  * Usage: Run in console: silentAudioAnalyzerTest()
  */
 window.silentAudioAnalyzerTest = async function() {
-  console.log('🔇 Starting Silent Audio Analyzer Test...');
+  console.log('\u{1f507} Starting Silent Audio Analyzer Test...');
   
   const results = {
     contextCreated: false,
@@ -961,13 +944,13 @@ window.silentAudioAnalyzerTest = async function() {
     }
     
     results.contextCreated = true;
-    console.log('✅ AudioContext created (suspended/resumed state:', ctx.state + ')');
+    console.log('\u{2705} AudioContext created (suspended/resumed state:', ctx.state + ')');
 
     // 2. Create Analyser
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     results.analyserCreated = true;
-    console.log('✅ AnalyserNode created');
+    console.log('\u{2705} AnalyserNode created');
 
     // 3. Attempt to connect to the destination (Speakers)
     // NOTE: This does NOT capture system audio. It creates a path to the speakers.
@@ -1006,13 +989,13 @@ window.silentAudioAnalyzerTest = async function() {
     dest.disconnect();
     await ctx.close();
 
-    console.log('📊 Silent Test Results:', results);
+    console.log('\u{1f4ca} Silent Test Results:', results);
     console.log('%c' + results.message, 'color: ' + (results.hasAudioInput ? '#3ba55d' : '#949ba4'));
     
     return results;
 
   } catch (err) {
-    console.error('❌ Silent Audio Test Failed:', err);
+    console.error('\u{274c} Silent Audio Test Failed:', err);
     results.message = 'Error: ' + err.message;
     return results;
   }
@@ -1052,7 +1035,7 @@ window.simulatePerson = async function() {
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
-    log('✅ AudioContext initialized');
+    log('\u{2705} AudioContext initialized');
 
     // 2. Generate the Beep (Oscillator)
     const oscillator = ctx.createOscillator();
@@ -1070,7 +1053,7 @@ window.simulatePerson = async function() {
     oscillator.connect(gainNode);
     gainNode.connect(ctx.destination); // Connect to speakers
     
-    log('🔊 Beep generator created (440Hz -> 880Hz)', 'info');
+    log('\u{1f50a} Beep generator created (440Hz -> 880Hz)', 'info');
 
     // 3. Simulate "Remote Track" Logic
     // Since we can't fake a server-side join, we simulate the *effect* of receiving a track
@@ -1086,7 +1069,7 @@ window.simulatePerson = async function() {
     const peerConn = new RTCPeerConnection();
     
     peerConn.ontrack = (event) => {
-      log('🎵 [SIM-BOT] Received track event (Simulated)', 'success');
+      log('\u{1f3b5} [SIM-BOT] Received track event (Simulated)', 'success');
       
       // Create audio element exactly like your real code does
       const audio = document.createElement('audio');
@@ -1099,12 +1082,12 @@ window.simulatePerson = async function() {
       audio.muted = false; 
       
       document.body.appendChild(audio);
-      log('🔈 Audio element created and UNMUTED for simulation', 'success');
+      log('\u{1f508} Audio element created and UNMUTED for simulation', 'success');
       
       // Cleanup after 5 seconds
       setTimeout(() => {
         audio.remove();
-        log('👋 [SIM-BOT] Simulated user left (Audio removed)', 'info');
+        log('\u{1f44b} [SIM-BOT] Simulated user left (Audio removed)', 'info');
       }, 5000);
     };
 
@@ -1115,7 +1098,7 @@ window.simulatePerson = async function() {
     oscillator.start();
     simulationState.started = true;
     simulationState.beepPlaying = true;
-    log('🔔 Beep started (Duration: 5s)', 'success');
+    log('\u{1f514} Beep started (Duration: 5s)', 'success');
 
     // 4. Cleanup Function
     const cleanup = () => {
@@ -1123,7 +1106,7 @@ window.simulatePerson = async function() {
         oscillator.stop();
         peerConn.close();
         ctx.close();
-        log('🧹 Simulation resources cleaned up', 'info');
+        log('\u{1f9f9} Simulation resources cleaned up', 'info');
       } catch (e) {
         log(`Cleanup warning: ${e.message}`, 'error');
       }
@@ -1132,7 +1115,7 @@ window.simulatePerson = async function() {
     // Schedule automatic stop
     setTimeout(() => {
       if (simulationState.beepPlaying) {
-        log('⏱️  5 seconds elapsed. Stopping beep...', 'info');
+        log('\u{23f1}\u{fe0f}  5 seconds elapsed. Stopping beep...', 'info');
         cleanup();
         simulationState.beepPlaying = false;
       }
@@ -1147,7 +1130,7 @@ window.simulatePerson = async function() {
 
   } catch (err) {
     simulationState.error = err;
-    log(`❌ CRITICAL ERROR: ${err.message}`, 'error');
+    log(`\u{274c} CRITICAL ERROR: ${err.message}`, 'error');
     console.error(err);
     return {
       success: false,
@@ -1214,15 +1197,15 @@ window.monitorNetworkAudio = async function() {
   }
 
   if (!scannedAny && customKeys.length === 0) {
-    log('❌ CRITICAL: Could not find ANY connection list. Your app is not storing connections globally.', 'error');
-    log('💡 FIX: In your "initiateConnection" function, add: window.activeConnections = window.activeConnections || {}; window.activeConnections[targetUsername] = peerConn;', 'info');
+    log('\u{274c} CRITICAL: Could not find ANY connection list. Your app is not storing connections globally.', 'error');
+    log('\u{1f4a1} FIX: In your "initiateConnection" function, add: window.activeConnections = window.activeConnections || {}; window.activeConnections[targetUsername] = peerConn;', 'info');
     return;
   }
 
   if (foundConnections === 0) {
-    log('⚠️ Connections found, but no audio packets detected yet. Someone needs to speak!', 'info');
+    log('\u{26a0}\u{fe0f} Connections found, but no audio packets detected yet. Someone needs to speak!', 'info');
   } else {
-    log(`✅ Total Audio Packets Received: ${totalPackets}`, 'success');
+    log(`\u{2705} Total Audio Packets Received: ${totalPackets}`, 'success');
   }
 
   async function checkConnection(conn, label) {
@@ -1240,26 +1223,106 @@ window.monitorNetworkAudio = async function() {
         });
 
         if (packetsRecv > 0) {
-          log(`📡 [${label}] Audio Active! Packets: ${packetsRecv}, Bytes: ${bytesRecv}`, 'success');
+          log(`\u{1f4e1} [${label}] Audio Active! Packets: ${packetsRecv}, Bytes: ${bytesRecv}`, 'success');
           foundConnections++;
           totalPackets += packetsRecv;
         } else {
-          log(`🔇 [${label}] Connected, but silent (0 packets).`, 'info');
+          log(`\u{1f507} [${label}] Connected, but silent (0 packets).`, 'info');
         }
       } else {
-        log(`⚠️ [${label}] Connection state: ${conn.connectionState}`, 'info');
+        log(`\u{26a0}\u{fe0f} [${label}] Connection state: ${conn.connectionState}`, 'info');
       }
     } catch (e) {
-      log(`❌ Error checking ${label}: ${e.message}`, 'error');
+      log(`\u{274c} Error checking ${label}: ${e.message}`, 'error');
     }
   }
 };
 
+
+
+// Measure incoming audio level for a remote user. Returns { success, avgRms, peakRms, samples }
+window.testRemoteAudioLevel = async function(targetUsername, durationMs = 3000, options = {}) {
+  if (!targetUsername) {
+    console.error('[AUDIO-TEST] No username provided.');
+    return { success: false, error: 'no_username' };
+  }
+
+  // Try to find the audio element created by your voice code
+  const byId = document.getElementById(`audio-${targetUsername}`);
+  let audio = byId || Array.from(document.querySelectorAll('audio.remote-voice')).find(a => {
+    if (a.id === `audio-${targetUsername}`) return true;
+    if (a.dataset && a.dataset.username === targetUsername) return true;
+    // Best-effort: inspect srcObject tracks for matching label (not guaranteed)
+    try {
+      const ms = a.srcObject;
+      if (ms && ms.getTracks) {
+        return ms.getTracks().some(t => String(t.label || '').toLowerCase().includes(String(targetUsername).toLowerCase()));
+      }
+    } catch (e) {}
+    return false;
+  });
+
+  if (!audio) {
+    console.warn(`[AUDIO-TEST] No audio element found for ${targetUsername}.`);
+    return { success: false, error: 'no_audio_element' };
+  }
+
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    let source;
+    if (audio.srcObject instanceof MediaStream) {
+      source = ctx.createMediaStreamSource(audio.srcObject);
+    } else {
+      source = ctx.createMediaElementSource(audio);
+    }
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    const data = new Float32Array(analyser.fftSize);
+    const samples = [];
+    let peak = 0;
+    const sampleInterval = options.sampleInterval || 100; // ms
+    const endTime = performance.now() + (durationMs || 3000);
+
+    while (performance.now() < endTime) {
+      analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      const rms = Math.sqrt(sum / data.length);
+      samples.push(rms);
+      if (rms > peak) peak = rms;
+      await new Promise(r => setTimeout(r, sampleInterval));
+    }
+
+    // Cleanup
+    try { source.disconnect(); } catch (e) {}
+    try { analyser.disconnect(); } catch (e) {}
+    try { await ctx.close(); } catch (e) {}
+
+    const avg = samples.reduce((a,b)=>a+b,0) / (samples.length || 1);
+    const threshold = typeof options.threshold === 'number' ? options.threshold : 0.005;
+    const peakThreshold = typeof options.peakThreshold === 'number' ? options.peakThreshold : 0.02;
+    const receiving = avg >= threshold || peak >= peakThreshold;
+
+    console.log(`[AUDIO-TEST] ${targetUsername} avgRMS=${avg.toFixed(5)} peak=${peak.toFixed(5)} receiving=${receiving}`);
+    return { success: receiving, avgRms: avg, peakRms: peak, samples: samples.length };
+  } catch (err) {
+    console.error('[AUDIO-TEST] Error measuring audio level:', err);
+    return { success: false, error: String(err.message || err) };
+  }
+};
+
+
 async function fixPlainGifUrls() {
-  console.log('🔧 Starting plain GIF URL cleanup...');
+  console.log('\u{1f527} Starting plain GIF URL cleanup...');
   
   if (!username) {
-    console.error('❌ Not logged in. Please log in first.');
+    console.error('\u{274c} Not logged in. Please log in first.');
     return;
   }
 
@@ -1280,16 +1343,16 @@ async function fixPlainGifUrls() {
     .order("id", { ascending: false });
 
   if (fetchError) {
-    console.error('❌ Failed to fetch messages:', fetchError.message);
+    console.error('\u{274c} Failed to fetch messages:', fetchError.message);
     return;
   }
 
   if (!messages || messages.length === 0) {
-    console.log('ℹ️ No messages found to check.');
+    console.log('\u{2139}\u{fe0f} No messages found to check.');
     return;
   }
 
-  console.log(`📊 Found ${messages.length} messages to scan.`);
+  console.log(`\u{1f4ca} Found ${messages.length} messages to scan.`);
 
   for (const msg of messages) {
     processed++;
@@ -1303,7 +1366,7 @@ async function fixPlainGifUrls() {
       
       if (isGif) {
         // Wrap in markdown format that your app expects
-        const fixedContent = `[📄 GIF](${url})`;
+        const fixedContent = `[\u{1f4c4} GIF](${url})`;
         
         try {
           const { error: updateError } = await supabaseClient
@@ -1312,43 +1375,43 @@ async function fixPlainGifUrls() {
             .eq("id", msg.id);
 
           if (updateError) {
-            console.warn(`⚠️ Failed to update message ${msg.id}:`, updateError.message);
+            console.warn(`\u{26a0}\u{fe0f} Failed to update message ${msg.id}:`, updateError.message);
             errors++;
           } else {
             fixed++;
-            console.log(`✅ Fixed message ${msg.id}: ${url.substring(0, 50)}...`);
+            console.log(`\u{2705} Fixed message ${msg.id}: ${url.substring(0, 50)}...`);
           }
         } catch (err) {
-          console.error(`❌ Exception updating message ${msg.id}:`, err);
+          console.error(`\u{274c} Exception updating message ${msg.id}:`, err);
           errors++;
         }
       }
     }
   }
 
-  console.log(`\n🏁 Cleanup Complete!`);
+  console.log(`\n\u{1f3c1} Cleanup Complete!`);
   console.log(`   Processed: ${processed}`);
   console.log(`   Fixed: ${fixed}`);
   console.log(`   Errors: ${errors}`);
   
   if (fixed > 0) {
-    console.log('💡 Tip: Reload the page to see the changes reflected in the chat.');
+    console.log('\u{1f4a1} Tip: Reload the page to see the changes reflected in the chat.');
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
 // 4.  TUTORIAL SYSTEM
 //     Call  startTutorial()  after a brand-new user's first login.
 //     Highlights key UI areas one by one with a pulsing spotlight.
 //     Progress is saved in localStorage so it only shows once.
-// ─────────────────────────────────────────────────────────────────────────────
+// \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
 const TUTORIAL_KEY = "lla_tutorial_done_v2";
  
 const TUTORIAL_STEPS = [
   {
     selector: ".server-sidebar",
     title: "Your Servers",
-    body: "Each icon here is a server — like a classroom or club. Click one to open it.",
+    body: "Each icon here is a server \u{2014} like a classroom or club. Click one to open it.",
     position: "right",
   },
   {
@@ -1366,7 +1429,7 @@ const TUTORIAL_STEPS = [
   {
     selector: "#messageInput",
     title: "Send a Message",
-    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with 📎 if you're and admin.",
+    body: "Type here and press <b>Enter</b> (or the Send button) to chat. You can also attach files with \u{1f4ce} if you're and admin.",
     position: "top",
   },
   /*{
@@ -1388,7 +1451,7 @@ function startTutorial() {
  
   let step = 0;
  
-  // ── overlay pieces ──
+  // \u{2500}\u{2500} overlay pieces \u{2500}\u{2500}
   const overlay = document.createElement("div");
   overlay.id = "tutorialOverlay";
   overlay.setAttribute("aria-modal", "true");
@@ -1417,7 +1480,7 @@ function startTutorial() {
  
   const nextBtn = document.createElement("button");
   nextBtn.className = "tutorial-btn tutorial-btn--next";
-  nextBtn.textContent = "Next →";
+  nextBtn.textContent = "Next \u{2192}";
   nextBtn.addEventListener("click", () => advanceTutorial(step + 1));
  
   const dots = document.createElement("div");
@@ -1450,7 +1513,7 @@ function startTutorial() {
  
     cardTitle.textContent = s.title;
     cardBody.innerHTML = s.body;
-    nextBtn.textContent = step === TUTORIAL_STEPS.length - 1 ? "Finish 🎉" : "Next →";
+    nextBtn.textContent = step === TUTORIAL_STEPS.length - 1 ? "Finish \u{1f389}" : "Next \u{2192}";
  
     // Dots
     dots.innerHTML = "";
@@ -1514,15 +1577,15 @@ function startTutorial() {
 
 function removeLocalStorageKey(key) {
   if (!key) {
-    console.warn("⚠️ No key provided. Nothing removed.");
+    console.warn("\u{26a0}\u{fe0f} No key provided. Nothing removed.");
     return;
   }
 
   if (localStorage.getItem(key) !== null) {
     localStorage.removeItem(key);
-    console.log(`✅ Removed key: "${key}"`);
+    console.log(`\u{2705} Removed key: "${key}"`);
   } else {
-    console.log(`ℹ️ Key "${key}" did not exist.`);
+    console.log(`\u{2139}\u{fe0f} Key "${key}" did not exist.`);
   }
 }
 
@@ -1531,13 +1594,13 @@ function toggleMobileSimulation() { console.log('Mobile simulation disabled'); }
 
 const MOBILE_TUTORIAL_STEPS = [
   {
-    title: "👋 Welcome to LLA Chat!",
+    title: "\u{1f44b} Welcome to LLA Chat!",
     body: "This quick tour shows you around. Tap <b>Next</b> to continue, or <b>Skip</b> to jump straight in.",
     highlightId: null,
   },
   {
-    title: "📱 Open the Sidebar",
-    body: "Tap the <b>☰ menu button</b> (top-left) to open your servers and channels. Let's open it now.",
+    title: "\u{1f4f1} Open the Sidebar",
+    body: "Tap the <b>\u{2630} menu button</b> (top-left) to open your servers and channels. Let's open it now.",
     highlightId: "menuToggle",
     action: () => {
       // Programmatically open the sidebar the same way the menu button does
@@ -1550,12 +1613,12 @@ const MOBILE_TUTORIAL_STEPS = [
     },
   },
   {
-    title: "🗂️ Your Servers",
-    body: "The icons on the far left are <b>servers</b> — like classrooms or clubs. Tap one to open it.",
+    title: "\u{1f5c2}\u{fe0f} Your Servers",
+    body: "The icons on the far left are <b>servers</b> \u{2014} like classrooms or clubs. Tap one to open it.",
     highlightId: "serverList",
   },
   {
-    title: "💬 Channels",
+    title: "\u{1f4ac} Channels",
     body: "Inside each server are <b>channels</b>. Text channels let you chat; voice channels let you talk live. Tap any channel name to open it.",
     highlightId: "channelList",
     action: () => {
@@ -1571,22 +1634,22 @@ const MOBILE_TUTORIAL_STEPS = [
     },
   },
   {
-    title: "✉️ Direct Messages",
+    title: "\u{2709}\u{fe0f} Direct Messages",
     body: "Want to message someone privately? Tap the <b>+ next to Direct Messages</b> in the sidebar to start a DM.",
     highlightId: "newDmBtn",
   },
   {
-    title: "⌨️ Sending Messages",
-    body: "Type in the <b>message box</b> at the bottom and tap <b>Send</b>. Use <b>📎</b> to attach a file, or type <b>@</b> to mention someone.",
+    title: "\u{2328}\u{fe0f} Sending Messages",
+    body: "Type in the <b>message box</b> at the bottom and tap <b>Send</b>. Use <b>\u{1f4ce}</b> to attach a file, or type <b>@</b> to mention someone.",
     highlightId: "messageInput",
   },
   {
-    title: "⚙️ Settings",
-    body: "Tap <b>⚙️</b> (bottom-left) to change your avatar, status, notifications, and theme.",
+    title: "\u{2699}\u{fe0f} Settings",
+    body: "Tap <b>\u{2699}\u{fe0f}</b> (bottom-left) to change your avatar, status, notifications, and theme.",
     highlightId: "openSettingsBtn",
   },
   {
-    title: "🎉 You're all set!",
+    title: "\u{1f389} You're all set!",
     body: "That's the tour! Jump in and start chatting. You can always find help in the server settings.",
     highlightId: null,
   },
@@ -1597,7 +1660,7 @@ function startMobileTutorial() {
  
   let step = 0;
  
-  // ── Build the sheet ──────────────────────────────────────────────────────
+  // \u{2500}\u{2500} Build the sheet \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const sheet = document.createElement("div");
   sheet.id = "mobileTutorialSheet";
  
@@ -1639,12 +1702,12 @@ function startMobileTutorial() {
   sheet.appendChild(footer);
   document.body.appendChild(sheet);
  
-  // ── Coach-mark highlight element (floats over highlighted element) ──────
+  // \u{2500}\u{2500} Coach-mark highlight element (floats over highlighted element) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   const coachMark = document.createElement("div");
   coachMark.id = "mobileTutorialCoachMark";
   document.body.appendChild(coachMark);
  
-  // ── Swipe-down to skip ───────────────────────────────────────────────────
+  // \u{2500}\u{2500} Swipe-down to skip \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}
   let touchStartY = 0;
   sheet.addEventListener("touchstart", (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
   sheet.addEventListener("touchend", (e) => {
@@ -1667,7 +1730,7 @@ function startMobileTutorial() {
     stepCounter.textContent = `${step + 1} of ${MOBILE_TUTORIAL_STEPS.length}`;
     title.innerHTML = s.title;
     body.innerHTML  = s.body;
-    nextBtn.textContent = step === MOBILE_TUTORIAL_STEPS.length - 1 ? "Let's go! 🚀" : "Next →";
+    nextBtn.textContent = step === MOBILE_TUTORIAL_STEPS.length - 1 ? "Let's go! \u{1f680}" : "Next \u{2192}";
  
     // Dots
     dots.innerHTML = "";

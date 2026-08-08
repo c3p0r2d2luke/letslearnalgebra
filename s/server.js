@@ -208,9 +208,10 @@ function subscribeToTyping() {
     }
   }
 
+  const channelName = `typing-channel-${Math.random().toString(36).slice(2)}`;
   try {
     typingSubscription = supabaseClient
-      .channel("typing-channel")
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "typing" },
