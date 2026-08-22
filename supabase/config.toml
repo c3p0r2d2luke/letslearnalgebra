@@ -7,9 +7,28 @@ skip_nonce_check = false
 enabled = true
 verify_jwt = true
 import_map = "./functions/send-push/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/send-push/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/send-push/*.html" ]
+
+[functions.discord-oauth]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-oauth/deno.json"
+entrypoint = "./functions/discord-oauth/index.ts"
+
+[functions.discord-import]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-import/deno.json"
+entrypoint = "./functions/discord-import/index.ts"
+
+[functions.discord-message-sync]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-message-sync/deno.json"
+entrypoint = "./functions/discord-message-sync/index.ts"
+
+[functions.slash-commands]
+enabled = true
+verify_jwt = false
+import_map = "./functions/slash-commands/deno.json"
+entrypoint = "./functions/slash-commands/index.ts"

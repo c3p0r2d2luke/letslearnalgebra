@@ -1287,6 +1287,16 @@ if (addBtn) {
     openModal("joinServerModal");
   });
 
+  const goDiscordImport = document.getElementById("goDiscordImport");
+  if (goDiscordImport) goDiscordImport.addEventListener("click", async () => {
+    closeModal("serverModal");
+    if (!discordAccount) {
+      alert("❌ Please connect your Discord account first in your profile settings");
+      return;
+    }
+    await loadDiscordImportGuilds();
+  });
+
   const closeServer = document.getElementById("closeServerModal");
   if (closeServer) closeServer.addEventListener("click", () => closeModal("serverModal"));
 
@@ -2695,6 +2705,11 @@ async function openUserProfile(usernameVal, serverId = null) {
     } else {
       editBtn.style.display = "none";
     }
+  }
+
+  // Render Discord connection UI if viewing own profile
+  if (isOwnProfile) {
+    renderDiscordConnectionUI();
   }
 
   modal.style.display = "flex";

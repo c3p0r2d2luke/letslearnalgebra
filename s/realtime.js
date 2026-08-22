@@ -853,6 +853,18 @@ function renderChannelList() {
         } else {
           label.textContent = "# " + ch.name;
         }
+        
+        // --- DISCORD SYNC BADGE ---
+        (async () => {
+          const discordSync = await isChannelSyncedToDiscord(ch.id);
+          if (discordSync) {
+            const badge = document.createElement("span");
+            badge.style.cssText = "margin-left: 5px; color: #5865F2; font-weight: bold; font-size: 11px;";
+            badge.textContent = "💬";
+            badge.title = "Synced to Discord";
+            label.appendChild(badge);
+          }
+        })();
         // --------------------------
 
         div.appendChild(label);
