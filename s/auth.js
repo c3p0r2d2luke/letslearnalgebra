@@ -160,6 +160,10 @@ async function handleAuthSuccess(user) {
       return;
     }
     await loadUserFn();
+    
+    // 6. Initialize Discord integration
+    await initializeDiscordIntegration();
+    
     subscribeToGlobalMentions();
   } finally {
     authHandling = false;

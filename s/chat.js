@@ -1078,6 +1078,32 @@ async function sendMessage(options = {}) {
       hideMentionSuggestions();
       console.log("✅ Message sent to Supabase (IP: " + ip + ")");
 
+      // Handle slash commands
+      if (currentConversationType === "channel" && content.startsWith("/")) {
+        const commandResult = await handleSlashCommand(content, currentChannelId);
+        if (commandResult) {
+          // Command was handled, show result
+          const resultElement = document.createElement("div");
+          resultElement.style.cssText = "padding: 10px; background: #2C2F33; border-left: 3px solid #5865F2; border-radius: 4px; margin: 10px 0; font-size: 12px; color: #999;";
+          resultElement.innerHTML = `<strong>Command Result:</strong> ${commandResult}`;
+          messagesList.appendChild(resultElement);
+        }
+      } else if (currentConversationType === "channel") {
+        // Sync message to Discord if channel is synced
+        const { data: lastMessage } = await supabaseClient
+          .from("messages")
+          .select("id")
+          .eq("username", username)
+          .eq("content", content)
+          .order("inserted_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (lastMessage) {
+          await syncMessageToDiscord(lastMessage.id, currentChannelId);
+        }
+      }
+
       setTimeout(() => {
         messagesList.scrollTop = messagesList.scrollHeight;
       }, 100);
