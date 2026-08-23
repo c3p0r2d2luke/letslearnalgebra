@@ -1,7 +1,7 @@
 // ======================== DISCORD INTEGRATION ========================
 
 // Get Discord Client ID from config
-const DISCORD_CLIENT_ID = DISCORD_CONFIG?.CLIENT_ID || "YOUR_DISCORD_CLIENT_ID";
+const DISCORD_CLIENT_ID = DISCORD_CONFIG?.CLIENT_ID || "1490802687111991420";
 const DISCORD_REDIRECT_URI = DISCORD_CONFIG?.REDIRECT_URI || `${window.location.origin}`;
 const DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize";
 
@@ -11,19 +11,21 @@ let discordGuilds = [];
 // Initialize Discord integration (called after chatUsername is set)
 async function initializeDiscordIntegration() {
   try {
-    // Only proceed if chatUsername is actually defined
-    if (typeof chatUsername === 'undefined' || !chatUsername) {
-      console.log("[DISCORD] chatUsername not available yet, will try again on next auth state change");
+    // Get username from localStorage (set by auth.js)
+    const username = localStorage.getItem("chatUsername");
+    
+    if (!username) {
+      console.log("[DISCORD] No username in localStorage yet, will try again on next auth state change");
       return;
     }
 
-    console.log("[DISCORD] Initializing Discord integration for user:", chatUsername);
+    console.log("[DISCORD] Initializing Discord integration for user:", username);
 
-    const discordAccountId = localStorage.getItem(`discord_account_${chatUsername}`);
+    const discordAccountId = localStorage.getItem(`discord_account_${username}`);
     console.log("[DISCORD] Stored discord account ID:", discordAccountId);
     if (discordAccountId) {
       console.log("[DISCORD] Loading existing Discord account...");
-      await loadDiscordAccount();
+      await loadDiscordAccount(username);
     }
 
     // Handle OAuth callback
@@ -32,7 +34,7 @@ async function initializeDiscordIntegration() {
     console.log("[DISCORD] OAuth callback check - code:", code ? "present" : "none", "state:", params.get("state"));
     if (code && params.get("state") === "discord_auth") {
       console.log("[DISCORD] Processing OAuth callback...");
-      await handleDiscordOAuthCallback(code);
+      await handleDiscordOAuthCallback(code, username);
     }
   } catch (error) {
     console.error("[DISCORD] Initialization error:", error);
@@ -94,7 +96,8 @@ function initiateDiscordOAuth() {
 
 // Handle Discord OAuth callback
 async function handleDiscordOAuthCallback(code) {
-  console.log("[DISCORD] Handling OAuth callback with code:", code);
+  const username = localStorage.getItem("chatUsername");
+  console.log("[DISCORD] Handling OAuth callback with code:", code, "username:", username);
   try {
     console.log("[DISCORD] Exchanging code for tokens...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
@@ -103,7 +106,7 @@ async function handleDiscordOAuthCallback(code) {
       body: JSON.stringify({
         action: "exchange_code",
         code,
-        username: chatUsername,
+        username: username,
       }),
     });
 
@@ -122,31 +125,47 @@ async function handleDiscordOAuthCallback(code) {
     window.history.replaceState({}, document.title, window.location.pathname);
     renderDiscordConnectionUI();
 
+    console.log("[DISCORD] Discord account successfully connected!");
     alert("✅ Discord account connected!");
   } catch (error) {
-    console.error("Discord OAuth error:", error);
+    console.error("[DISCORD] OAuth error:", error);
+    console.error("[DISCORD] Full error stack:", error.stack);
     alert(`❌ Discord connection failed: ${error.message}`);
   }
 }
 
 // Load Discord account data
 async function loadDiscordAccount() {
+  const username = localStorage.getItem("chatUsername");
+  console.log("[DISCORD] loadDiscordAccount() called for username:", username);
   try {
+    console.log("[DISCORD] Querying discord_accounts table for username:", username);
     const { data, error } = await supabaseClient
       .from("discord_accounts")
       .select("*")
-      .eq("username", chatUsername)
+      .eq("username", username)
       .maybeSingle();
 
-    if (error) throw error;
+    console.log("[DISCORD] Query response - error:", error, "data:", data);
+    if (error) {
+      console.error("[DISCORD] Database query error:", error);
+      throw error;
+    }
 
-    discordAccount = data;
-    localStorage.setItem(`discord_account_${chatUsername}`, JSON.stringify(discordAccount));
-    renderDiscordConnectionUI();
+    if (data) {
+      console.log("[DISCORD] Found Discord account:", data.discord_username);
+      discordAccount = data;
+      localStorage.setItem(`discord_account_${username}`, JSON.stringify(discordAccount));
+      renderDiscordConnectionUI();
+    } else {
+      console.log("[DISCORD] No Discord account found in database for user:", username);
+      discordAccount = null;
+    }
 
     return discordAccount;
   } catch (error) {
-    console.error("Failed to load Discord account:", error);
+    console.error("[DISCORD] Failed to load Discord account:", error);
+    console.error("[DISCORD] Stack:", error.stack);
   }
 }
 
@@ -564,6 +583,47 @@ async function handleSlashCommand(message, channelId) {
     return `Error executing command: ${error.message}`;
   }
 }
+
+// ======================== DEBUGGING & TESTING ========================
+
+// Debug function - check Discord account status in database
+window.debugDiscordAccount = async function() {
+  console.log("=== DISCORD DEBUG ===");
+  console.log("chatUsername:", chatUsername);
+  console.log("discordAccount object:", discordAccount);
+  console.log("localStorage data:", localStorage.getItem(`discord_account_${chatUsername}`));
+  
+  try {
+    console.log("Querying discord_accounts table for all records...");
+    const { data, error } = await supabaseClient
+      .from("discord_accounts")
+      .select("*");
+    
+    if (error) {
+      console.error("Error querying discord_accounts:", error);
+      return;
+    }
+    
+    console.log("All Discord accounts in database:", data);
+    console.log("Total records:", data?.length || 0);
+  } catch (err) {
+    console.error("Debug error:", err);
+  }
+};
+
+// Test Discord OAuth by manually calling the function
+window.testDiscordOAuth = async function() {
+  console.log("=== TESTING DISCORD OAUTH ===");
+  if (!DISCORD_CLIENT_ID || DISCORD_CLIENT_ID === "1490802687111991420") {
+    console.error("❌ DISCORD_CLIENT_ID not configured in discord-config.js");
+    return;
+  }
+  
+  console.log("Client ID:", DISCORD_CLIENT_ID);
+  console.log("Redirect URI:", DISCORD_REDIRECT_URI);
+  console.log("Initiating OAuth flow...");
+  initiateDiscordOAuth();
+};
 
 // ======================== INITIALIZATION ========================
 
