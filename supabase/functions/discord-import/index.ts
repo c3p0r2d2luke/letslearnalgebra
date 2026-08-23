@@ -9,59 +9,82 @@ const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
 serve(async (req: Request) => {
+  console.log("[DISCORD-IMPORT] Received request:", req.method);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
 
   try {
-    const { action, discord_guild_id, access_token, username, sync_direction } = await req.json();
+    const body = await req.json();
+    console.log("[DISCORD-IMPORT] Request action:", body.action);
+    const { action, discord_guild_id, access_token, username, sync_direction } = body;
 
     if (action === "import_server") {
+      console.log("[DISCORD-IMPORT] Starting server import for guild:', discord_guild_id, "user:", username, "sync direction:", sync_direction);
       return await importDiscordServer(discord_guild_id, access_token, username, sync_direction);
     }
 
+    console.error("[DISCORD-IMPORT] Invalid action:", action);
     return new Response(JSON.stringify({ error: "Invalid action" }), { status: 400 });
   } catch (error) {
-    console.error(error);
+    console.error("[DISCORD-IMPORT] Error:", error.message);
+    console.error("[DISCORD-IMPORT] Stack:", error.stack);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 });
 
 async function importDiscordServer(discordGuildId: string, accessToken: string, username: string, syncDirection: string) {
   try {
+    console.log("[DISCORD-IMPORT] === IMPORT STARTED ===");
+    console.log("[DISCORD-IMPORT] Guild ID:', discordGuildId);
+    console.log("[DISCORD-IMPORT] Username:', username);
+    console.log("[DISCORD-IMPORT] Sync direction:', syncDirection);
+    
     // Fetch guild data from Discord
+    console.log("[DISCORD-IMPORT] Fetching guild data from Discord API...");
     const guildResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
+    console.log("[DISCORD-IMPORT] Guild response status:', guildResponse.status);
     if (!guildResponse.ok) {
-      throw new Error("Failed to fetch Discord guild");
+      const errorText = await guildResponse.text();
+      console.error("[DISCORD-IMPORT] Guild fetch failed:", errorText);
+      throw new Error("Failed to fetch Discord guild: " + errorText);
     }
 
     const guild = await guildResponse.json();
+    console.log("[DISCORD-IMPORT] Guild fetched:', guild.name, "members:", guild.approximate_member_count);
 
     // Fetch guild channels
+    console.log("[DISCORD-IMPORT] Fetching channels...");
     const channelsResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/channels`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const discordChannels = await channelsResponse.json();
+    console.log("[DISCORD-IMPORT] Fetched', discordChannels.length, "channels");
 
     // Fetch guild roles
+    console.log("[DISCORD-IMPORT] Fetching roles...");
     const rolesResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/roles`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const discordRoles = await rolesResponse.json();
+    console.log("[DISCORD-IMPORT] Fetched', discordRoles.length, "roles");
 
     // Fetch guild members
+    console.log("[DISCORD-IMPORT] Fetching members...");
     const membersResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/members?limit=1000`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const discordMembers = await membersResponse.json();
+    console.log("[DISCORD-IMPORT] Fetched', discordMembers.length, "members");
 
     // Create native server
+    console.log("[DISCORD-IMPORT] Creating native server in database...");
     const { data: nativeServer, error: serverError } = await supabaseClient
       .from("servers")
       .insert({
@@ -73,9 +96,14 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
       .select()
       .single();
 
-    if (serverError) throw serverError;
+    if (serverError) {
+      console.error("[DISCORD-IMPORT] Server creation error:', serverError);
+      throw serverError;
+    }
+    console.log("[DISCORD-IMPORT] Native server created:', nativeServer.id, "-", nativeServer.name);
 
     // Create discord_servers mapping
+    console.log("[DISCORD-IMPORT] Creating Discord server mapping...");
     const { data: discordServer, error: discordServerError } = await supabaseClient
       .from("discord_servers")
       .insert({
@@ -90,9 +118,14 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
       .select()
       .single();
 
-    if (discordServerError) throw discordServerError;
+    if (discordServerError) {
+      console.error("[DISCORD-IMPORT] Discord server mapping error:', discordServerError);
+      throw discordServerError;
+    }
+    console.log("[DISCORD-IMPORT] Discord server mapping created');
 
     // Import roles
+    console.log("[DISCORD-IMPORT] Importing', discordRoles.length, "roles...");
     const roleMap = new Map();
     for (const discordRole of discordRoles) {
       if (discordRole.name === "@everyone") continue;
@@ -109,7 +142,10 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .select()
         .single();
 
-      if (roleError) throw roleError;
+      if (roleError) {
+        console.error("[DISCORD-IMPORT] Role creation error:', roleError);
+        throw roleError;
+      }
 
       await supabaseClient
         .from("discord_roles")
@@ -123,9 +159,12 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         });
 
       roleMap.set(discordRole.id, nativeRole.id);
+      console.log("[DISCORD-IMPORT] Role imported:', discordRole.name);
     }
+    console.log("[DISCORD-IMPORT] All', roleMap.size, "roles imported");
 
     // Import channels
+    console.log("[DISCORD-IMPORT] Importing', discordChannels.length, "channels...");
     const channelMap = new Map();
     for (const discordChannel of discordChannels) {
       if (discordChannel.type === 4) continue; // Skip category channels for now
@@ -141,7 +180,10 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .select()
         .single();
 
-      if (channelError) throw channelError;
+      if (channelError) {
+        console.error("[DISCORD-IMPORT] Channel creation error:', channelError);
+        throw channelError;
+      }
 
       await supabaseClient
         .from("discord_channels")
@@ -155,9 +197,12 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         });
 
       channelMap.set(discordChannel.id, nativeChannel.id);
+      console.log("[DISCORD-IMPORT] Channel imported:', discordChannel.name);
     }
+    console.log("[DISCORD-IMPORT] All', channelMap.size, "channels imported");
 
     // Import members
+    console.log("[DISCORD-IMPORT] Importing', discordMembers.length, "members...");
     for (const discordMember of discordMembers) {
       if (discordMember.user.bot) continue;
 
@@ -173,7 +218,10 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .select()
         .single();
 
-      if (memberError && memberError.code !== "23505") throw memberError; // Ignore duplicate errors
+      if (memberError && memberError.code !== "23505") {
+        console.error("[DISCORD-IMPORT] Member creation error:', memberError);
+        throw memberError;
+      } // Ignore duplicate errors
 
       if (serverMember) {
         await supabaseClient
@@ -185,14 +233,19 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
             discord_username: discordMember.user.username,
             discord_roles: discordMember.roles,
           });
+        console.log("[DISCORD-IMPORT] Member imported:', discordMember.user.username);
       }
     }
+    console.log("[DISCORD-IMPORT] All members imported");
 
+    console.log("[DISCORD-IMPORT] === IMPORT COMPLETE ===");
     return new Response(JSON.stringify({ success: true, server_id: nativeServer.id, discord_server_id: discordServer.id }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[DISCORD-IMPORT] === IMPORT FAILED ===");
+    console.error("[DISCORD-IMPORT] Error:', error.message);
+    console.error("[DISCORD-IMPORT] Stack:', error.stack);
     throw error;
   }
 }

@@ -10,17 +10,25 @@ let discordGuilds = [];
 
 // Initialize Discord integration
 async function initializeDiscordIntegration() {
-  if (!chatUsername) return;
+  console.log("[DISCORD] Initializing Discord integration for user:", chatUsername);
+  if (!chatUsername) {
+    console.log("[DISCORD] No username found, skipping initialization");
+    return;
+  }
 
   const discordAccountId = localStorage.getItem(`discord_account_${chatUsername}`);
+  console.log("[DISCORD] Stored discord account ID:", discordAccountId);
   if (discordAccountId) {
+    console.log("[DISCORD] Loading existing Discord account...");
     await loadDiscordAccount();
   }
 
   // Handle OAuth callback
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
+  console.log("[DISCORD] OAuth callback check - code:", code ? "present" : "none", "state:", params.get("state"));
   if (code && params.get("state") === "discord_auth") {
+    console.log("[DISCORD] Processing OAuth callback...");
     await handleDiscordOAuthCallback(code);
   }
 }
@@ -63,6 +71,9 @@ function renderDiscordConnectionUI() {
 
 // Initiate Discord OAuth flow
 function initiateDiscordOAuth() {
+  console.log("[DISCORD] Initiating OAuth flow...");
+  console.log("[DISCORD] Client ID:", DISCORD_CLIENT_ID);
+  console.log("[DISCORD] Redirect URI:", DISCORD_REDIRECT_URI);
   const scope = ["identify", "guilds", "channels.read", "messages.read"].join("%20");
   const url = new URL(DISCORD_AUTH_URL);
   url.searchParams.append("client_id", DISCORD_CLIENT_ID);
@@ -71,12 +82,15 @@ function initiateDiscordOAuth() {
   url.searchParams.append("scope", scope);
   url.searchParams.append("state", "discord_auth");
 
+  console.log("[DISCORD] Redirecting to:", url.toString());
   window.location.href = url.toString();
 }
 
 // Handle Discord OAuth callback
 async function handleDiscordOAuthCallback(code) {
+  console.log("[DISCORD] Handling OAuth callback with code:", code);
   try {
+    console.log("[DISCORD] Exchanging code for tokens...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,11 +101,15 @@ async function handleDiscordOAuthCallback(code) {
       }),
     });
 
+    console.log("[DISCORD] OAuth exchange response status:", response.status);
     if (!response.ok) {
-      throw new Error("Discord OAuth exchange failed");
+      const errorText = await response.text();
+      console.error("[DISCORD] OAuth exchange failed:", errorText);
+      throw new Error("Discord OAuth exchange failed: " + errorText);
     }
 
     const result = await response.json();
+    console.log("[DISCORD] OAuth exchange successful:", result);
     await loadDiscordAccount();
 
     // Clean up URL
@@ -151,12 +169,15 @@ async function disconnectDiscordAccount() {
 
 // Fetch user's Discord guilds
 async function fetchDiscordGuilds() {
+  console.log("[DISCORD] Fetching Discord guilds for user:", chatUsername);
   if (!discordAccount) {
+    console.log("[DISCORD] No Discord account connected");
     alert("❌ Please connect your Discord account first");
     return [];
   }
 
   try {
+    console.log("[DISCORD] Calling discord-oauth function to get guilds...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,15 +187,19 @@ async function fetchDiscordGuilds() {
       }),
     });
 
+    console.log("[DISCORD] Guild fetch response status:", response.status);
     if (!response.ok) {
-      throw new Error("Failed to fetch Discord guilds");
+      const errorText = await response.text();
+      console.error("[DISCORD] Guild fetch error:", errorText);
+      throw new Error("Failed to fetch Discord guilds: " + errorText);
     }
 
     const result = await response.json();
     discordGuilds = result.guilds || [];
+    console.log("[DISCORD] Successfully fetched", discordGuilds.length, "guilds");
     return discordGuilds;
   } catch (error) {
-    console.error("Failed to fetch Discord guilds:", error);
+    console.error("[DISCORD] Failed to fetch Discord guilds:", error);
     alert(`❌ Failed to fetch Discord guilds: ${error.message}`);
     return [];
   }
@@ -268,20 +293,24 @@ async function selectDiscordGuild(guildId, guildName) {
 
 // Import the selected Discord guild
 async function importSelectedDiscordGuild() {
+  console.log("[DISCORD] Import button clicked");
   const selected = document.querySelector('input[name="discord-guild"]:checked');
   if (!selected) {
+    console.log("[DISCORD] No guild selected");
     alert("❌ Please select a Discord server");
     return;
   }
 
   const guildId = selected.value;
   const syncDirection = document.getElementById("syncDirection").value;
+  console.log("[DISCORD] Selected guild ID:", guildId, "Sync direction:", syncDirection);
 
   try {
     // Show progress
     const guildsList = document.getElementById("discordGuildsList");
     guildsList.innerHTML = "<p>Importing Discord server... This may take a moment.</p>";
 
+    console.log("[DISCORD] Sending import request to discord-import function...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -294,19 +323,27 @@ async function importSelectedDiscordGuild() {
       }),
     });
 
+    console.log("[DISCORD] Import response status:", response.status);
+    const responseText = await response.text();
+    console.log("[DISCORD] Import response:", responseText);
+
     if (!response.ok) {
-      throw new Error(await response.text());
+      console.error("[DISCORD] Import failed with status:", response.status);
+      throw new Error(responseText);
     }
 
-    const result = await response.json();
+    const result = JSON.parse(responseText);
+    console.log("[DISCORD] Import successful! Result:", result);
 
     alert("✅ Discord server imported successfully!");
     guildsList.innerHTML = "";
 
     // Reload servers list
+    console.log("[DISCORD] Reloading servers list...");
     await loadServers();
   } catch (error) {
-    console.error("Import failed:", error);
+    console.error("[DISCORD] Import error:", error);
+    console.error("[DISCORD] Full stack:", error.stack);
     alert(`❌ Import failed: ${error.message}`);
     await loadDiscordImportGuilds();
   }
