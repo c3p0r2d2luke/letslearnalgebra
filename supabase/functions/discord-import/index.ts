@@ -20,7 +20,7 @@ serve(async (req: Request) => {
     const { action, discord_guild_id, access_token, username, sync_direction } = body;
 
     if (action === "import_server") {
-      console.log("[DISCORD-IMPORT] Starting server import for guild:', discord_guild_id, "user:", username, "sync direction:", sync_direction);
+      console.log("[DISCORD-IMPORT] Starting server import for guild:", discord_guild_id, "user:", username, "sync direction:", sync_direction);
       return await importDiscordServer(discord_guild_id, access_token, username, sync_direction);
     }
 
@@ -36,9 +36,9 @@ serve(async (req: Request) => {
 async function importDiscordServer(discordGuildId: string, accessToken: string, username: string, syncDirection: string) {
   try {
     console.log("[DISCORD-IMPORT] === IMPORT STARTED ===");
-    console.log("[DISCORD-IMPORT] Guild ID:', discordGuildId);
-    console.log("[DISCORD-IMPORT] Username:', username);
-    console.log("[DISCORD-IMPORT] Sync direction:', syncDirection);
+    console.log("[DISCORD-IMPORT] Guild ID:", discordGuildId);
+    console.log("[DISCORD-IMPORT] Username:", username);
+    console.log("[DISCORD-IMPORT] Sync direction:", syncDirection);
     
     // Fetch guild data from Discord
     console.log("[DISCORD-IMPORT] Fetching guild data from Discord API...");
@@ -46,7 +46,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    console.log("[DISCORD-IMPORT] Guild response status:', guildResponse.status);
+    console.log("[DISCORD-IMPORT] Guild response status:", guildResponse.status);
     if (!guildResponse.ok) {
       const errorText = await guildResponse.text();
       console.error("[DISCORD-IMPORT] Guild fetch failed:", errorText);
@@ -54,7 +54,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
     }
 
     const guild = await guildResponse.json();
-    console.log("[DISCORD-IMPORT] Guild fetched:', guild.name, "members:", guild.approximate_member_count);
+    console.log("[DISCORD-IMPORT] Guild fetched:", guild.name, "members:", guild.approximate_member_count);
 
     // Fetch guild channels
     console.log("[DISCORD-IMPORT] Fetching channels...");
@@ -63,7 +63,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
     });
 
     const discordChannels = await channelsResponse.json();
-    console.log("[DISCORD-IMPORT] Fetched', discordChannels.length, "channels");
+    console.log("[DISCORD-IMPORT] Fetched", discordChannels.length, "channels");
 
     // Fetch guild roles
     console.log("[DISCORD-IMPORT] Fetching roles...");
@@ -72,7 +72,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
     });
 
     const discordRoles = await rolesResponse.json();
-    console.log("[DISCORD-IMPORT] Fetched', discordRoles.length, "roles");
+    console.log("[DISCORD-IMPORT] Fetched", discordRoles.length, "roles");
 
     // Fetch guild members
     console.log("[DISCORD-IMPORT] Fetching members...");
@@ -81,7 +81,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
     });
 
     const discordMembers = await membersResponse.json();
-    console.log("[DISCORD-IMPORT] Fetched', discordMembers.length, "members");
+    console.log("[DISCORD-IMPORT] Fetched", discordMembers.length, "members");
 
     // Create native server
     console.log("[DISCORD-IMPORT] Creating native server in database...");
@@ -97,10 +97,10 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
       .single();
 
     if (serverError) {
-      console.error("[DISCORD-IMPORT] Server creation error:', serverError);
+      console.error("[DISCORD-IMPORT] Server creation error:", serverError);
       throw serverError;
     }
-    console.log("[DISCORD-IMPORT] Native server created:', nativeServer.id, "-", nativeServer.name);
+    console.log("[DISCORD-IMPORT] Native server created:", nativeServer.id, "-", nativeServer.name);
 
     // Create discord_servers mapping
     console.log("[DISCORD-IMPORT] Creating Discord server mapping...");
@@ -119,13 +119,13 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
       .single();
 
     if (discordServerError) {
-      console.error("[DISCORD-IMPORT] Discord server mapping error:', discordServerError);
+      console.error("[DISCORD-IMPORT] Discord server mapping error:", discordServerError);
       throw discordServerError;
     }
-    console.log("[DISCORD-IMPORT] Discord server mapping created');
+    console.log("[DISCORD-IMPORT] Discord server mapping created");
 
     // Import roles
-    console.log("[DISCORD-IMPORT] Importing', discordRoles.length, "roles...");
+    console.log("[DISCORD-IMPORT] Importing", discordRoles.length, "roles...");
     const roleMap = new Map();
     for (const discordRole of discordRoles) {
       if (discordRole.name === "@everyone") continue;
@@ -143,7 +143,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .single();
 
       if (roleError) {
-        console.error("[DISCORD-IMPORT] Role creation error:', roleError);
+        console.error("[DISCORD-IMPORT] Role creation error:", roleError);
         throw roleError;
       }
 
@@ -159,12 +159,12 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         });
 
       roleMap.set(discordRole.id, nativeRole.id);
-      console.log("[DISCORD-IMPORT] Role imported:', discordRole.name);
+      console.log("[DISCORD-IMPORT] Role imported:", discordRole.name);
     }
-    console.log("[DISCORD-IMPORT] All', roleMap.size, "roles imported");
+    console.log("[DISCORD-IMPORT] All", roleMap.size, "roles imported");
 
     // Import channels
-    console.log("[DISCORD-IMPORT] Importing', discordChannels.length, "channels...");
+    console.log("[DISCORD-IMPORT] Importing", discordChannels.length, "channels...");
     const channelMap = new Map();
     for (const discordChannel of discordChannels) {
       if (discordChannel.type === 4) continue; // Skip category channels for now
@@ -181,7 +181,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .single();
 
       if (channelError) {
-        console.error("[DISCORD-IMPORT] Channel creation error:', channelError);
+        console.error("[DISCORD-IMPORT] Channel creation error:", channelError);
         throw channelError;
       }
 
@@ -197,12 +197,12 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         });
 
       channelMap.set(discordChannel.id, nativeChannel.id);
-      console.log("[DISCORD-IMPORT] Channel imported:', discordChannel.name);
+      console.log("[DISCORD-IMPORT] Channel imported:", discordChannel.name);
     }
-    console.log("[DISCORD-IMPORT] All', channelMap.size, "channels imported");
+    console.log("[DISCORD-IMPORT] All", channelMap.size, "channels imported");
 
     // Import members
-    console.log("[DISCORD-IMPORT] Importing', discordMembers.length, "members...");
+    console.log("[DISCORD-IMPORT] Importing", discordMembers.length, "members...");
     for (const discordMember of discordMembers) {
       if (discordMember.user.bot) continue;
 
@@ -219,7 +219,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
         .single();
 
       if (memberError && memberError.code !== "23505") {
-        console.error("[DISCORD-IMPORT] Member creation error:', memberError);
+        console.error("[DISCORD-IMPORT] Member creation error:", memberError);
         throw memberError;
       } // Ignore duplicate errors
 
@@ -233,7 +233,7 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
             discord_username: discordMember.user.username,
             discord_roles: discordMember.roles,
           });
-        console.log("[DISCORD-IMPORT] Member imported:', discordMember.user.username);
+        console.log("[DISCORD-IMPORT] Member imported:", discordMember.user.username);
       }
     }
     console.log("[DISCORD-IMPORT] All members imported");
@@ -244,8 +244,8 @@ async function importDiscordServer(discordGuildId: string, accessToken: string, 
     });
   } catch (error) {
     console.error("[DISCORD-IMPORT] === IMPORT FAILED ===");
-    console.error("[DISCORD-IMPORT] Error:', error.message);
-    console.error("[DISCORD-IMPORT] Stack:', error.stack);
+    console.error("[DISCORD-IMPORT] Error:", error.message);
+    console.error("[DISCORD-IMPORT] Stack:", error.stack);
     throw error;
   }
 }

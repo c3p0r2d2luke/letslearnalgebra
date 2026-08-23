@@ -8,28 +8,34 @@ const DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize";
 let discordAccount = null;
 let discordGuilds = [];
 
-// Initialize Discord integration
+// Initialize Discord integration (called after chatUsername is set)
 async function initializeDiscordIntegration() {
-  console.log("[DISCORD] Initializing Discord integration for user:", chatUsername);
-  if (!chatUsername) {
-    console.log("[DISCORD] No username found, skipping initialization");
-    return;
-  }
+  try {
+    // Only proceed if chatUsername is actually defined
+    if (typeof chatUsername === 'undefined' || !chatUsername) {
+      console.log("[DISCORD] chatUsername not available yet, will try again on next auth state change");
+      return;
+    }
 
-  const discordAccountId = localStorage.getItem(`discord_account_${chatUsername}`);
-  console.log("[DISCORD] Stored discord account ID:", discordAccountId);
-  if (discordAccountId) {
-    console.log("[DISCORD] Loading existing Discord account...");
-    await loadDiscordAccount();
-  }
+    console.log("[DISCORD] Initializing Discord integration for user:", chatUsername);
 
-  // Handle OAuth callback
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get("code");
-  console.log("[DISCORD] OAuth callback check - code:", code ? "present" : "none", "state:", params.get("state"));
-  if (code && params.get("state") === "discord_auth") {
-    console.log("[DISCORD] Processing OAuth callback...");
-    await handleDiscordOAuthCallback(code);
+    const discordAccountId = localStorage.getItem(`discord_account_${chatUsername}`);
+    console.log("[DISCORD] Stored discord account ID:", discordAccountId);
+    if (discordAccountId) {
+      console.log("[DISCORD] Loading existing Discord account...");
+      await loadDiscordAccount();
+    }
+
+    // Handle OAuth callback
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    console.log("[DISCORD] OAuth callback check - code:", code ? "present" : "none", "state:", params.get("state"));
+    if (code && params.get("state") === "discord_auth") {
+      console.log("[DISCORD] Processing OAuth callback...");
+      await handleDiscordOAuthCallback(code);
+    }
+  } catch (error) {
+    console.error("[DISCORD] Initialization error:", error);
   }
 }
 

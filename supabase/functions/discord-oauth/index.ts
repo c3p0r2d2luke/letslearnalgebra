@@ -68,7 +68,7 @@ async function exchangeDiscordCode(code: string, username: string) {
   }
 
   const tokens = await tokenResponse.json();
-  console.log("[DISCORD-OAUTH] Token exchange successful, access_token expiry:', tokens.expires_in, 'seconds");
+  console.log("[DISCORD-OAUTH] Token exchange successful, access_token expiry:", tokens.expires_in, "seconds");
 
   const userResponse = await fetch(`${DISCORD_API}/users/@me`, {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
@@ -76,7 +76,7 @@ async function exchangeDiscordCode(code: string, username: string) {
 
   console.log("[DISCORD-OAUTH] User info response status:", userResponse.status);
   const discordUser = await userResponse.json();
-  console.log("[DISCORD-OAUTH] Discord user ID:', discordUser.id, "username:", discordUser.username);
+  console.log("[DISCORD-OAUTH] Discord user ID:", discordUser.id, "username:", discordUser.username);
 
   // Upsert Discord account
   console.log("[DISCORD-OAUTH] Upserting Discord account in database...");
