@@ -7,44 +7,55 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 serve(async (req: Request) => {
   console.log("[DISCORD-OAUTH] Received request:", req.method);
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const body = await req.json();
     console.log("[DISCORD-OAUTH] Request body action:", body.action);
-    const { action, code, username, refresh_token } = body;
+    const { action, code, username, refresh_token, redirect_uri } = body;
 
     if (action === "exchange_code") {
       console.log("[DISCORD-OAUTH] Processing code exchange for username:", username);
-      return await exchangeDiscordCode(code, username);
+      return await exchangeDiscordCode(code, username, redirect_uri);
     } else if (action === "refresh_token") {
       console.log("[DISCORD-OAUTH] Processing token refresh for username:", username);
       return await refreshDiscordToken(refresh_token, username);
     } else if (action === "get_guilds") {
-      console.log("[DISCORD-OAUTH] Processing guild fetch");
-      return await getDiscordGuilds(refresh_token);
+      console.log("[DISCORD-OAUTH] Processing guild fetch for username:", username);
+      return await getDiscordGuilds(body);
     }
 
     console.error("[DISCORD-OAUTH] Invalid action:", action);
-    return new Response(JSON.stringify({ error: "Invalid action" }), { status: 400 });
+    return new Response(JSON.stringify({ error: "Invalid action" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("[DISCORD-OAUTH] Error:", error.message);
     console.error("[DISCORD-OAUTH] Stack:", error.stack);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
 
-async function exchangeDiscordCode(code: string, username: string) {
+async function exchangeDiscordCode(code: string, username: string, redirectUriParam?: string) {
   console.log("[DISCORD-OAUTH] Starting code exchange for username:", username);
   const clientId = Deno.env.get("DISCORD_CLIENT_ID")!;
   const clientSecret = Deno.env.get("DISCORD_CLIENT_SECRET")!;
-  const redirectUri = Deno.env.get("DISCORD_REDIRECT_URI") || "http://localhost:3000/auth-callback";
+  const redirectUri = redirectUriParam || Deno.env.get("DISCORD_REDIRECT_URI") || "http://localhost:3000";
 
-  console.log("[DISCORD-OAUTH] Code exchange - Client ID:", clientId.substring(0, 6) + "...");
+  console.log("[DISCORD-OAUTH] Code exchange - Client ID:", clientId ? clientId.substring(0, 6) + "..." : "MISSING");
   console.log("[DISCORD-OAUTH] Code exchange - Redirect URI:", redirectUri);
 
   const tokenResponse = await fetch(`${DISCORD_API}/oauth2/token`, {
@@ -80,7 +91,7 @@ async function exchangeDiscordCode(code: string, username: string) {
 
   // Upsert Discord account
   console.log("[DISCORD-OAUTH] Upserting Discord account in database...");
-  const { error: upsertError } = await supabaseClient
+  const { data: upsertedAccount, error: upsertError } = await supabaseClient
     .from("discord_accounts")
     .upsert(
       {
@@ -91,11 +102,13 @@ async function exchangeDiscordCode(code: string, username: string) {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-        scopes: tokens.scope.split(" "),
+        scopes: tokens.scope ? tokens.scope.split(" ") : ["identify", "guilds"],
         last_refreshed_at: new Date().toISOString(),
       },
       { onConflict: "username" }
-    );
+    )
+    .select()
+    .single();
 
   if (upsertError) {
     console.error("[DISCORD-OAUTH] Upsert error:", upsertError);
@@ -105,23 +118,20 @@ async function exchangeDiscordCode(code: string, username: string) {
   console.log("[DISCORD-OAUTH] Account upserted successfully");
 
   // Update users table
-  await supabaseClient
-    .from("users")
-    .update({ discord_account_id: (await supabaseClient
-      .from("discord_accounts")
-      .select("id")
-      .eq("username", username)
-      .single()).data?.id })
-    .eq("username", username);
+  if (upsertedAccount?.id) {
+    await supabaseClient
+      .from("users")
+      .update({ discord_account_id: upsertedAccount.id })
+      .eq("username", username);
+  }
 
   console.log("[DISCORD-OAUTH] Code exchange complete, returning success");
   return new Response(JSON.stringify({ success: true, discord_user: discordUser }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-async function refreshDiscordToken(refreshToken: string, username: string) {
-  console.log("[DISCORD-OAUTH] Refreshing token for username:", username);
+async function refreshDiscordTokenHelper(refreshToken: string, username: string) {
   const clientId = Deno.env.get("DISCORD_CLIENT_ID")!;
   const clientSecret = Deno.env.get("DISCORD_CLIENT_SECRET")!;
 
@@ -136,11 +146,10 @@ async function refreshDiscordToken(refreshToken: string, username: string) {
     }),
   });
 
-  console.log("[DISCORD-OAUTH] Refresh token response status:", tokenResponse.status);
   if (!tokenResponse.ok) {
     const errorText = await tokenResponse.text();
     console.error("[DISCORD-OAUTH] Token refresh failed:", errorText);
-    throw new Error("Failed to refresh Discord token: " + errorText);
+    return null;
   }
 
   const tokens = await tokenResponse.json();
@@ -150,6 +159,7 @@ async function refreshDiscordToken(refreshToken: string, username: string) {
     .from("discord_accounts")
     .update({
       access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token || refreshToken,
       token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
       last_refreshed_at: new Date().toISOString(),
     })
@@ -157,22 +167,61 @@ async function refreshDiscordToken(refreshToken: string, username: string) {
 
   if (error) {
     console.error("[DISCORD-OAUTH] Update error:", error);
-    throw error;
   }
 
-  console.log("[DISCORD-OAUTH] Token refresh complete");
+  return tokens;
+}
+
+async function refreshDiscordToken(refreshToken: string, username: string) {
+  console.log("[DISCORD-OAUTH] Refreshing token for username:", username);
+  const tokens = await refreshDiscordTokenHelper(refreshToken, username);
+  if (!tokens) {
+    throw new Error("Failed to refresh Discord token");
+  }
   return new Response(JSON.stringify({ success: true, access_token: tokens.access_token }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-async function getDiscordGuilds(accessToken: string) {
+async function getDiscordGuilds(body: any) {
   console.log("[DISCORD-OAUTH] Fetching Discord guilds...");
-  const guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+  let { username, access_token, refresh_token } = body;
+
+  if (username) {
+    const { data: acc } = await supabaseClient
+      .from("discord_accounts")
+      .select("*")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (acc) {
+      access_token = acc.access_token;
+      refresh_token = acc.refresh_token;
+    }
+  }
+
+  if (!access_token && !refresh_token) {
+    throw new Error("No Discord access token or refresh token available. Please connect Discord first.");
+  }
+
+  let guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
+    headers: { Authorization: `Bearer ${access_token}` },
   });
 
   console.log("[DISCORD-OAUTH] Guilds response status:", guildsResponse.status);
+
+  if (guildsResponse.status === 401 && refresh_token && username) {
+    console.log("[DISCORD-OAUTH] Guild fetch got 401, attempting token refresh...");
+    const refreshed = await refreshDiscordTokenHelper(refresh_token, username);
+    if (refreshed?.access_token) {
+      access_token = refreshed.access_token;
+      guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      console.log("[DISCORD-OAUTH] Retry guilds response status:", guildsResponse.status);
+    }
+  }
+
   if (!guildsResponse.ok) {
     const errorText = await guildsResponse.text();
     console.error("[DISCORD-OAUTH] Guild fetch failed:", errorText);
@@ -183,6 +232,6 @@ async function getDiscordGuilds(accessToken: string) {
   console.log("[DISCORD-OAUTH] Fetched", guilds.length, "guilds");
 
   return new Response(JSON.stringify({ guilds }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }

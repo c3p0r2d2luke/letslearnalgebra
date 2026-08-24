@@ -1290,12 +1290,22 @@ if (addBtn) {
   const goDiscordImport = document.getElementById("goDiscordImport");
   if (goDiscordImport) goDiscordImport.addEventListener("click", async () => {
     closeModal("serverModal");
-    if (!discordAccount) {
-      alert("❌ Please connect your Discord account first in your profile settings");
-      return;
+    if (typeof openModal === "function") {
+      openModal("importDiscordModal");
     }
-    await loadDiscordImportGuilds();
+    if (typeof loadDiscordImportGuilds === "function") {
+      await loadDiscordImportGuilds();
+    }
   });
+
+  const cancelImportDiscord = document.getElementById("cancelImportDiscordModal");
+  if (cancelImportDiscord) cancelImportDiscord.addEventListener("click", () => {
+    closeModal("importDiscordModal");
+    openModal("serverModal");
+  });
+
+  const closeImportDiscord = document.getElementById("closeImportDiscordModal");
+  if (closeImportDiscord) closeImportDiscord.addEventListener("click", () => closeModal("importDiscordModal"));
 
   const closeServer = document.getElementById("closeServerModal");
   if (closeServer) closeServer.addEventListener("click", () => closeModal("serverModal"));
@@ -3315,21 +3325,39 @@ function enableBioEdit(currentBio) {
 
 async function checkLinkedIdentities() {
   const { data: { user } } = await supabaseClient.auth.getUser();
-  if (!user) return { google: false, github: false, discord: false, azure: false };
+  const username = localStorage.getItem("chatUsername") || window.chatUsername;
 
-  // Supabase stores linked identities in user.identities
-  const identities = user.identities || [];
+  let discordLinked = !!(window.discordAccount || discordAccount);
+  if (!discordLinked && username) {
+    try {
+      const { data } = await supabaseClient
+        .from("discord_accounts")
+        .select("id")
+        .eq("username", username)
+        .maybeSingle();
+      discordLinked = !!data;
+    } catch (e) {}
+  }
+
+  const identities = user?.identities || [];
 
   return {
     google: identities.some(id => id.provider === 'google'),
     github: identities.some(id => id.provider === 'github'),
-    discord: identities.some(id => id.provider === 'discord'),
+    discord: discordLinked,
     azure: identities.some(id => id.provider === 'azure')
   };
 }
 
 async function unlinkOAuthIdentity(provider) {
   console.log(`🔄 Attempting to unlink ${provider}...`);
+
+  if (provider === 'discord') {
+    if (typeof disconnectDiscordAccount === "function") {
+      await disconnectDiscordAccount();
+    }
+    return;
+  }
 
   // 1. Check if user is logged in
   const { data: { user } } = await supabaseClient.auth.getUser();
@@ -3346,8 +3374,6 @@ async function unlinkOAuthIdentity(provider) {
   }
 
   // 3. Unlink the identity using the user-facing Supabase API.
-  //    (The previous `auth.admin.unlinkIdentity` requires a service role key
-  //    and silently fails from a browser, which is why unlinking never worked.)
   let unlinkError = null;
   try {
     if (typeof supabaseClient.auth.unlinkIdentity === "function") {
@@ -3428,6 +3454,12 @@ async function updateAccountLinkButtons() {
           }
           return;
         }
+        if (provider === 'discord') {
+          if (confirm('Are you sure you want to disconnect your Discord account?')) {
+            await disconnectDiscordAccount();
+          }
+          return;
+        }
         if (confirm(`Are you sure you want to unlink your ${providerNames[provider]} account?`)) {
           await unlinkOAuthIdentity(provider);
         }
@@ -3447,6 +3479,10 @@ async function updateAccountLinkButtons() {
         if (provider === 'spotify') {
           await linkSpotify();
           setTimeout(() => updateAccountLinkButtons(), 1200);
+        } else if (provider === 'discord') {
+          if (typeof initiateDiscordOAuth === "function") {
+            initiateDiscordOAuth();
+          }
         } else {
           await linkOAuthIdentity(provider);
         }

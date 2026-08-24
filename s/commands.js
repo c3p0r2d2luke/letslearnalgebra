@@ -1801,6 +1801,11 @@ async function refreshSettingsConnections() {
       const isLinked = !!(spotifyRow && spotifyRow.spotify_access_token);
       linked = isLinked ? { provider: 'spotify' } : null;
       handle = isLinked ? 'Connected' : '';
+    } else if (p.id === 'discord') {
+      const currentAcc = window.discordAccount || (typeof discordAccount !== "undefined" ? discordAccount : null);
+      const isLinked = !!currentAcc;
+      linked = isLinked ? { provider: 'discord' } : null;
+      handle = isLinked ? (currentAcc?.discord_username || 'Connected') : '';
     }
 
     const card = document.createElement("div");
@@ -1819,19 +1824,6 @@ async function refreshSettingsConnections() {
       </button>
     `;
     list.appendChild(card);
-/*
-    // If this is Spotify and the app requires Premium for the owner, grey it out so users cannot start the flow.
-    if (p.id === 'spotify' && !(spotifyRow && spotifyRow.spotify_access_token)) {
-      // Disable the button and show reason
-      const btnEl = card.querySelector('.connection-card-btn');
-      if (btnEl) {
-        btnEl.disabled = true;
-        btnEl.classList.add('disabled');
-        btnEl.textContent = 'Disabled (Premium required)';
-        btnEl.title = 'Disabled: App owner requires an active Spotify Premium subscription to enable playback features';
-        btnEl.dataset.action = 'disabled';
-      }
-    }*/
   });
 
   // Wire buttons (delegated each refresh — fine since list was rebuilt).
@@ -1843,9 +1835,7 @@ async function refreshSettingsConnections() {
       try {
         if (provider === 'spotify') {
           if (action === 'connect') {
-            // Spotify uses PKCE flow in spotify.js
             await linkSpotify();
-            // Poll the users table until spotify_access_token appears (popup flow may be delayed)
             const start = Date.now();
             const timeout = 10000; // ms
             const interval = 800; // ms
@@ -1857,7 +1847,6 @@ async function refreshSettingsConnections() {
               } catch (e) { /* ignore transient errors */ }
               await new Promise(r => setTimeout(r, interval));
             }
-            // Refresh UI regardless; if not found, refresh will show not-connected.
             await refreshSettingsConnections();
             if (!found) console.debug('[settings] Spotify token not observed after connect; UI refreshed anyway.');
           } else if (action === 'disconnect') {
@@ -1865,10 +1854,21 @@ async function refreshSettingsConnections() {
             await unlinkSpotify();
             await refreshSettingsConnections();
           } else {
-            // disabled or unknown action — ignore
             console.debug('[settings] Spotify connect is disabled for this deployment.');
             btn.disabled = false;
             return;
+          }
+        } else if (provider === 'discord') {
+          if (action === 'connect') {
+            if (typeof initiateDiscordOAuth === "function") {
+              initiateDiscordOAuth();
+            }
+          } else {
+            if (!confirm('Disconnect your Discord account?')) { btn.disabled = false; return; }
+            if (typeof disconnectDiscordAccount === "function") {
+              await disconnectDiscordAccount();
+            }
+            await refreshSettingsConnections();
           }
         } else {
           if (action === "connect") {

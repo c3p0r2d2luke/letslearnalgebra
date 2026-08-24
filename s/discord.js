@@ -2,7 +2,7 @@
 
 // Get Discord Client ID from config
 const DISCORD_CLIENT_ID = DISCORD_CONFIG?.CLIENT_ID || "1490802687111991420";
-const DISCORD_REDIRECT_URI = DISCORD_CONFIG?.REDIRECT_URI || `${window.location.origin}`;
+const DISCORD_REDIRECT_URI = DISCORD_CONFIG?.REDIRECT_URI || `${window.location.origin}${window.location.pathname}`;
 const DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize";
 
 let discordAccount = null;
@@ -11,28 +11,20 @@ let discordGuilds = [];
 // Initialize Discord integration (called after chatUsername is set)
 async function initializeDiscordIntegration() {
   try {
-    // Get username from localStorage (set by auth.js)
-    const username = localStorage.getItem("chatUsername");
-    
+    const username = localStorage.getItem("chatUsername") || window.chatUsername;
     if (!username) {
-      console.log("[DISCORD] No username in localStorage yet, will try again on next auth state change");
+      console.log("[DISCORD] No username in localStorage yet");
       return;
     }
 
     console.log("[DISCORD] Initializing Discord integration for user:", username);
-
-    const discordAccountId = localStorage.getItem(`discord_account_${username}`);
-    console.log("[DISCORD] Stored discord account ID:", discordAccountId);
-    if (discordAccountId) {
-      console.log("[DISCORD] Loading existing Discord account...");
-      await loadDiscordAccount(username);
-    }
+    await loadDiscordAccount(username);
 
     // Handle OAuth callback
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    console.log("[DISCORD] OAuth callback check - code:", code ? "present" : "none", "state:", params.get("state"));
-    if (code && params.get("state") === "discord_auth") {
+    const state = params.get("state");
+    if (code && (state === "discord_auth" || state === "discord")) {
       console.log("[DISCORD] Processing OAuth callback...");
       await handleDiscordOAuthCallback(code, username);
     }
@@ -56,12 +48,13 @@ function renderDiscordConnectionUI() {
     profileBox.appendChild(discordSection);
   }
 
-  if (discordAccount) {
+  const currentAcc = discordAccount || window.discordAccount;
+  if (currentAcc) {
     discordSection.innerHTML = `
       <div style="margin: 10px 0;">
         <strong>Discord Connected</strong>
         <div style="margin-top: 5px; font-size: 12px;">
-          <p>User: <strong>${discordAccount.discord_username}</strong></p>
+          <p>User: <strong>${currentAcc.discord_username}</strong></p>
           <button onclick="disconnectDiscordAccount()" style="padding: 5px 10px; background: #f44747; border: none; border-radius: 4px; color: white; cursor: pointer;">
             Disconnect Discord
           </button>
@@ -80,12 +73,13 @@ function renderDiscordConnectionUI() {
 // Initiate Discord OAuth flow
 function initiateDiscordOAuth() {
   console.log("[DISCORD] Initiating OAuth flow...");
+  const redirectUri = `${window.location.origin}${window.location.pathname}`;
   console.log("[DISCORD] Client ID:", DISCORD_CLIENT_ID);
-  console.log("[DISCORD] Redirect URI:", DISCORD_REDIRECT_URI);
+  console.log("[DISCORD] Redirect URI:", redirectUri);
   const scope = ["identify", "guilds", "channels.read", "messages.read"].join("%20");
   const url = new URL(DISCORD_AUTH_URL);
   url.searchParams.append("client_id", DISCORD_CLIENT_ID);
-  url.searchParams.append("redirect_uri", DISCORD_REDIRECT_URI);
+  url.searchParams.append("redirect_uri", redirectUri);
   url.searchParams.append("response_type", "code");
   url.searchParams.append("scope", scope);
   url.searchParams.append("state", "discord_auth");
@@ -95,9 +89,11 @@ function initiateDiscordOAuth() {
 }
 
 // Handle Discord OAuth callback
-async function handleDiscordOAuthCallback(code) {
-  const username = localStorage.getItem("chatUsername");
+async function handleDiscordOAuthCallback(code, usernameParam) {
+  const username = usernameParam || localStorage.getItem("chatUsername") || window.chatUsername;
   console.log("[DISCORD] Handling OAuth callback with code:", code, "username:", username);
+  const redirectUri = `${window.location.origin}${window.location.pathname}`;
+
   try {
     console.log("[DISCORD] Exchanging code for tokens...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
@@ -107,6 +103,7 @@ async function handleDiscordOAuthCallback(code) {
         action: "exchange_code",
         code,
         username: username,
+        redirect_uri: redirectUri,
       }),
     });
 
@@ -119,34 +116,33 @@ async function handleDiscordOAuthCallback(code) {
 
     const result = await response.json();
     console.log("[DISCORD] OAuth exchange successful:", result);
-    await loadDiscordAccount();
 
-    // Clean up URL
-    window.history.replaceState({}, document.title, window.location.pathname);
-    renderDiscordConnectionUI();
+    // Clean up URL query parameters
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+
+    await loadDiscordAccount(username);
 
     console.log("[DISCORD] Discord account successfully connected!");
     alert("✅ Discord account connected!");
   } catch (error) {
     console.error("[DISCORD] OAuth error:", error);
-    console.error("[DISCORD] Full error stack:", error.stack);
     alert(`❌ Discord connection failed: ${error.message}`);
   }
 }
 
 // Load Discord account data
-async function loadDiscordAccount() {
-  const username = localStorage.getItem("chatUsername");
+async function loadDiscordAccount(usernameParam) {
+  const username = usernameParam || localStorage.getItem("chatUsername") || window.chatUsername;
+  if (!username) return null;
   console.log("[DISCORD] loadDiscordAccount() called for username:", username);
   try {
-    console.log("[DISCORD] Querying discord_accounts table for username:", username);
     const { data, error } = await supabaseClient
       .from("discord_accounts")
       .select("*")
       .eq("username", username)
       .maybeSingle();
 
-    console.log("[DISCORD] Query response - error:", error, "data:", data);
     if (error) {
       console.error("[DISCORD] Database query error:", error);
       throw error;
@@ -155,33 +151,53 @@ async function loadDiscordAccount() {
     if (data) {
       console.log("[DISCORD] Found Discord account:", data.discord_username);
       discordAccount = data;
+      window.discordAccount = data;
       localStorage.setItem(`discord_account_${username}`, JSON.stringify(discordAccount));
-      renderDiscordConnectionUI();
     } else {
       console.log("[DISCORD] No Discord account found in database for user:", username);
       discordAccount = null;
+      window.discordAccount = null;
+      localStorage.removeItem(`discord_account_${username}`);
+    }
+
+    renderDiscordConnectionUI();
+    if (typeof updateAccountLinkButtons === "function") {
+      updateAccountLinkButtons();
+    }
+    if (typeof refreshSettingsConnections === "function") {
+      refreshSettingsConnections();
     }
 
     return discordAccount;
   } catch (error) {
     console.error("[DISCORD] Failed to load Discord account:", error);
-    console.error("[DISCORD] Stack:", error.stack);
   }
 }
 
 // Disconnect Discord account
 async function disconnectDiscordAccount() {
+  const username = localStorage.getItem("chatUsername") || window.chatUsername;
+  if (!username) return;
+
   try {
     const { error } = await supabaseClient
       .from("discord_accounts")
       .delete()
-      .eq("username", chatUsername);
+      .eq("username", username);
 
     if (error) throw error;
 
     discordAccount = null;
-    localStorage.removeItem(`discord_account_${chatUsername}`);
+    window.discordAccount = null;
+    localStorage.removeItem(`discord_account_${username}`);
+
     renderDiscordConnectionUI();
+    if (typeof updateAccountLinkButtons === "function") {
+      updateAccountLinkButtons();
+    }
+    if (typeof refreshSettingsConnections === "function") {
+      refreshSettingsConnections();
+    }
 
     alert("✅ Discord account disconnected!");
   } catch (error) {
@@ -194,10 +210,11 @@ async function disconnectDiscordAccount() {
 
 // Fetch user's Discord guilds
 async function fetchDiscordGuilds() {
-  console.log("[DISCORD] Fetching Discord guilds for user:", chatUsername);
-  if (!discordAccount) {
+  const username = localStorage.getItem("chatUsername") || window.chatUsername;
+  const currentAcc = discordAccount || window.discordAccount;
+
+  if (!currentAcc) {
     console.log("[DISCORD] No Discord account connected");
-    alert("❌ Please connect your Discord account first");
     return [];
   }
 
@@ -208,7 +225,9 @@ async function fetchDiscordGuilds() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "get_guilds",
-        refresh_token: discordAccount.refresh_token,
+        username: username,
+        access_token: currentAcc.access_token,
+        refresh_token: currentAcc.refresh_token,
       }),
     });
 
@@ -232,60 +251,63 @@ async function fetchDiscordGuilds() {
 
 // Show Discord import dialog in Add Server modal
 function showDiscordImportUI() {
-  const serverModal = document.getElementById("serverModal");
-  if (!serverModal) return;
-
-  let discordImportDiv = document.getElementById("discordImportUI");
-  if (discordImportDiv) {
-    discordImportDiv.remove();
+  if (typeof openModal === "function") {
+    openModal("importDiscordModal");
+    loadDiscordImportGuilds();
   }
-
-  discordImportDiv = document.createElement("div");
-  discordImportDiv.id = "discordImportUI";
-  discordImportDiv.style.cssText = "margin-top: 15px; padding: 10px; border: 1px solid #5865F2; border-radius: 4px;";
-  discordImportDiv.innerHTML = `
-    <div style="margin-bottom: 10px;">
-      <button onclick="loadDiscordImportGuilds()" style="padding: 8px 15px; background: #5865F2; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%;">
-        📥 Import Discord Server
-      </button>
-    </div>
-    <div id="discordGuildsList"></div>
-  `;
-
-  serverModal.appendChild(discordImportDiv);
 }
 
 // Load and display Discord guilds in modal
 async function loadDiscordImportGuilds() {
-  if (!discordAccount) {
-    alert("❌ Please connect your Discord account first");
+  const guildsList = document.getElementById("discordGuildsList");
+  if (!guildsList) return;
+
+  const username = localStorage.getItem("chatUsername") || window.chatUsername;
+  if (!discordAccount && !window.discordAccount && username) {
+    await loadDiscordAccount(username);
+  }
+
+  const currentAcc = discordAccount || window.discordAccount;
+  if (!currentAcc) {
+    guildsList.innerHTML = `
+      <div style="text-align: center; padding: 20px 10px;">
+        <p style="color: #ff6b6b; margin-bottom: 12px; font-weight: bold;">❌ Discord account is not connected.</p>
+        <p style="font-size: 13px; color: #ccc; margin-bottom: 15px;">Please connect your Discord account before importing servers.</p>
+        <button onclick="initiateDiscordOAuth()" style="padding: 10px 18px; background: #5865F2; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%;">
+          🔗 Connect Discord Account
+        </button>
+      </div>
+    `;
     return;
   }
 
-  const guildsList = document.getElementById("discordGuildsList");
-  guildsList.innerHTML = "<p>Loading Discord guilds...</p>";
+  guildsList.innerHTML = "<p style='text-align: center; padding: 15px;'>⏳ Loading Discord servers...</p>";
 
   const guilds = await fetchDiscordGuilds();
 
-  if (guilds.length === 0) {
-    guildsList.innerHTML = "<p>No Discord servers found</p>";
+  if (!guilds || guilds.length === 0) {
+    guildsList.innerHTML = `
+      <div style="text-align: center; padding: 15px;">
+        <p style="color: #bbb;">No Discord servers found for this account.</p>
+      </div>
+    `;
     return;
   }
 
-  let html = "<div style='max-height: 300px; overflow-y: auto;'>";
+  let html = "<div style='max-height: 280px; overflow-y: auto; margin-bottom: 15px;'>";
   guilds.forEach((guild) => {
     const iconUrl = guild.icon
       ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`
-      : "https://via.placeholder.com/30";
+      : "https://via.placeholder.com/32";
 
     html += `
-      <div style="display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #444; cursor: pointer;" onclick="selectDiscordGuild('${guild.id}', '${guild.name}')">
-        <img src="${iconUrl}" alt="${guild.name}" style="width: 30px; height: 30px; border-radius: 50%; margin-right: 10px;">
+      <div style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #333; cursor: pointer;" onclick="selectDiscordGuild('${guild.id}', '${guild.name}')">
+        <img src="${iconUrl}" alt="${guild.name}" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 12px; object-fit: cover;">
         <div style="flex: 1;">
-          <strong>${guild.name}</strong>
-          <div style="font-size: 11px; color: #999;">Members: ${guild.approximate_member_count}</div>
+          <div style="font-weight: bold; color: #fff;">${guild.name}</div>
+          <div style="font-size: 11px; color: #999;">${guild.owner ? '👑 Owner' : 'Member'}</div>
         </div>
-        <input type="radio" name="discord-guild" value="${guild.id}" />
+        <input type="radio" name="discord-guild" value="${guild.id}" style="cursor: pointer;" />
       </div>
     `;
   });
@@ -293,15 +315,15 @@ async function loadDiscordImportGuilds() {
 
   html += `
     <div style="margin-top: 10px;">
-      <label style="font-size: 12px; display: block; margin-bottom: 8px;">
+      <label style="font-size: 12px; display: block; margin-bottom: 6px; color: #ccc;">
         <strong>Sync Direction:</strong>
       </label>
-      <select id="syncDirection" style="width: 100%; padding: 5px; margin-bottom: 10px; background: #222; color: #fff; border: 1px solid #444;">
+      <select id="syncDirection" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #2f3136; color: #fff; border: 1px solid #444; border-radius: 4px;">
         <option value="bidirectional">Bidirectional (sync both ways)</option>
         <option value="incoming_only">Incoming Only (Discord → Chat)</option>
         <option value="outgoing_only">Outgoing Only (Chat → Discord)</option>
       </select>
-      <button onclick="importSelectedDiscordGuild()" style="padding: 8px 15px; background: #43B581; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%;">
+      <button onclick="importSelectedDiscordGuild()" style="padding: 10px 15px; background: #43B581; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%;">
         ✅ Import Selected Server
       </button>
     </div>
@@ -321,19 +343,20 @@ async function importSelectedDiscordGuild() {
   console.log("[DISCORD] Import button clicked");
   const selected = document.querySelector('input[name="discord-guild"]:checked');
   if (!selected) {
-    console.log("[DISCORD] No guild selected");
-    alert("❌ Please select a Discord server");
+    alert("❌ Please select a Discord server to import");
     return;
   }
 
   const guildId = selected.value;
-  const syncDirection = document.getElementById("syncDirection").value;
-  console.log("[DISCORD] Selected guild ID:", guildId, "Sync direction:", syncDirection);
+  const syncDirection = document.getElementById("syncDirection")?.value || "bidirectional";
+  const username = localStorage.getItem("chatUsername") || window.chatUsername;
+  const currentAcc = discordAccount || window.discordAccount;
 
   try {
-    // Show progress
     const guildsList = document.getElementById("discordGuildsList");
-    guildsList.innerHTML = "<p>Importing Discord server... This may take a moment.</p>";
+    if (guildsList) {
+      guildsList.innerHTML = "<p style='text-align: center; padding: 20px;'>⏳ Importing Discord server... This may take a moment.</p>";
+    }
 
     console.log("[DISCORD] Sending import request to discord-import function...");
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-import`, {
@@ -342,8 +365,8 @@ async function importSelectedDiscordGuild() {
       body: JSON.stringify({
         action: "import_server",
         discord_guild_id: guildId,
-        access_token: discordAccount.access_token,
-        username: chatUsername,
+        access_token: currentAcc ? currentAcc.access_token : null,
+        username: username,
         sync_direction: syncDirection,
       }),
     });
@@ -353,22 +376,26 @@ async function importSelectedDiscordGuild() {
     console.log("[DISCORD] Import response:", responseText);
 
     if (!response.ok) {
-      console.error("[DISCORD] Import failed with status:", response.status);
-      throw new Error(responseText);
+      throw new Error(responseText || "Import failed");
     }
 
-    const result = JSON.parse(responseText);
-    console.log("[DISCORD] Import successful! Result:", result);
+    let result = {};
+    try { result = JSON.parse(responseText); } catch {}
 
     alert("✅ Discord server imported successfully!");
-    guildsList.innerHTML = "";
+    if (typeof closeModal === "function") {
+      closeModal("importDiscordModal");
+    }
 
-    // Reload servers list
-    console.log("[DISCORD] Reloading servers list...");
-    await loadServers();
+    // Reload servers list and switch to the new server
+    if (typeof loadServers === "function") {
+      await loadServers();
+    }
+    if (result.server_id && typeof switchServer === "function") {
+      await switchServer(result.server_id);
+    }
   } catch (error) {
     console.error("[DISCORD] Import error:", error);
-    console.error("[DISCORD] Full stack:", error.stack);
     alert(`❌ Import failed: ${error.message}`);
     await loadDiscordImportGuilds();
   }
