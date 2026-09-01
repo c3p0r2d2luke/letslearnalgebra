@@ -3340,6 +3340,9 @@ async function checkLinkedIdentities() {
   }
 
   const identities = user?.identities || [];
+  if (!discordLinked) {
+    discordLinked = identities.some(id => id.provider === 'discord');
+  }
 
   return {
     google: identities.some(id => id.provider === 'google'),
@@ -3353,6 +3356,20 @@ async function unlinkOAuthIdentity(provider) {
   console.log(`🔄 Attempting to unlink ${provider}...`);
 
   if (provider === 'discord') {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    const identity = user?.identities?.find(id => id.provider === 'discord');
+
+    if (identity && typeof supabaseClient.auth.unlinkIdentity === "function") {
+      try {
+        const { error } = await supabaseClient.auth.unlinkIdentity(identity);
+        if (error) {
+          console.warn("Could not unlink Discord auth identity:", error);
+        }
+      } catch (err) {
+        console.warn("Discord auth unlink failed:", err);
+      }
+    }
+
     if (typeof disconnectDiscordAccount === "function") {
       await disconnectDiscordAccount();
     }

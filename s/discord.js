@@ -8,6 +8,48 @@ const DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize";
 let discordAccount = null;
 let discordGuilds = [];
 
+async function getDiscordSessionAccount() {
+  try {
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    if (error || !session) return null;
+
+    const discordIdentity = (session.user?.identities || []).find((identity) => identity.provider === "discord");
+    const providerToken = session.provider_token || discordIdentity?.provider_token || null;
+    const providerRefreshToken = session.provider_refresh_token || discordIdentity?.provider_refresh_token || null;
+
+    if (!providerToken) return null;
+
+    const userResponse = await fetch(`${DISCORD_API}/users/@me`, {
+      headers: { Authorization: `Bearer ${providerToken}` },
+    });
+
+    if (!userResponse.ok) {
+      console.warn("[DISCORD] Provider token exists but Discord /users/@me failed:", userResponse.status);
+      return null;
+    }
+
+    const discordUser = await userResponse.json();
+    const username = session.user?.user_metadata?.user_name || session.user?.user_metadata?.full_name || session.user?.email || "discord-user";
+
+    return {
+      id: discordUser.id,
+      username,
+      discord_user_id: discordUser.id,
+      discord_username: discordUser.username,
+      discord_tag: discordUser.discriminator ? `${discordUser.username}#${discordUser.discriminator}` : discordUser.username,
+      access_token: providerToken,
+      refresh_token: providerRefreshToken,
+      token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      scopes: ["identify", "guilds"],
+      last_refreshed_at: new Date().toISOString(),
+      source: "session",
+    };
+  } catch (error) {
+    console.warn("[DISCORD] Failed to build Discord account from auth session:", error);
+    return null;
+  }
+}
+
 // Initialize Discord integration (called after chatUsername is set)
 async function initializeDiscordIntegration() {
   try {
@@ -137,7 +179,8 @@ async function loadDiscordAccount(usernameParam) {
   if (!username) return null;
   console.log("[DISCORD] loadDiscordAccount() called for username:", username);
   try {
-    const { data, error } = await supabaseClient
+    let data = null;
+    const { data: dbRow, error } = await supabaseClient
       .from("discord_accounts")
       .select("*")
       .eq("username", username)
@@ -148,13 +191,25 @@ async function loadDiscordAccount(usernameParam) {
       throw error;
     }
 
+    if (dbRow) {
+      console.log("[DISCORD] Found Discord account row:", dbRow.discord_username);
+      data = dbRow;
+    }
+
+    if (!data) {
+      const sessionAccount = await getDiscordSessionAccount();
+      if (sessionAccount) {
+        console.log("[DISCORD] Using Discord account from Supabase auth session");
+        data = sessionAccount;
+      }
+    }
+
     if (data) {
-      console.log("[DISCORD] Found Discord account:", data.discord_username);
       discordAccount = data;
       window.discordAccount = data;
       localStorage.setItem(`discord_account_${username}`, JSON.stringify(discordAccount));
     } else {
-      console.log("[DISCORD] No Discord account found in database for user:", username);
+      console.log("[DISCORD] No Discord account found for user:", username);
       discordAccount = null;
       window.discordAccount = null;
       localStorage.removeItem(`discord_account_${username}`);
@@ -211,7 +266,7 @@ async function disconnectDiscordAccount() {
 // Fetch user's Discord guilds
 async function fetchDiscordGuilds() {
   const username = localStorage.getItem("chatUsername") || window.chatUsername;
-  const currentAcc = discordAccount || window.discordAccount;
+  const currentAcc = discordAccount || window.discordAccount || (await getDiscordSessionAccount());
 
   if (!currentAcc) {
     console.log("[DISCORD] No Discord account connected");
