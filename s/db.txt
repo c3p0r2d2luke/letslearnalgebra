@@ -22,7 +22,9 @@ CREATE TABLE public.users (
   spotify_album_art text,
   spotify_is_playing boolean DEFAULT false,
   spotify_updated_at timestamp with time zone,
+  discord_account_id uuid,
   CONSTRAINT users_pkey PRIMARY KEY (username),
+  CONSTRAINT users_discord_account_id_fkey FOREIGN KEY (discord_account_id) REFERENCES public.discord_accounts(id),
   CONSTRAINT users_auth_id_fkey FOREIGN KEY (auth_id) REFERENCES auth.users(id),
   CONSTRAINT users_custom_theme_fkey FOREIGN KEY (custom_theme_id) REFERENCES public.themes(id)
 );
@@ -327,4 +329,110 @@ CREATE TABLE public.user_system_roles (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT user_system_roles_pkey PRIMARY KEY (username, role),
   CONSTRAINT user_system_roles_username_fkey FOREIGN KEY (username) REFERENCES public.users(username)
+);
+CREATE TABLE public.discord_accounts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  username text NOT NULL UNIQUE,
+  discord_user_id text NOT NULL UNIQUE,
+  discord_username text NOT NULL,
+  discord_tag text,
+  access_token text NOT NULL,
+  refresh_token text,
+  token_expires_at timestamp with time zone,
+  scopes ARRAY DEFAULT ARRAY['identify'::text, 'guilds'::text],
+  last_refreshed_at timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_accounts_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.discord_servers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  server_id uuid NOT NULL,
+  discord_guild_id text NOT NULL,
+  discord_guild_name text NOT NULL,
+  discord_owner_id text,
+  discord_icon_url text,
+  sync_direction text DEFAULT 'bidirectional'::text CHECK (sync_direction = ANY (ARRAY['bidirectional'::text, 'incoming_only'::text, 'outgoing_only'::text])),
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_servers_pkey PRIMARY KEY (id),
+  CONSTRAINT discord_servers_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
+);
+CREATE TABLE public.discord_channels (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  discord_server_id uuid NOT NULL,
+  channel_id bigint NOT NULL,
+  discord_channel_id text NOT NULL,
+  discord_channel_name text NOT NULL,
+  channel_type text DEFAULT 'text'::text CHECK (channel_type = ANY (ARRAY['text'::text, 'voice'::text])),
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_channels_pkey PRIMARY KEY (id),
+  CONSTRAINT discord_channels_discord_server_id_fkey FOREIGN KEY (discord_server_id) REFERENCES public.discord_servers(id),
+  CONSTRAINT discord_channels_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.channels(id)
+);
+CREATE TABLE public.discord_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  discord_server_id uuid NOT NULL,
+  role_id uuid NOT NULL,
+  discord_role_id text NOT NULL,
+  discord_role_name text NOT NULL,
+  discord_color text,
+  discord_permissions text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_roles_pkey PRIMARY KEY (id),
+  CONSTRAINT discord_roles_discord_server_id_fkey FOREIGN KEY (discord_server_id) REFERENCES public.discord_servers(id),
+  CONSTRAINT discord_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.server_roles(id)
+);
+CREATE TABLE public.discord_members (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  discord_server_id uuid NOT NULL,
+  member_id uuid NOT NULL,
+  discord_user_id text NOT NULL,
+  discord_username text NOT NULL,
+  discord_roles ARRAY DEFAULT ARRAY[]::text[],
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_members_pkey PRIMARY KEY (id),
+  CONSTRAINT discord_members_discord_server_id_fkey FOREIGN KEY (discord_server_id) REFERENCES public.discord_servers(id),
+  CONSTRAINT discord_members_member_id_fkey FOREIGN KEY (member_id) REFERENCES public.server_members(id)
+);
+CREATE TABLE public.discord_message_mapping (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  discord_server_id uuid NOT NULL,
+  discord_channel_id text NOT NULL,
+  chat_message_id bigint NOT NULL,
+  discord_message_id text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT discord_message_mapping_pkey PRIMARY KEY (id),
+  CONSTRAINT discord_message_mapping_discord_server_id_fkey FOREIGN KEY (discord_server_id) REFERENCES public.discord_servers(id),
+  CONSTRAINT discord_message_mapping_chat_message_id_fkey FOREIGN KEY (chat_message_id) REFERENCES public.messages(id)
+);
+CREATE TABLE public.server_bots (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  server_id uuid NOT NULL,
+  bot_name text NOT NULL,
+  bot_type text CHECK (bot_type = ANY (ARRAY['dyno'::text, 'mee6'::text, 'MEE6'::text, 'custom'::text])),
+  bot_token text,
+  config jsonb DEFAULT '{}'::jsonb,
+  enabled boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT server_bots_pkey PRIMARY KEY (id),
+  CONSTRAINT server_bots_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
+);
+CREATE TABLE public.slash_commands (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  server_id uuid NOT NULL,
+  command_name text NOT NULL,
+  description text,
+  options jsonb DEFAULT '[]'::jsonb,
+  handler_function text,
+  enabled boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT slash_commands_pkey PRIMARY KEY (id),
+  CONSTRAINT slash_commands_server_id_fkey FOREIGN KEY (server_id) REFERENCES public.servers(id)
 );
