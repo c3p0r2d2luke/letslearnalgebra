@@ -2,8 +2,8 @@
 
 // Get Discord Client ID from config
 const DISCORD_CLIENT_ID = DISCORD_CONFIG?.CLIENT_ID || "1490802687111991420";
-const DISCORD_REDIRECT_URI = DISCORD_CONFIG?.REDIRECT_URI || `${window.location.origin}${window.location.pathname}`;
-const DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize";
+const DISCORD_AUTH_URL = DISCORD_CONFIG?.AUTH_URL || "https://discord.com/api/oauth2/authorize";
+const DISCORD_API = DISCORD_CONFIG?.API_URL || "https://discord.com/api/v10";
 
 let discordAccount = null;
 let discordGuilds = [];
@@ -29,7 +29,8 @@ async function getDiscordSessionAccount() {
     }
 
     const discordUser = await userResponse.json();
-    const username = session.user?.user_metadata?.user_name || session.user?.user_metadata?.full_name || session.user?.email || "discord-user";
+    const username = localStorage.getItem("chatUsername") || window.chatUsername;
+    if (!username) return null;
 
     return {
       id: discordUser.id,
@@ -47,6 +48,34 @@ async function getDiscordSessionAccount() {
   } catch (error) {
     console.warn("[DISCORD] Failed to build Discord account from auth session:", error);
     return null;
+  }
+
+  async function linkDiscordSessionAccount(account, username) {
+    if (!account?.access_token || !username) return account;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "link_session",
+        username,
+        discord_user_id: account.discord_user_id,
+        discord_username: account.discord_username,
+        discord_tag: account.discord_tag,
+        access_token: account.access_token,
+        refresh_token: account.refresh_token,
+        token_expires_at: account.token_expires_at,
+        scopes: account.scopes,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to save Discord session account: ${errorText}`);
+    }
+
+    const result = await response.json();
+    return result.account || account;
   }
 }
 
@@ -77,18 +106,8 @@ async function initializeDiscordIntegration() {
 
 // Show Discord connection button in profile
 function renderDiscordConnectionUI() {
-  const profileBox = document.getElementById("profileBox");
-  if (!profileBox) return;
-
-  let discordSection = document.getElementById("discordSection");
-  if (!discordSection) {
-    discordSection = document.createElement("div");
-    discordSection.id = "discordSection";
-    discordSection.style.borderTop = "1px solid #333";
-    discordSection.style.paddingTop = "10px";
-    discordSection.style.marginTop = "10px";
-    profileBox.appendChild(discordSection);
-  }
+  const discordSection = document.getElementById("discordSection");
+  if (!discordSection) return;
 
   const currentAcc = discordAccount || window.discordAccount;
   if (currentAcc) {
@@ -118,7 +137,7 @@ function initiateDiscordOAuth() {
   const redirectUri = `${window.location.origin}${window.location.pathname}`;
   console.log("[DISCORD] Client ID:", DISCORD_CLIENT_ID);
   console.log("[DISCORD] Redirect URI:", redirectUri);
-  const scope = ["identify", "guilds", "channels.read", "messages.read"].join("%20");
+  const scope = (DISCORD_CONFIG?.SCOPES || ["identify", "guilds"]).join(" ");
   const url = new URL(DISCORD_AUTH_URL);
   url.searchParams.append("client_id", DISCORD_CLIENT_ID);
   url.searchParams.append("redirect_uri", redirectUri);
@@ -200,7 +219,7 @@ async function loadDiscordAccount(usernameParam) {
       const sessionAccount = await getDiscordSessionAccount();
       if (sessionAccount) {
         console.log("[DISCORD] Using Discord account from Supabase auth session");
-        data = sessionAccount;
+        data = await linkDiscordSessionAccount(sessionAccount, username);
       }
     }
 
@@ -356,7 +375,7 @@ async function loadDiscordImportGuilds() {
       : "https://via.placeholder.com/32";
 
     html += `
-      <div style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #333; cursor: pointer;" onclick="selectDiscordGuild('${guild.id}', '${guild.name}')">
+      <div style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #333; cursor: pointer;" onclick="selectDiscordGuild('${guild.id}')">
         <img src="${iconUrl}" alt="${guild.name}" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 12px; object-fit: cover;">
         <div style="flex: 1;">
           <div style="font-weight: bold; color: #fff;">${guild.name}</div>
@@ -388,7 +407,7 @@ async function loadDiscordImportGuilds() {
 }
 
 // Select Discord guild and import it
-async function selectDiscordGuild(guildId, guildName) {
+function selectDiscordGuild(guildId) {
   const radio = document.querySelector(`input[value="${guildId}"]`);
   if (radio) radio.checked = true;
 }
@@ -487,7 +506,6 @@ async function syncMessageToDiscord(messageId, channelId) {
         action: "sync_to_discord",
         message_id: messageId,
         channel_id: channelId,
-        bot_token: Deno.env.get("DISCORD_BOT_TOKEN"), // Will be handled server-side
       }),
     });
 
@@ -498,214 +516,6 @@ async function syncMessageToDiscord(messageId, channelId) {
     console.error("Error syncing message to Discord:", error);
   }
 }
-
-// ======================== SLASH COMMANDS ========================
-
-// Register a slash command
-async function registerSlashCommand(serverId, botId, commandName, description, options, username) {
-  try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/slash-commands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "register_command",
-        server_id: serverId,
-        bot_id: botId,
-        command_name: commandName,
-        description,
-        options: options || [],
-        username,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to register command");
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Error registering command:", error);
-    throw error;
-  }
-}
-
-// Get slash commands for a server
-async function getSlashCommands(serverId) {
-  try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/slash-commands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "get_commands",
-        server_id: serverId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch commands");
-    }
-
-    const data = await response.json();
-    return data.commands || [];
-  } catch (error) {
-    console.error("Error fetching commands:", error);
-    return [];
-  }
-}
-
-// Execute a slash command
-async function executeSlashCommand(serverId, commandName, params) {
-  try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/slash-commands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "execute_command",
-        server_id: serverId,
-        command_name: commandName,
-        params,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to execute command");
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Error executing command:", error);
-    throw error;
-  }
-}
-
-// Add slash command UI to message input
-function setupSlashCommandUI() {
-  const messageInput = document.getElementById("messageInput");
-  if (!messageInput) return;
-
-  messageInput.addEventListener("keyup", async (e) => {
-    if (e.key === "/" && messageInput.value === "/") {
-      await showCommandAutocomplete();
-    }
-  });
-}
-
-// Show command autocomplete dropdown
-async function showCommandAutocomplete() {
-  if (!currentServerId) return;
-
-  const commands = await getSlashCommands(currentServerId);
-  if (commands.length === 0) return;
-
-  let autocompleteDiv = document.getElementById("commandAutocomplete");
-  if (!autocompleteDiv) {
-    autocompleteDiv = document.createElement("div");
-    autocompleteDiv.id = "commandAutocomplete";
-    autocompleteDiv.style.cssText = `
-      position: absolute;
-      bottom: 50px;
-      left: 10px;
-      background: #2C2F33;
-      border: 1px solid #5865F2;
-      border-radius: 4px;
-      max-height: 200px;
-      overflow-y: auto;
-      z-index: 1000;
-      min-width: 200px;
-    `;
-    document.body.appendChild(autocompleteDiv);
-  }
-
-  let html = "";
-  commands.forEach((cmd) => {
-    html += `
-      <div style="padding: 8px 12px; border-bottom: 1px solid #444; cursor: pointer; hover-background: #3c3f45;" onclick="insertCommand('${cmd.command_name}')">
-        <strong>/${cmd.command_name}</strong>
-        <div style="font-size: 11px; color: #999;">${cmd.description}</div>
-      </div>
-    `;
-  });
-
-  autocompleteDiv.innerHTML = html;
-  autocompleteDiv.style.display = "block";
-}
-
-// Insert command into message input
-function insertCommand(commandName) {
-  const messageInput = document.getElementById("messageInput");
-  messageInput.value = `/${commandName} `;
-  messageInput.focus();
-
-  const autocompleteDiv = document.getElementById("commandAutocomplete");
-  if (autocompleteDiv) {
-    autocompleteDiv.style.display = "none";
-  }
-}
-
-// Parse and handle slash commands
-async function handleSlashCommand(message, channelId) {
-  if (!message.startsWith("/")) return null;
-
-  const parts = message.slice(1).split(" ");
-  const commandName = parts[0];
-  const params = {};
-
-  // Parse parameters (simplified - assumes key=value format)
-  for (let i = 1; i < parts.length; i++) {
-    const [key, value] = parts[i].split("=");
-    if (key && value) {
-      params[key] = value;
-    }
-  }
-
-  try {
-    const result = await executeSlashCommand(currentServerId, commandName, params);
-    return result.result || "Command executed";
-  } catch (error) {
-    return `Error executing command: ${error.message}`;
-  }
-}
-
-// ======================== DEBUGGING & TESTING ========================
-
-// Debug function - check Discord account status in database
-window.debugDiscordAccount = async function() {
-  console.log("=== DISCORD DEBUG ===");
-  console.log("chatUsername:", chatUsername);
-  console.log("discordAccount object:", discordAccount);
-  console.log("localStorage data:", localStorage.getItem(`discord_account_${chatUsername}`));
-  
-  try {
-    console.log("Querying discord_accounts table for all records...");
-    const { data, error } = await supabaseClient
-      .from("discord_accounts")
-      .select("*");
-    
-    if (error) {
-      console.error("Error querying discord_accounts:", error);
-      return;
-    }
-    
-    console.log("All Discord accounts in database:", data);
-    console.log("Total records:", data?.length || 0);
-  } catch (err) {
-    console.error("Debug error:", err);
-  }
-};
-
-// Test Discord OAuth by manually calling the function
-window.testDiscordOAuth = async function() {
-  console.log("=== TESTING DISCORD OAUTH ===");
-  if (!DISCORD_CLIENT_ID || DISCORD_CLIENT_ID === "1490802687111991420") {
-    console.error("❌ DISCORD_CLIENT_ID not configured in discord-config.js");
-    return;
-  }
-  
-  console.log("Client ID:", DISCORD_CLIENT_ID);
-  console.log("Redirect URI:", DISCORD_REDIRECT_URI);
-  console.log("Initiating OAuth flow...");
-  initiateDiscordOAuth();
-};
 
 // ======================== INITIALIZATION ========================
 
