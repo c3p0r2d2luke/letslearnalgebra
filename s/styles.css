@@ -26,6 +26,18 @@
   --surface-border: rgba(255,255,255,0.08);
 }
 
+/* Keep the visual language close to Discord's dense, opaque surfaces. */
+:root {
+  --bg-main: #313338;
+  --bg-secondary: #1e1f22;
+  --bg-tertiary: #2b2d31;
+  --bg-hover: #404249;
+  --bg-elevated: #383a40;
+  --bg-input: #1e1f22;
+  --bg-modal: #313338;
+  --surface-border: #1f2023;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -37,6 +49,143 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
                "Helvetica Neue", Arial, sans-serif;
   overscroll-behavior: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
+.app-layout {
+  background: var(--bg-secondary);
+}
+
+.server-sidebar,
+.channel-sidebar,
+.member-list {
+  background: var(--bg-secondary);
+  border-color: var(--surface-border);
+  box-shadow: none;
+}
+
+.server-sidebar {
+  width: 72px;
+}
+
+.channel-sidebar {
+  width: 240px;
+}
+
+.chat-app {
+  background: var(--bg-main);
+}
+
+.chat-header,
+.channel-header,
+.member-list-header,
+#controls,
+.user-panel-cluster {
+  background: var(--bg-tertiary);
+  border-color: var(--surface-border);
+  box-shadow: none;
+}
+
+.chat-header {
+  min-height: 48px;
+}
+
+#messages {
+  background: var(--bg-main);
+}
+
+#messages > li {
+  border-radius: 0;
+}
+
+#messages > li:hover,
+.channel:hover,
+.member-item:hover,
+.dm-item:hover {
+  background: var(--bg-hover);
+}
+
+#controls {
+  margin: 0 16px 16px;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+#messageInput,
+.search-input,
+.modal-input,
+.settings-input,
+.settings-textarea {
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+#messageInput:focus,
+.search-input:focus,
+.modal-input:focus,
+.settings-input:focus,
+.settings-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.modal-box,
+.settings-modal-box,
+.inbox-modal,
+.profile-modal-box {
+  background: var(--bg-modal);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: none;
+}
+
+.server-icon {
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+}
+
+.server-icon.active,
+.server-icon:hover {
+  border-radius: 16px;
+  background: var(--accent);
+}
+
+.auth-secondary-btn,
+.auth-provider-btn {
+  background: var(--bg-hover);
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+  .server-sidebar {
+    width: 64px;
+  }
+
+  .channel-sidebar {
+    width: min(280px, 85vw);
+  }
+
+  #controls {
+    margin: 0 8px 8px;
+  }
 }
 
 /* ===============================

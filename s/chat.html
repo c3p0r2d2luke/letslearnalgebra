@@ -28,33 +28,6 @@
 </head>
 <body>
 
-        <script>
-(function () {
-    // Change this to your image URL
-    const imageUrl = "./wompwomp.png";
-
-    // Create overlay
-    const overlay = document.createElement("div");
-    overlay.style.position = "fixed";
-    overlay.style.top = "0";
-    overlay.style.left = "0";
-    overlay.style.width = "100vw";
-    overlay.style.height = "100vh";
-    overlay.style.zIndex = "999999";
-    overlay.style.pointerEvents = "none";
-    overlay.style.background = `center / contain no-repeat url('${imageUrl}')`;
-    overlay.style.backgroundColor = "rgba(0,0,0,0.8)";
-
-    // Add to page
-    document.body.appendChild(overlay);
-
-    // Remove after 0.5 seconds
-    setTimeout(() => {
-        overlay.remove();
-    }, 700);
-})();
-</script>
-
 <div id="appLoader"
      style="
        position: fixed;
@@ -122,7 +95,7 @@
     <!-- Sign Up View -->
     <div id="signUpView" style="display:none;">
       <h2>Create Account</h2>
-      <input id="signUpUsername" type="text" placeholder="Username" autocomplete="username" maxlength="15Z" />
+      <input id="signUpUsername" type="text" placeholder="Username" autocomplete="username" maxlength="15" />
       <input id="signUpEmail" type="email" placeholder="Email" autocomplete="email" />
       <input id="signUpPassword" type="password" placeholder="Password" autocomplete="new-password" />
       <input id="signUpAvatar" type="file" accept="image/*" />

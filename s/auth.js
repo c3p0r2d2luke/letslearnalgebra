@@ -555,10 +555,22 @@ const button = document.getElementById("sendButton");
 const messagesList = document.getElementById("messages");
 
 function escapeHTML(str) {
-  return str
+  return String(str ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getSafeUrl(value, options = {}) {
+  const { allowDataImage = false } = options;
+  try {
+    const parsed = new URL(String(value || ""), window.location.href);
+    const allowed = parsed.protocol === "https:" || parsed.protocol === "http:" ||
+      (allowDataImage && parsed.protocol === "data:" && /^data:image\//i.test(parsed.href));
+    return allowed ? parsed.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function getInitials(name) {
@@ -1942,5 +1954,4 @@ if (memberSearchInput) {
 
 wireSearchToggle(messageSearchToggle, messageSearchInput);
 wireSearchToggle(memberSearchToggle, memberSearchInput);
-
 

@@ -1077,7 +1077,9 @@ async function sendMessage(options = {}) {
           // Command was handled, show result
           const resultElement = document.createElement("div");
           resultElement.style.cssText = "padding: 10px; background: #2C2F33; border-left: 3px solid #5865F2; border-radius: 4px; margin: 10px 0; font-size: 12px; color: #999;";
-          resultElement.innerHTML = `<strong>Command Result:</strong> ${commandResult}`;
+          const resultLabel = document.createElement("strong");
+          resultLabel.textContent = "Command Result: ";
+          resultElement.append(resultLabel, document.createTextNode(String(commandResult)));
           messagesList.appendChild(resultElement);
         }
       } else if (currentConversationType === "channel") {
@@ -1161,13 +1163,6 @@ async function processMentions(content) {
 }
 // Optimized preview builder with timeout
 async function buildLinkPreview(url) {
-  // Check cache first
-  const cache = getPreviewCache();
-  if (cache[url]?.data) {
-    console.log("📦 Preview loaded from cache:", url);
-    return cache[url].data;
-  }
-
   try {
     // Timeout handling (works in all browsers)
     const timeoutPromise = new Promise((_, reject) => {
@@ -1182,19 +1177,34 @@ async function buildLinkPreview(url) {
 
     if (!json.data) return null;
 
-    const preview = `
-<div class="link-preview">
-  ${json.data.image ? `<img src="${json.data.image.url}">` : ""}
-  <div class="lp-text">
-    <div class="lp-title">${json.data.title || url}</div>
-    <div class="lp-desc">${json.data.description || ""}</div>
-    <a href="${url}" target="_blank">${url}</a>
-  </div>
-</div>
-`;
+    const preview = document.createElement("div");
+    preview.className = "link-preview";
+    const imageUrl = getSafeUrl(json.data.image?.url);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      preview.appendChild(image);
+    }
+    const text = document.createElement("div");
+    text.className = "lp-text";
+    const title = document.createElement("div");
+    title.className = "lp-title";
+    title.textContent = String(json.data.title || url).slice(0, 200);
+    const description = document.createElement("div");
+    description.className = "lp-desc";
+    description.textContent = String(json.data.description || "").slice(0, 500);
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = url;
+    text.append(title, description, link);
+    preview.appendChild(text);
 
     // Cache the result
-    setPreviewCache(url, preview);
+    setPreviewCache(url, preview.outerHTML);
     return preview;
   } catch (e) {
     console.warn("Preview failed for", url, e);
@@ -1303,7 +1313,13 @@ function createMessageElement(msg) {
 
   if (fileMatch) {
     // Handle File Uploads (Existing logic)
-    const url = fileMatch[2].trim();
+    const url = getSafeUrl(fileMatch[2].trim());
+    if (!url) {
+      contentDiv.textContent = "Attachment unavailable.";
+      body.appendChild(contentDiv);
+      li.appendChild(row);
+      return li;
+    }
     const type = getFileType(url);
     if (type === "image") {
       const img = document.createElement("img");
@@ -1313,9 +1329,21 @@ function createMessageElement(msg) {
       img.onclick = () => openLightbox(url);
       contentDiv.appendChild(img);
     } else if (type === "video") {
-      contentDiv.innerHTML = `<video controls style="max-width:100%;border-radius:8px;"><source src="${url}"></video>`;
+      const video = document.createElement("video");
+      video.controls = true;
+      video.style.maxWidth = "100%";
+      video.className = "message-video";
+      const source = document.createElement("source");
+      source.src = url;
+      video.appendChild(source);
+      contentDiv.appendChild(video);
     } else {
-      contentDiv.innerHTML = `<a href="${url}" target="_blank">📄 ${escapeHTML(fileMatch[1])}</a>`;
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = `📄 ${fileMatch[1]}`;
+      contentDiv.appendChild(link);
     }
   } else {
     // --- TEXT MESSAGE HANDLING ---
@@ -1349,7 +1377,10 @@ function createMessageElement(msg) {
     const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
     
     if (urlMatch) {
-      const url = urlMatch[0];
+      const url = getSafeUrl(urlMatch[0]);
+      if (!url) {
+        contentDiv.textContent = "Link unavailable.";
+      } else {
       const gifUrl = resolveGifUrl(url);
 
       // Helper: Strip the raw URL text from the HTML
@@ -1384,7 +1415,8 @@ function createMessageElement(msg) {
         setTimeout(async () => {
           const preview = await buildLinkPreview(url);
           if (preview) {
-            previewContainer.innerHTML = preview;
+            previewContainer.replaceChildren();
+            previewContainer.appendChild(preview);
             previewContainer.classList.add("loaded");
           } else {
             previewContainer.remove();
@@ -1414,15 +1446,11 @@ function createMessageElement(msg) {
         // Regular link -> Show Preview
         appendLinkPreview();
       }
+      }
     }
   }
 
   body.appendChild(contentDiv);
-
-  // Scripts (Admin only)
-  if (msg.role === "Admin") {
-    executeScripts(contentDiv);
-  }
 
   row.appendChild(body);
   li.appendChild(row);
@@ -3428,11 +3456,11 @@ function updateTypingUI() {
       if (typingUsers.length === 0) {
         box.innerHTML = "";
       } else if (typingUsers.length === 1) {
-        box.innerHTML = `<strong>${typingUsers[0]}</strong> is typing${dots}`;
+        box.innerHTML = `<strong>${escapeHTML(typingUsers[0])}</strong> is typing${dots}`;
       } else if (typingUsers.length === 2) {
-        box.innerHTML = `<strong>${typingUsers[0]}</strong> and <strong>${typingUsers[1]}</strong> are typing${dots}`;
+        box.innerHTML = `<strong>${escapeHTML(typingUsers[0])}</strong> and <strong>${escapeHTML(typingUsers[1])}</strong> are typing${dots}`;
       } else {
-        box.innerHTML = `<strong>${typingUsers[0]}</strong> and <strong>${typingUsers.length - 1}</strong> others are typing${dots}`;
+        box.innerHTML = `<strong>${escapeHTML(typingUsers[0])}</strong> and <strong>${typingUsers.length - 1}</strong> others are typing${dots}`;
       }
     });
 }
@@ -3582,21 +3610,8 @@ function formatMessageContent(content, role) {
     return `<pre class="code-block"><code>${escapeHTML(code)}</code></pre>`;
   }
 
-  // If admin → allow raw HTML
-  if (role === "Admin") {
-    // For admins, we still want to process channel mentions for consistency
-    // But we must be careful not to break their raw HTML.
-    // We'll process mentions first, then let raw HTML pass through if not in a code block.
-    // Note: This is a simplified approach. A robust parser would be better.
-    let processed = content;
-    // Replace #channel with styled span
-    processed = processed.replace(/#([a-zA-Z0-9_-]+)/g, (match, channelName) => {
-      return `<span class="channel-mention" data-channel="${channelName}">#${escapeHTML(channelName)}</span>`;
-    });
-    return processed;
-  }
-
-  // If user → escape everything first
+  // Escape all message authors, including admins. Role controls moderation,
+  // never whether user-controlled content becomes executable markup.
   let escaped = escapeHTML(content);
 
   // Now replace #channel patterns in the escaped string
