@@ -21,11 +21,11 @@ serve(async (req: Request) => {
   try {
     const body = await req.json();
     console.log("[DISCORD-IMPORT] Request action:", body.action);
-    const { action, discord_guild_id, access_token, username, sync_direction } = body;
+    const { action, discord_guild_id, discord_guild, access_token, username, sync_direction } = body;
 
     if (action === "import_server") {
       console.log("[DISCORD-IMPORT] Starting server import for guild:", discord_guild_id, "user:", username, "sync direction:", sync_direction);
-      return await importDiscordServer(discord_guild_id, access_token, username, sync_direction);
+      return await importDiscordServer(discord_guild_id, access_token, username, sync_direction, discord_guild);
     }
 
     console.error("[DISCORD-IMPORT] Invalid action:", action);
@@ -43,7 +43,13 @@ serve(async (req: Request) => {
   }
 });
 
-async function importDiscordServer(discordGuildId: string, accessTokenInput: string, username: string, syncDirection: string) {
+async function importDiscordServer(
+  discordGuildId: string,
+  accessTokenInput: string,
+  username: string,
+  syncDirection: string,
+  guildInput?: Record<string, any>,
+) {
   try {
     console.log("[DISCORD-IMPORT] === IMPORT STARTED ===");
     console.log("[DISCORD-IMPORT] Guild ID:", discordGuildId);
@@ -69,20 +75,21 @@ async function importDiscordServer(discordGuildId: string, accessTokenInput: str
       throw new Error("No Discord access token found. Please connect your Discord account.");
     }
 
-    // Fetch guild data from Discord
-    console.log("[DISCORD-IMPORT] Fetching guild data from Discord API...");
-    const guildResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    console.log("[DISCORD-IMPORT] Guild response status:", guildResponse.status);
-    if (!guildResponse.ok) {
-      const errorText = await guildResponse.text();
-      console.error("[DISCORD-IMPORT] Guild fetch failed:", errorText);
-      throw new Error("Failed to fetch Discord guild: " + errorText);
+    let guild = guildInput && guildInput.id === discordGuildId ? guildInput : null;
+    if (!guild) {
+      const guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!guildsResponse.ok) {
+        const errorText = await guildsResponse.text();
+        throw new Error("Failed to fetch Discord server list: " + errorText);
+      }
+      const guilds = await guildsResponse.json();
+      guild = guilds.find((item: Record<string, any>) => item.id === discordGuildId);
     }
-
-    const guild = await guildResponse.json();
+    if (!guild) {
+      throw new Error("Selected Discord server was not found in the connected Discord account.");
+    }
     console.log("[DISCORD-IMPORT] Guild fetched:", guild.name);
 
     // Fetch channels using User Token (or Bot Token fallback if bot token exists)
@@ -99,6 +106,9 @@ async function importDiscordServer(discordGuildId: string, accessTokenInput: str
       });
     }
     const discordChannels = channelsResponse.ok ? await channelsResponse.json() : [];
+    if (!channelsResponse.ok) {
+      console.warn("[DISCORD-IMPORT] Channels unavailable; importing a default channel.");
+    }
     console.log("[DISCORD-IMPORT] Fetched", discordChannels.length, "channels");
 
     // Fetch roles
@@ -112,6 +122,9 @@ async function importDiscordServer(discordGuildId: string, accessTokenInput: str
       });
     }
     const discordRoles = rolesResponse.ok ? await rolesResponse.json() : [];
+    if (!rolesResponse.ok) {
+      console.warn("[DISCORD-IMPORT] Roles unavailable; continuing without imported roles.");
+    }
     console.log("[DISCORD-IMPORT] Fetched", discordRoles.length, "roles");
 
     // Fetch members
@@ -125,6 +138,9 @@ async function importDiscordServer(discordGuildId: string, accessTokenInput: str
       });
     }
     const discordMembers = membersResponse.ok ? await membersResponse.json() : [];
+    if (!membersResponse.ok) {
+      console.warn("[DISCORD-IMPORT] Members unavailable; continuing without imported members.");
+    }
     console.log("[DISCORD-IMPORT] Fetched", discordMembers.length, "members");
 
     // Create native server in database
@@ -316,7 +332,22 @@ async function importDiscordServer(discordGuildId: string, accessTokenInput: str
 
     console.log("[DISCORD-IMPORT] === IMPORT COMPLETE ===");
     return new Response(
-      JSON.stringify({ success: true, server_id: nativeServer.id, discord_server_id: discordServer.id }),
+      JSON.stringify({
+        success: true,
+        server_id: nativeServer.id,
+        discord_server_id: discordServer.id,
+        imported: {
+          channels: channelMap.size,
+          roles: roleMap.size,
+          members: discordMembers.length,
+        },
+        warnings: [
+          ...(!botToken ? ["Set DISCORD_BOT_TOKEN and invite the bot to this server to import channels, roles, and members."] : []),
+          ...(discordChannels.length === 0 ? ["No Discord channels were imported."] : []),
+          ...(discordRoles.length === 0 ? ["No Discord roles were imported."] : []),
+          ...(discordMembers.length === 0 ? ["No Discord members were imported."] : []),
+        ],
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

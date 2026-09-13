@@ -29,6 +29,9 @@ serve(async (req: Request) => {
     } else if (action === "refresh_token") {
       console.log("[DISCORD-OAUTH] Processing token refresh for username:", username);
       return await refreshDiscordToken(refresh_token, username);
+    } else if (action === "link_session") {
+      console.log("[DISCORD-OAUTH] Linking Discord auth session for username:", username);
+      return await linkDiscordSessionAccount(body);
     } else if (action === "get_guilds") {
       console.log("[DISCORD-OAUTH] Processing guild fetch for username:", username);
       return await getDiscordGuilds(body);
@@ -49,36 +52,81 @@ serve(async (req: Request) => {
   }
 });
 
-async function exchangeDiscordCode(code: string, username: string, redirectUriParam?: string) {
-  console.log("[DISCORD-OAUTH] Starting code exchange for username:", username);
-  const clientId = Deno.env.get("DISCORD_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("DISCORD_CLIENT_SECRET")!;
-  const redirectUri = redirectUriParam || Deno.env.get("DISCORD_REDIRECT_URI") || "http://localhost:3000";
+  async function linkDiscordSessionAccount(body: {
+    username: string;
+    discord_user_id: string;
+    discord_username: string;
+    discord_tag?: string;
+    access_token: string;
+    refresh_token?: string | null;
+    token_expires_at?: string;
+    scopes?: string[];
+  }) {
+    if (!body.username || !body.discord_user_id || !body.discord_username || !body.access_token) {
+      throw new Error("Missing Discord session account fields.");
+    }
 
-  console.log("[DISCORD-OAUTH] Code exchange - Client ID:", clientId ? clientId.substring(0, 6) + "..." : "MISSING");
-  console.log("[DISCORD-OAUTH] Code exchange - Redirect URI:", redirectUri);
+    const { data: account, error } = await supabaseClient
+      .from("discord_accounts")
+      .upsert({
+        username: body.username,
+        discord_user_id: body.discord_user_id,
+        discord_username: body.discord_username,
+        discord_tag: body.discord_tag || body.discord_username,
+        access_token: body.access_token,
+        refresh_token: body.refresh_token || null,
+        token_expires_at: body.token_expires_at || null,
+        scopes: body.scopes?.length ? body.scopes : ["identify", "guilds"],
+        last_refreshed_at: new Date().toISOString(),
+      }, { onConflict: "username" })
+      .select()
+      .single();
 
-  const tokenResponse = await fetch(`${DISCORD_API}/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      scope: "identify guilds channels.read messages.read",
-    }),
-  });
+    if (error) throw error;
 
-  console.log("[DISCORD-OAUTH] Token response status:", tokenResponse.status);
-  if (!tokenResponse.ok) {
-    const errorText = await tokenResponse.text();
-    console.error("[DISCORD-OAUTH] Token exchange failed:", errorText);
-    throw new Error(`Discord token exchange failed: ${errorText}`);
+    if (account?.id) {
+      const { error: userError } = await supabaseClient
+        .from("users")
+        .update({ discord_account_id: account.id })
+        .eq("username", body.username);
+      if (userError) throw userError;
+    }
+
+    return new Response(JSON.stringify({ success: true, account }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
-  const tokens = await tokenResponse.json();
+  async function exchangeDiscordCode(code: string, username: string, redirectUriParam?: string) {
+    console.log("[DISCORD-OAUTH] Starting code exchange for username:", username);
+    const clientId = Deno.env.get("DISCORD_CLIENT_ID")!;
+    const clientSecret = Deno.env.get("DISCORD_CLIENT_SECRET")!;
+    const redirectUri = redirectUriParam || Deno.env.get("DISCORD_REDIRECT_URI") || "http://localhost:3000";
+
+    console.log("[DISCORD-OAUTH] Code exchange - Client ID:", clientId ? clientId.substring(0, 6) + "..." : "MISSING");
+    console.log("[DISCORD-OAUTH] Code exchange - Redirect URI:", redirectUri);
+
+    const tokenResponse = await fetch(`${DISCORD_API}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        scope: "identify guilds",
+      }),
+    });
+
+    console.log("[DISCORD-OAUTH] Token response status:", tokenResponse.status);
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error("[DISCORD-OAUTH] Token exchange failed:", errorText);
+      throw new Error(`Discord token exchange failed: ${errorText}`);
+    }
+
+    const tokens = await tokenResponse.json();
   console.log("[DISCORD-OAUTH] Token exchange successful, access_token expiry:", tokens.expires_in, "seconds");
 
   const userResponse = await fetch(`${DISCORD_API}/users/@me`, {
@@ -204,9 +252,7 @@ async function getDiscordGuilds(body: any) {
     throw new Error("No Discord access token or refresh token available. Please connect Discord first.");
   }
 
-  let guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
-    headers: { Authorization: `Bearer ${access_token}` },
-  });
+  let guildsResponse = await fetchDiscordApiWithRetry(`${DISCORD_API}/users/@me/guilds`, access_token);
 
   console.log("[DISCORD-OAUTH] Guilds response status:", guildsResponse.status);
 
@@ -215,9 +261,7 @@ async function getDiscordGuilds(body: any) {
     const refreshed = await refreshDiscordTokenHelper(refresh_token, username);
     if (refreshed?.access_token) {
       access_token = refreshed.access_token;
-      guildsResponse = await fetch(`${DISCORD_API}/users/@me/guilds`, {
-        headers: { Authorization: `Bearer ${access_token}` },
-      });
+      guildsResponse = await fetchDiscordApiWithRetry(`${DISCORD_API}/users/@me/guilds`, access_token);
       console.log("[DISCORD-OAUTH] Retry guilds response status:", guildsResponse.status);
     }
   }
@@ -234,4 +278,18 @@ async function getDiscordGuilds(body: any) {
   return new Response(JSON.stringify({ guilds }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function fetchDiscordApiWithRetry(url: string, accessToken: string, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetch(url, {
+      headers: { Authorization: "Bearer " + accessToken },
+    });
+    if (response.status !== 429 || attempt === attempts - 1) return response;
+
+    const payload = await response.json().catch(() => ({}));
+    const retryAfter = Number(payload.retry_after || response.headers.get("Retry-After") || 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(1000, retryAfter * 1000)));
+  }
+  throw new Error("Discord API retry limit reached.");
 }
