@@ -323,7 +323,7 @@ async function loadServers() {
   if (!target && serverSlug) target = servers.find(s => s.slug === serverSlug);
   if (!target && servers.length > 0) target = servers[0];
 
-  if (target) {
+  if (target && currentServerId !== target.id) {
     await switchServer(target.id, false);
   } else {
     showNoServerScreen();
@@ -3644,4 +3644,3 @@ if (openBtn && closeBtn && modal) {
     if (e.target === modal) modal.style.display = "none";
   });
 }
-

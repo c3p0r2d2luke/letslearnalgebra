@@ -63,22 +63,21 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       throw new Error("This Discord server is configured for incoming-only sync");
     }
 
-    // Send to Discord via webhook or bot token
-    let sendUrl = webhookUrl;
-    let headers: any = { "Content-Type": "application/json" };
-
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+    let sendUrl = webhookUrl;
+    let headers: Record<string, string> = { "Content-Type": "application/json" };
+    let payload: Record<string, unknown> = { content: message.content };
     if (!webhookUrl && botToken) {
-      sendUrl = `${DISCORD_API}/channels/${discordChannel.discord_channel_id}/messages`;
-      headers["Authorization"] = `Bot ${botToken}`;
+      const webhook = await getOrCreateSyncWebhook(discordChannel.discord_channel_id, botToken);
+      sendUrl = webhook.url;
+      payload = {
+        content: message.content,
+        username: message.users?.display_name || message.users?.username || "Unknown",
+        avatar_url: message.users?.avatar_url || undefined,
+        allowed_mentions: { parse: [] },
+      };
     }
     if (!sendUrl) throw new Error("No Discord webhook or bot token is configured");
-
-    const payload = {
-      content: message.content,
-      username: message.users?.username || "Unknown",
-      avatar_url: message.users?.avatar_url || null,
-    };
 
     const discordResponse = await fetch(sendUrl, {
       method: "POST",
@@ -92,6 +91,25 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
         `Discord API error for guild ${discordChannel.discord_servers?.discord_guild_id || "unknown"}, ` +
         `channel ${discordChannel.discord_channel_id}: ${errorBody}`,
       );
+    }
+
+    async function getOrCreateSyncWebhook(channelId: string, botToken: string) {
+      const headers = { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" };
+      const listResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, { headers });
+      if (!listResponse.ok) throw new Error(`Unable to inspect Discord webhooks: ${await listResponse.text()}`);
+      const webhooks = await listResponse.json();
+      let webhook = webhooks.find((item: Record<string, unknown>) => item.name === "LLA Chat Sync");
+      if (!webhook) {
+        const createResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: "LLA Chat Sync" }),
+        });
+        if (!createResponse.ok) throw new Error(`Unable to create Discord webhook: ${await createResponse.text()}`);
+        webhook = await createResponse.json();
+      }
+      if (!webhook.token) throw new Error("Discord sync webhook has no token");
+      return { url: `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true` };
     }
 
     const discordMessage = await discordResponse.json();
@@ -156,7 +174,13 @@ async function syncMessagesFromDiscord(serverId: string) {
           .eq("discord_server_id", discordServer.id)
           .eq("discord_message_id", discordMessage.id)
           .maybeSingle();
-        if (existing || !discordMessage.content?.trim()) continue;
+        if (existing) continue;
+        const embedText = (discordMessage.embeds || [])
+          .map((embed: Record<string, string>) => [embed.title, embed.description, embed.url].filter(Boolean).join("\n"))
+          .filter(Boolean)
+          .join("\n\n");
+        const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
+        if (!messageContent) continue;
 
         const discordUser = discordMessage.author;
         const username = `discord-${discordUser.id}`;
@@ -173,7 +197,7 @@ async function syncMessagesFromDiscord(serverId: string) {
           .from("messages")
           .insert({
             username,
-            content: discordMessage.content,
+            content: messageContent,
             channel_id: channel.channel_id,
             inserted_at: discordMessage.timestamp || new Date().toISOString(),
           })
@@ -279,7 +303,7 @@ async function receiveDiscordMessage(req: Request) {
           await supabaseClient
             .from("discord_message_mapping")
             .insert({
-              message_id: lastMessage.id,
+              chat_message_id: lastMessage.id,
               discord_message_id: id,
               discord_server_id: discordServer.id,
               discord_channel_id: channel_id,

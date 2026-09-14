@@ -351,12 +351,17 @@ async function importDiscordServer(
 
         const importedMessages = discordMessagesByChannel.get(discordChannel.id) || [];
         for (const discordMessage of importedMessages.reverse()) {
-          if (!discordMessage.content?.trim()) continue;
+          const embedText = (discordMessage.embeds || [])
+            .map((embed: Record<string, string>) => [embed.title, embed.description, embed.url].filter(Boolean).join("\n"))
+            .filter(Boolean)
+            .join("\n\n");
+          const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
+          if (!messageContent) continue;
           const { data: nativeMessage, error: messageError } = await supabaseClient
             .from("messages")
             .insert({
               username,
-              content: discordMessage.content,
+              content: messageContent,
               channel_id: nativeChannel.id,
               inserted_at: discordMessage.timestamp || new Date().toISOString(),
             })
