@@ -618,7 +618,15 @@ async function loadMessages() {
     return;
   }
 
-  const messageIds = (data || []).map((msg) => msg.id);
+  const uniqueMessages = [];
+  const seenMessageKeys = new Set();
+  for (const msg of data || []) {
+    const duplicateKey = `${msg.username}\u0000${msg.content}\u0000${msg.inserted_at}`;
+    if (seenMessageKeys.has(duplicateKey)) continue;
+    seenMessageKeys.add(duplicateKey);
+    uniqueMessages.push(msg);
+  }
+  const messageIds = uniqueMessages.map((msg) => msg.id);
   const [{ data: reactions, error: reactionsError }] = await Promise.all([
     messageIds.length > 0
       ? supabaseClient.from("reactions").select("*").in("message_id", messageIds)
@@ -642,7 +650,7 @@ async function loadMessages() {
 
   messagesList.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  data.forEach(msg => {
+  uniqueMessages.forEach(msg => {
     const li = createMessageElement(msg);
     messagesMap.set(msg.id, li);
     messageDataMap.set(msg.id, msg);
@@ -1215,7 +1223,7 @@ async function buildLinkPreview(url) {
 // ------------------------ Render Message ------------------------
 function renderMessage(msg) {
   const li = createMessageElement(msg);
-  const existingLi = messagesMap.get(msg.id);
+  const existingLi = messagesMap.get(msg.id) || messagesMap.get(Number(msg.id));
 
   if (existingLi) {
     existingLi.replaceWith(li);
@@ -1471,6 +1479,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
   if (newMsg.channel_id !== currentChannelId) return;
 
   if (eventType === "INSERT") {
+    if (messagesMap.has(newMsg.id) || messagesMap.has(Number(newMsg.id))) return;
     await loadAvatarMapForUsernames([newMsg.username]);
     messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);

@@ -351,6 +351,7 @@ async function importDiscordServer(
 
         const importedMessages = discordMessagesByChannel.get(discordChannel.id) || [];
         for (const discordMessage of importedMessages.reverse()) {
+          if (discordMessage.webhook_id) continue;
           const embedText = (discordMessage.embeds || [])
             .map((embed: Record<string, string>) => [embed.title, embed.description, embed.url].filter(Boolean).join("\n"))
             .filter(Boolean)

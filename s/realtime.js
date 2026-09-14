@@ -3,6 +3,7 @@ let channel = null;
 // ======================== REALTIME MANAGER ========================
 let activeMessageChannel = null; // Tracks the current realtime subscription
 let activeDmMessageChannel = null;
+let messageSubscriptionGeneration = 0;
 const SERVER_ORDER_STORAGE_PREFIX = "serverOrder:";
 let persistedServerOrderIds = [];
 let suppressChannelClickUntil = 0;
@@ -58,6 +59,7 @@ function subscribeToDirectMessages() {
 
 // Helper to unsubscribe from old channel and subscribe to new one
 async function subscribeToCurrentChannel() {
+  const subscriptionGeneration = ++messageSubscriptionGeneration;
   if (!currentChannelId) {
     console.log("⚠️ No channel selected. Unsubscribing from messages.");
     if (activeMessageChannel) {
@@ -93,6 +95,7 @@ async function subscribeToCurrentChannel() {
       }
     )
     .subscribe((status) => {
+      if (subscriptionGeneration !== messageSubscriptionGeneration) return;
       console.log(`Realtime status for channel ${currentChannelId}:`, status);
     });
 }
@@ -984,4 +987,3 @@ function buildChannelItem(ch) {
   });
   return div;
 }
-

@@ -168,6 +168,7 @@ async function syncMessagesFromDiscord(serverId: string) {
       }
       const messages = await response.json();
       for (const discordMessage of [...messages].reverse()) {
+        if (discordMessage.webhook_id) continue;
         const { data: existing } = await supabaseClient
           .from("discord_message_mapping")
           .select("id")
