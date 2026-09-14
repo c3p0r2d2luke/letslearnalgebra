@@ -445,6 +445,14 @@ async function syncMessagesFromDiscord(serverId: string) {
 
     let imported = 0;
     const llaWebhookIds = new Set<string>();
+    let llaBotUserId: string | null = null;
+    const botIdentityResponse = await fetch(`${DISCORD_API}/users/@me`, {
+      headers: { Authorization: `Bot ${botToken}` },
+    });
+    if (botIdentityResponse.ok) {
+      const botIdentity = await botIdentityResponse.json();
+      llaBotUserId = botIdentity.id || null;
+    }
     for (const channel of channels || []) {
       const response = await fetch(
         `${DISCORD_API}/channels/${channel.discord_channel_id}/messages?limit=100`,
@@ -457,6 +465,7 @@ async function syncMessagesFromDiscord(serverId: string) {
       const messages = await response.json();
       for (const discordMessage of [...messages].reverse()) {
         const discordUser = discordMessage.author;
+        if (llaBotUserId && discordUser?.id === llaBotUserId) continue;
         await ensureDiscordMember(discordServer.id, serverId, discordUser);
         if (discordMessage.webhook_id && llaWebhookIds.has(discordMessage.webhook_id)) continue;
         if (discordMessage.webhook_id) {
