@@ -1350,6 +1350,10 @@ function createMessageElement(msg) {
   const header = document.createElement("div");
   header.className = "username";
   header.innerHTML = `${escapeHTML(displayName(msg.username))}<span class="msg-timestamp">${timestamp}</span>`;
+  const serverProfile = getServerProfileData(currentServerId, msg.username);
+  if (serverProfile?.role_color) {
+    header.style.color = serverProfile.role_color;
+  }
   header.style.cursor = "pointer";
   header.addEventListener("click", (e) => {
     e.stopPropagation();

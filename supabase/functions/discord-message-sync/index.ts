@@ -307,6 +307,8 @@ async function syncMessagesFromDiscord(serverId: string) {
       }
       const messages = await response.json();
       for (const discordMessage of [...messages].reverse()) {
+        const discordUser = discordMessage.author;
+        await ensureDiscordMember(discordServer.id, serverId, discordUser);
         if (discordMessage.webhook_id && llaWebhookIds.has(discordMessage.webhook_id)) continue;
         if (discordMessage.webhook_id) {
           const webhookResponse = await fetch(
@@ -335,16 +337,98 @@ async function syncMessagesFromDiscord(serverId: string) {
         const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
         if (!messageContent) continue;
 
-        const discordUser = discordMessage.author;
         const username = `discord-${discordUser.id}`;
         const avatarUrl = discordUser.avatar
           ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
           : null;
+        const displayName = discordUser.global_name || discordUser.username || username;
         await supabaseClient.from("users").upsert({
           username,
-          display_name: discordUser.global_name || discordUser.username || username,
+          display_name: displayName,
           avatar_url: avatarUrl,
         }, { onConflict: "username" });
+        const { data: member } = await supabaseClient
+          .from("discord_members")
+          .select("member_id, discord_roles")
+          .eq("discord_server_id", discordServer.id)
+          .eq("discord_user_id", discordUser.id)
+          .maybeSingle();
+        if (!member) {
+          const { data: existingMember } = await supabaseClient
+            .from("server_members")
+            .select("id")
+            .eq("server_id", serverId)
+            .eq("username", username)
+            .maybeSingle();
+          const { data: newMember } = existingMember
+            ? await supabaseClient.from("server_members").update({
+              profile_display_name: displayName,
+              profile_avatar_url: avatarUrl,
+              role: discordUser.bot ? "Bot" : "member",
+            }).eq("id", existingMember.id).select("id").maybeSingle()
+            : await supabaseClient
+            .from("server_members")
+            .insert({
+              server_id: serverId,
+              username,
+              role: discordUser.bot ? "Bot" : "member",
+              profile_display_name: displayName,
+              profile_avatar_url: avatarUrl,
+            })
+            .select("id")
+            .maybeSingle();
+          if (newMember) {
+            await supabaseClient.from("discord_members").upsert({
+              discord_server_id: discordServer.id,
+              member_id: newMember.id,
+              discord_user_id: discordUser.id,
+              discord_username: discordUser.username,
+              discord_roles: [],
+            }, { onConflict: "member_id,discord_user_id" });
+          }
+        }
+
+        async function ensureDiscordMember(discordServerId: string, nativeServerId: string, discordUser: Record<string, any>) {
+          if (!discordUser?.id) return;
+          const username = `discord-${discordUser.id}`;
+          const displayName = discordUser.global_name || discordUser.username || username;
+          const avatarUrl = discordUser.avatar
+            ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+            : null;
+          await supabaseClient.from("users").upsert({
+            username,
+            display_name: displayName,
+            avatar_url: avatarUrl,
+          }, { onConflict: "username" });
+          const { data: existingMember } = await supabaseClient
+            .from("server_members")
+            .select("id")
+            .eq("server_id", nativeServerId)
+            .eq("username", username)
+            .maybeSingle();
+          const memberResult = existingMember
+            ? await supabaseClient.from("server_members").update({
+              profile_display_name: displayName,
+              profile_avatar_url: avatarUrl,
+              role: discordUser.bot ? "Bot" : "member",
+            }).eq("id", existingMember.id).select("id").maybeSingle()
+            : await supabaseClient.from("server_members").insert({
+              server_id: nativeServerId,
+              username,
+              role: discordUser.bot ? "Bot" : "member",
+              profile_display_name: displayName,
+              profile_avatar_url: avatarUrl,
+            }).select("id").maybeSingle();
+          if (memberResult.data) {
+            await supabaseClient.from("discord_members").upsert({
+              discord_server_id: discordServerId,
+              member_id: memberResult.data.id,
+              discord_user_id: discordUser.id,
+              discord_username: discordUser.username || username,
+              discord_roles: discordUser.roles || [],
+            }, { onConflict: "member_id,discord_user_id" });
+          }
+        }
 
         const { data: nativeMessage, error: messageError } = await supabaseClient
           .from("messages")

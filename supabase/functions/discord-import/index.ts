@@ -371,10 +371,21 @@ async function importDiscordServer(
             .join("\n\n");
           const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
           if (!messageContent) continue;
+          const discordAuthor = discordMessage.author;
+          const authorUsername = `discord-${discordAuthor?.id || "unknown"}`;
+          const authorDisplayName = discordAuthor?.global_name || discordAuthor?.username || authorUsername;
+          const authorAvatarUrl = discordAuthor?.avatar
+            ? `https://cdn.discordapp.com/avatars/${discordAuthor.id}/${discordAuthor.avatar}.png`
+            : null;
+          await supabaseClient.from("users").upsert({
+            username: authorUsername,
+            display_name: authorDisplayName,
+            avatar_url: authorAvatarUrl,
+          }, { onConflict: "username", ignoreDuplicates: false });
           const { data: nativeMessage, error: messageError } = await supabaseClient
             .from("messages")
             .insert({
-              username,
+              username: authorUsername,
               content: messageContent,
               channel_id: nativeChannel.id,
               inserted_at: discordMessage.timestamp || new Date().toISOString(),
@@ -417,7 +428,6 @@ async function importDiscordServer(
     console.log("[DISCORD-IMPORT] Importing members...");
     if (Array.isArray(discordMembers)) {
       for (const discordMember of discordMembers) {
-        if (discordMember.user?.bot) continue;
         const isImportingUser = linkedDiscordAccount?.discord_user_id === discordMember.user?.id;
         const displayName = discordMember.nick || discordMember.user?.global_name || discordMember.user?.username;
         const avatarUrl = discordMember.avatar
@@ -458,7 +468,7 @@ async function importDiscordServer(
           .insert({
             server_id: nativeServer.id,
             username: placeholderUsername,
-            role: "member",
+            role: discordMember.user?.bot ? "Bot" : "member",
             profile_display_name: displayName || placeholderUsername,
             profile_avatar_url: avatarUrl,
           })
