@@ -1121,6 +1121,7 @@ async function sendMessage(options = {}) {
         if (!discordResponse.ok) {
           throw new Error(await discordResponse.text());
         }
+        const discordResult = await discordResponse.json();
         const localMessage = {
           id: -Date.now(),
           username,
@@ -1128,6 +1129,8 @@ async function sendMessage(options = {}) {
           channel_id: currentChannelId,
           inserted_at: new Date().toISOString(),
           role: currentRole,
+          discord_message_id: discordResult.discord_message_id,
+          discord_channel_id: discordResult.discord_channel_id,
         };
         renderMessage(localMessage);
         input.value = "";
@@ -2479,6 +2482,7 @@ async function deleteMessage(messageId) {
   const author = li ? li.dataset.user : null;
   const messageTable = currentConversationType === "dm" ? "dm_messages" : "messages";
   const canDeleteOwnDmMessage = currentConversationType === "dm" && author === username;
+  const localMessage = messageDataMap.get(Number(messageId));
 
   if (!userPermissions.manage_roles && !(currentRole === "Manager" && author === username) && !canDeleteOwnDmMessage) {
     alert("❌ Access Denied: You can only delete your own messages.");
@@ -2486,6 +2490,14 @@ async function deleteMessage(messageId) {
   }
 
   try {
+    if (Number(messageId) < 0 && localMessage?.discord_message_id) {
+      await syncDiscordMessageChange("delete", messageId, undefined, localMessage);
+      li?.remove();
+      messagesMap.delete(Number(messageId));
+      messageDataMap.delete(Number(messageId));
+      guiAlert("✅ Message deleted");
+      return;
+    }
     // 🧠 1. Get message FIRST (so we know if it has a file)
     const { data: msg, error: fetchError } = await supabaseClient
       .from(messageTable)
@@ -3054,6 +3066,13 @@ async function editMessage(messageId) {
   const newText = await guiPrompt("Edit message:", msg.content, "Edit message");
   if (!newText || newText === msg.content) return;
 
+  if (Number(messageId) < 0 && msg.discord_message_id) {
+    await syncDiscordMessageChange("edit", messageId, newText, msg);
+    msg.content = newText;
+    renderMessage(msg);
+    return;
+  }
+
   const { error } = await supabaseClient
     .from("messages")
     .update({ content: newText })
@@ -3065,18 +3084,26 @@ async function editMessage(messageId) {
     alert("❌ Edit failed: " + error.message);
     return;
   }
-  await syncDiscordMessageChange("edit", messageId, newText);
+  await syncDiscordMessageChange("edit", messageId, newText, msg);
 }
 
-async function syncDiscordMessageChange(action, messageId, content) {
+async function syncDiscordMessageChange(action, messageId, content, localMessage = null) {
   const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, message_id: messageId, content })
+    body: JSON.stringify({
+      action,
+      message_id: messageId,
+      content,
+      discord_message_id: localMessage?.discord_message_id,
+      discord_channel_id: localMessage?.discord_channel_id
+    })
   });
   if (!response.ok) {
-    console.error(`Discord ${action} failed:`, await response.text());
+    const errorText = await response.text();
+    throw new Error(`Discord ${action} failed: ${errorText}`);
   }
+  return response.json();
 }
 
 // ---------------- REACTION BUBBLES ----------------

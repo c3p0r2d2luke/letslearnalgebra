@@ -27,22 +27,40 @@ serve(async (req: Request) => {
     } else if (action === "sync_from_discord") {
       return await syncMessagesFromDiscord(server_id);
     } else if (action === "edit" || action === "delete") {
-      return await syncEditedOrDeletedMessage(action, message_id, body.content);
+      return await syncEditedOrDeletedMessage(
+        action,
+        message_id,
+        body.content,
+        body.discord_message_id,
+        body.discord_channel_id,
+      );
     } else if (action === "manage_role") {
       return await manageDiscordRole(body);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
 
-    async function syncEditedOrDeletedMessage(action: string, messageId: string, content?: string) {
+    async function syncEditedOrDeletedMessage(
+      action: string,
+      messageId: string,
+      content?: string,
+      discordMessageId?: string,
+      discordChannelId?: string,
+    ) {
       const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
       if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
-      const { data: mapping, error } = await supabaseClient
-        .from("discord_message_mapping")
-        .select("discord_message_id, discord_channel_id")
-        .eq("chat_message_id", messageId)
-        .maybeSingle();
-      if (error) throw error;
+      let mapping = discordMessageId && discordChannelId
+        ? { discord_message_id: discordMessageId, discord_channel_id: discordChannelId }
+        : null;
+      if (!mapping) {
+        const { data, error } = await supabaseClient
+          .from("discord_message_mapping")
+          .select("discord_message_id, discord_channel_id")
+          .eq("chat_message_id", messageId)
+          .maybeSingle();
+        if (error) throw error;
+        mapping = data;
+      }
       if (!mapping) return jsonResponse({ success: true, skipped: true });
       const url = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
       const response = await fetch(url, {
@@ -217,7 +235,12 @@ async function syncContentToDiscord(channelId: string, content: string, username
     }),
   });
   if (!response.ok) throw new Error(`Discord API error: ${await response.text()}`);
-  return jsonResponse({ success: true });
+  const discordMessage = await response.json();
+  return jsonResponse({
+    success: true,
+    discord_message_id: discordMessage.id,
+    discord_channel_id: discordChannelId,
+  });
 }
 
 async function getOrCreateSyncWebhook(channelId: string, botToken: string) {
