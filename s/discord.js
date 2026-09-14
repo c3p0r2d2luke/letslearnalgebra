@@ -572,6 +572,9 @@ async function syncMessagesFromDiscord() {
     if (result.imported > 0) {
       console.info(`[DISCORD] Imported ${result.imported} new message(s)`);
     }
+    if (typeof reconcileCurrentChannelMessages === "function") {
+      await reconcileCurrentChannelMessages();
+    }
     // The active channel is already subscribed to Supabase realtime. Imported
     // rows arrive through that subscription; avoid clearing the rendered list
     // with a second full history load.
@@ -594,7 +597,7 @@ function startDiscordMessageSync(serverId) {
     if (currentServerId === serverId && currentConversationType === "channel") {
       syncMessagesFromDiscord();
     }
-  }, 15000);
+  }, 5000);
 }
 
 // ======================== INITIALIZATION ========================

@@ -735,6 +735,34 @@ async function loadMessages() {
   await waitForImagesBeforeScroll();
 }
 
+async function reconcileCurrentChannelMessages() {
+  const channelAtStart = currentChannelId;
+  if (!channelAtStart || currentConversationType !== "channel") return;
+
+  const { data, error } = await supabaseClient
+    .from("messages")
+    .select("*")
+    .eq("channel_id", channelAtStart)
+    .order("inserted_at", { ascending: false })
+    .limit(100);
+  if (error || channelAtStart !== currentChannelId) return;
+
+  const missing = (data || [])
+    .reverse()
+    .filter((message) => {
+      const key = Number(message.id);
+      return !messagesMap.has(message.id) && !messagesMap.has(key);
+    });
+  if (!missing.length) return;
+
+  await loadAvatarMapForUsernames(missing.map((message) => message.username));
+  missing.forEach((message) => {
+    renderMessage(message);
+    messageDataMap.set(Number(message.id), message);
+  });
+  console.info(`[SYNC] Reconciled ${missing.length} message(s) missed by realtime`);
+}
+
 function scrollToBottom() {
   messagesList.scrollTop = messagesList.scrollHeight;
 }
