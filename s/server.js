@@ -34,6 +34,8 @@ async function reloadChannelsRealtime(deletedChannelId = null) {
 var _channelRealtimeSub = null;
 var _categoryRealtimeSub = null;
 var _customEmojiRealtimeSub = null;
+var _serverMembersLoadPromise = null;
+var _memberReloadTimer = null;
 // Remember the last server before entering DM "server" view so we can restore it
 var previousServerIdBeforeDm = null;
 
@@ -615,6 +617,16 @@ function showNoServerScreen() {
 }
 
 async function loadServerMembers() {
+  if (_serverMembersLoadPromise) return _serverMembersLoadPromise;
+  _serverMembersLoadPromise = loadServerMembersInternal();
+  try {
+    return await _serverMembersLoadPromise;
+  } finally {
+    _serverMembersLoadPromise = null;
+  }
+}
+
+async function loadServerMembersInternal() {
   console.log("🔍 loadServerMembers called, currentServerId:", currentServerId);
   console.log("   Current username:", username);
 
@@ -728,6 +740,41 @@ async function loadServerMembers() {
         role_color: effectiveRoleId ? roleColorById.get(effectiveRoleId) : null
       };
     });
+    const { data: discordServer } = await supabaseClient
+      .from("discord_servers")
+      .select("id")
+      .eq("server_id", currentServerId)
+      .maybeSingle();
+    if (discordServer) {
+      const { data: linkedAccount } = await supabaseClient
+        .from("discord_accounts")
+        .select("discord_user_id")
+        .eq("username", username)
+        .maybeSingle();
+      const { data: linkedMember } = linkedAccount?.discord_user_id
+        ? await supabaseClient
+          .from("discord_members")
+          .select("member_id")
+          .eq("discord_server_id", discordServer.id)
+          .eq("discord_user_id", linkedAccount.discord_user_id)
+          .maybeSingle()
+        : { data: null };
+      const { data: discordProfile } = linkedMember?.member_id
+        ? await supabaseClient
+          .from("server_members")
+          .select("profile_display_name, profile_avatar_url")
+          .eq("id", linkedMember.member_id)
+          .maybeSingle()
+        : { data: null };
+      if (discordProfile) {
+        const existing = getServerProfileData(currentServerId, username) || {};
+        setServerProfileData(currentServerId, username, {
+          ...existing,
+          display_name: discordProfile.profile_display_name || existing.display_name || username,
+          avatar_url: discordProfile.profile_avatar_url || existing.avatar_url || ""
+        });
+      }
+    }
     await loadAvatarMapForUsernames(serverMembers.map(member => getDisplayName(member)));
     console.log("✅ Loaded", serverMembers.length, "server members", serverMembers);
 
@@ -1012,6 +1059,15 @@ async function updateChannelPresence(channelId) {
 function subscribeToPresence() {
   console.log("🔔 subscribeToPresence called, currentServerId:", currentServerId);
 
+  const expectedTopic = `realtime:members-realtime-${currentServerId}`;
+  const existingChannel = typeof supabaseClient.getChannels === "function"
+    ? supabaseClient.getChannels().find((channel) => channel.topic === expectedTopic)
+    : null;
+  if (existingChannel) {
+    memberRealtimeSubscription = existingChannel;
+    console.log("🔔 Reusing member realtime subscription for:", currentServerId);
+    return;
+  }
   stopMemberRealtime();
 
   if (!currentServerId) {
@@ -1044,7 +1100,8 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_members changed, reloading member list");
-      await loadServerMembers();
+      clearTimeout(_memberReloadTimer);
+      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
     })
     .on("postgres_changes", {
       event: "*",
@@ -1053,7 +1110,8 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_member_roles changed, reloading member list");
-      await loadServerMembers();
+      clearTimeout(_memberReloadTimer);
+      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
     })
     .on("postgres_changes", {
       event: "*",
@@ -1062,7 +1120,8 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_roles changed, reloading member list");
-      await loadServerMembers();
+      clearTimeout(_memberReloadTimer);
+      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
     })
     .subscribe();
 
