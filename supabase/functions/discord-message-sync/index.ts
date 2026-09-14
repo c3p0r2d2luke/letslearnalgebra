@@ -54,7 +54,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     // Fetch Discord channel mapping
     const { data: discordChannel, error: channelError } = await supabaseClient
       .from("discord_channels")
-      .select("discord_channel_id, discord_server_id, discord_servers(sync_direction)")
+      .select("discord_channel_id, discord_server_id, discord_servers(sync_direction, discord_guild_id, discord_guild_name)")
       .eq("channel_id", channelId)
       .single();
 
@@ -87,7 +87,11 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     });
 
     if (!discordResponse.ok) {
-      throw new Error(`Discord API error: ${await discordResponse.text()}`);
+      const errorBody = await discordResponse.text();
+      throw new Error(
+        `Discord API error for guild ${discordChannel.discord_servers?.discord_guild_id || "unknown"}, ` +
+        `channel ${discordChannel.discord_channel_id}: ${errorBody}`,
+      );
     }
 
     const discordMessage = await discordResponse.json();

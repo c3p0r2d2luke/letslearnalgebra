@@ -535,26 +535,27 @@ async function syncMessageToDiscord(messageId, channelId) {
       console.error("Failed to sync message to Discord:", await response.text());
     }
 
-    async function syncMessagesFromDiscord() {
-      if (typeof currentServerId === "undefined" || !currentServerId) return;
-      try {
-        const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "sync_from_discord",
-            server_id: currentServerId,
-          }),
-        });
-        if (!response.ok) {
-          console.error("Failed to receive Discord messages:", await response.text());
-        }
-      } catch (error) {
-        console.error("Error receiving Discord messages:", error);
-      }
-    }
   } catch (error) {
     console.error("Error syncing message to Discord:", error);
+  }
+}
+
+async function syncMessagesFromDiscord() {
+  if (typeof currentServerId === "undefined" || !currentServerId) return;
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "sync_from_discord",
+        server_id: currentServerId,
+      }),
+    });
+    if (!response.ok) {
+      console.error("Failed to receive Discord messages:", await response.text());
+    }
+  } catch (error) {
+    console.error("Error receiving Discord messages:", error);
   }
 }
 
