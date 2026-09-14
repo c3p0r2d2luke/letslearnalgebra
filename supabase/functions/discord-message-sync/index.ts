@@ -114,7 +114,9 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     throw error;
   }
 
-  async function syncMessagesFromDiscord(serverId: string) {
+}
+
+async function syncMessagesFromDiscord(serverId: string) {
     if (!serverId) throw new Error("server_id is required");
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
@@ -198,8 +200,6 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-}
-
 async function receiveDiscordMessage(req: Request) {
   try {
     const payload = await req.json();
