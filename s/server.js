@@ -3167,6 +3167,7 @@ async function saveCurrentRole() {
       serverRolesCache.push(data);
       editingRoleId = data.id;
       _isCreatingNewRole = false;
+      await syncDiscordRole("create", data);
     } else {
       const { error } = await supabaseClient
         .from("server_roles")
@@ -3175,6 +3176,7 @@ async function saveCurrentRole() {
       if (error) throw error;
       const cached = serverRolesCache.find((r) => r.id === editingRoleId);
       if (cached) { cached.name = name; cached.role = name; cached.color = color; cached.permissions = permissions; }
+      await syncDiscordRole("update", { id: editingRoleId, name, color });
     }
     renderServerRolesList();
     setServerRolesError("");
@@ -3208,6 +3210,7 @@ async function deleteCurrentRole() {
       .delete()
       .eq("id", editingRoleId);
     if (error) throw error;
+    await syncDiscordRole("delete", { id: editingRoleId });
     serverRolesCache = serverRolesCache.filter((r) => r.id !== editingRoleId);
     editingRoleId = null;
     document.getElementById("serverRolesEditor").style.display = "none";
@@ -3217,6 +3220,31 @@ async function deleteCurrentRole() {
   } catch (err) {
     console.error("deleteCurrentRole failed", err);
     setServerRolesError("Delete failed: " + err.message);
+  }
+
+  async function syncDiscordRole(operation, role) {
+    if (!currentServerOptionsTargetId || !role?.id) return;
+    const { data: mapping } = await supabaseClient
+      .from("discord_servers")
+      .select("id")
+      .eq("server_id", currentServerOptionsTargetId)
+      .maybeSingle();
+    if (!mapping) return;
+    const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "manage_role",
+        operation,
+        server_id: currentServerOptionsTargetId,
+        role_id: role.id,
+        name: role.name,
+        color: role.color
+      })
+    });
+    if (!response.ok) {
+      console.error("Discord role synchronization failed:", await response.text());
+    }
   }
 }
 

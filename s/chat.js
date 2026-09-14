@@ -626,6 +626,28 @@ async function loadMessages() {
     seenMessageKeys.add(duplicateKey);
     uniqueMessages.push(msg);
   }
+  const { data: discordChannel } = await supabaseClient
+    .from("discord_channels")
+    .select("discord_server_id")
+    .eq("channel_id", currentChannelId)
+    .maybeSingle();
+  if (discordChannel?.discord_server_id) {
+    const { data: discordProfiles } = await supabaseClient
+      .from("discord_members")
+      .select("discord_user_id, member_id, server_members(username, profile_display_name, profile_avatar_url, primary_role_id)")
+      .eq("discord_server_id", discordChannel.discord_server_id);
+    (discordProfiles || []).forEach((profile) => {
+      const member = profile.server_members;
+      if (!member) return;
+      const profileUsername = `discord-${profile.discord_user_id}`;
+      setServerProfileData(currentServerId, profileUsername, {
+        display_name: member.profile_display_name || profileUsername,
+        avatar_url: member.profile_avatar_url || "",
+        role: member.role || "",
+        role_color: ""
+      });
+    });
+  }
   const messageIds = uniqueMessages.map((msg) => msg.id);
   const [{ data: reactions, error: reactionsError }] = await Promise.all([
     messageIds.length > 0
@@ -2492,6 +2514,10 @@ async function deleteMessage(messageId) {
 
     if (error) throw error;
 
+    if (messageTable === "messages") {
+      await syncDiscordMessageChange("delete", messageId);
+    }
+
     if (data && data.length > 0) {
       alert("✅ Message + file deleted");
 
@@ -3019,6 +3045,19 @@ async function editMessage(messageId) {
   if (error) {
     console.error("Edit failed", error);
     alert("❌ Edit failed: " + error.message);
+    return;
+  }
+  await syncDiscordMessageChange("edit", messageId, newText);
+}
+
+async function syncDiscordMessageChange(action, messageId, content) {
+  const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, message_id: messageId, content })
+  });
+  if (!response.ok) {
+    console.error(`Discord ${action} failed:`, await response.text());
   }
 }
 

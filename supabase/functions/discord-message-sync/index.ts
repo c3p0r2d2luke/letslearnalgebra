@@ -26,8 +26,90 @@ serve(async (req: Request) => {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
       return await syncMessagesFromDiscord(server_id);
+    } else if (action === "edit" || action === "delete") {
+      return await syncEditedOrDeletedMessage(action, message_id, body.content);
+    } else if (action === "manage_role") {
+      return await manageDiscordRole(body);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
+    }
+
+    async function syncEditedOrDeletedMessage(action: string, messageId: string, content?: string) {
+      const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+      if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
+      const { data: mapping, error } = await supabaseClient
+        .from("discord_message_mapping")
+        .select("discord_message_id, discord_channel_id")
+        .eq("chat_message_id", messageId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!mapping) return jsonResponse({ success: true, skipped: true });
+      const url = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
+      const response = await fetch(url, {
+        method: action === "delete" ? "DELETE" : "PATCH",
+        headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
+        ...(action === "edit" ? { body: JSON.stringify({ content: content || "" }) } : {}),
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`Discord ${action} failed: ${await response.text()}`);
+      }
+      if (action === "delete") {
+        await supabaseClient.from("discord_message_mapping").delete().eq("chat_message_id", messageId);
+      }
+      return jsonResponse({ success: true, missing: response.status === 404 });
+    }
+
+    async function manageDiscordRole(body: Record<string, any>) {
+      const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+      if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
+      const { data: server } = await supabaseClient
+        .from("discord_servers")
+        .select("id, discord_guild_id")
+        .eq("server_id", body.server_id)
+        .single();
+      if (!server) throw new Error("Discord server mapping not found");
+      const headers = { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" };
+      let discordRoleId = body.discord_role_id;
+      if (body.operation === "delete" || body.operation === "update") {
+        if (!discordRoleId && body.role_id) {
+          const { data: mapping } = await supabaseClient
+            .from("discord_roles").select("discord_role_id").eq("role_id", body.role_id).maybeSingle();
+          discordRoleId = mapping?.discord_role_id;
+        }
+        if (!discordRoleId) throw new Error("Discord role mapping not found");
+      }
+      const url = `${DISCORD_API}/guilds/${server.discord_guild_id}/roles${discordRoleId ? `/${discordRoleId}` : ""}`;
+      const payload = {
+        name: body.name,
+        color: parseInt(String(body.color || "#5865f2").replace("#", ""), 16),
+        hoist: false,
+        mentionable: true,
+      };
+      const response = await fetch(url, {
+        method: body.operation === "create" ? "POST" : body.operation === "delete" ? "DELETE" : "PATCH",
+        headers,
+        ...(body.operation === "delete" ? {} : { body: JSON.stringify(payload) }),
+      });
+      if (!response.ok) throw new Error(`Discord role operation failed: ${await response.text()}`);
+      const role = body.operation === "delete" ? null : await response.json();
+      if (body.operation === "create" && role) {
+        await supabaseClient.from("discord_roles").insert({
+          discord_server_id: server.id,
+          role_id: body.role_id,
+          discord_role_id: role.id,
+          discord_role_name: role.name,
+          discord_color: `#${Number(role.color || 0).toString(16).padStart(6, "0")}`,
+          discord_permissions: role.permissions,
+        });
+      } else if (body.operation === "update") {
+        await supabaseClient.from("discord_roles").update({
+          discord_role_name: role.name,
+          discord_color: `#${Number(role.color || 0).toString(16).padStart(6, "0")}`,
+        }).eq("role_id", body.role_id);
+      } else if (body.operation === "delete") {
+        await supabaseClient.from("discord_roles").delete().eq("role_id", body.role_id);
+      }
+      return jsonResponse({ success: true, discord_role_id: role?.id || discordRoleId });
     }
 
     return new Response(JSON.stringify({ error: "Invalid action" }), {
