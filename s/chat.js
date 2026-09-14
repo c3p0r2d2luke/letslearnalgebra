@@ -2473,7 +2473,7 @@ async function pinMessage(messageId) {
 
 // Delete Message
 async function deleteMessage(messageId) {
-  if (!confirm("Delete this message?")) return;
+  if (!(await guiConfirm("Delete this message?", "Delete message", true))) return;
 
   const li = messagesMap.get(Number(messageId));
   const author = li ? li.dataset.user : null;
@@ -3045,13 +3045,13 @@ async function forceLogout(author) {
 // ---------------- EDIT MESSAGE ----------------
 async function editMessage(messageId) {
   if (isUserBlockedOrMutedSync()) {
-  alert("❌ You cannot edit messages.");
+  guiAlert("❌ You cannot edit messages.");
   return;
 }
   const msg = messageDataMap.get(Number(messageId));
   if (!msg) return;
 
-  const newText = prompt("Edit message:", msg.content);
+  const newText = await guiPrompt("Edit message:", msg.content, "Edit message");
   if (!newText || newText === msg.content) return;
 
   const { error } = await supabaseClient

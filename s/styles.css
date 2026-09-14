@@ -26,6 +26,74 @@
   --surface-border: rgba(255,255,255,0.08);
 }
 
+.app-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.app-dialog {
+  width: min(440px, 100%);
+  padding: 20px;
+  border: 1px solid #454950;
+  border-radius: 12px;
+  background: var(--bg-modal);
+  color: var(--text-main);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.app-dialog-title {
+  margin-bottom: 10px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.app-dialog-message {
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.app-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid #1f2023;
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-main);
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.app-dialog-actions button {
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  background: #5865f2;
+}
+
+.app-dialog-actions .app-dialog-cancel {
+  background: #4e5058;
+}
+
+.app-dialog-actions .danger {
+  background: #ed4245;
+}
+
 /* Keep the visual language close to Discord's dense, opaque surfaces. */
 :root {
   --bg-main: #313338;
@@ -6850,3 +6918,4 @@ li:not(.admin):not(.manager):not(.sysmanager):not(.sysadmin) .username {
     to   { transform: translateY(0); }
   }
 }
+:root {
