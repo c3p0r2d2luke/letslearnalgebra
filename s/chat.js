@@ -581,14 +581,16 @@ async function switchChannel(channelId) {
   clearReactionCaches();
   hideMentionSuggestions();
 
-  // 🔥 Call loadMessages
-  await loadMessages(); // Make it await so we wait for messages to load
+  // Subscribe before fetching history so inserts that arrive during the query
+  // are handled by the realtime path instead of being missed.
+  await subscribeToCurrentChannel();
+
+  // Fetch the newest history once. loadMessages merges the result with any
+  // realtime rows received while the query was in flight.
+  await loadMessages();
 
   // 🔥 CRITICAL: Mark this channel as read immediately upon loading
   await markCurrentChannelAsRead();
-
-  // 🔥 Subscribe to realtime for THIS specific channel
-  subscribeToCurrentChannel();
 
   // Update channel presence for member list
   updateChannelPresence(channelId);
@@ -601,11 +603,10 @@ async function switchChannel(channelId) {
 async function loadMessages() {
   if (!currentChannelId) return;
 
-  // Faster loading UI
-  messagesList.innerHTML = '<div class="loading-shimmer"></div>';
-  messagesMap.clear();
-  messageDataMap.clear();
-  clearReactionCaches();
+  const channelAtStart = currentChannelId;
+  if (messagesMap.size === 0) {
+    messagesList.innerHTML = '<div class="loading-shimmer"></div>';
+  }
 
   const { data, error } = await supabaseClient
     .from("messages")
@@ -614,9 +615,11 @@ async function loadMessages() {
     .order("inserted_at", { ascending: true });
 
   if (error) {
+    if (channelAtStart !== currentChannelId) return;
     messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
     return;
   }
+  if (channelAtStart !== currentChannelId) return;
 
   const uniqueMessages = [];
   const seenMessageKeys = new Set();
@@ -688,11 +691,13 @@ async function loadMessages() {
     });
   }
 
-  messagesList.innerHTML = "";
   const fragment = document.createDocumentFragment();
   uniqueMessages.forEach(msg => {
+    const existing = messagesMap.get(msg.id) || messagesMap.get(Number(msg.id));
+    if (existing) existing.remove();
     const li = createMessageElement(msg);
     messagesMap.set(msg.id, li);
+    messagesMap.set(Number(msg.id), li);
     messageDataMap.set(msg.id, msg);
     fragment.appendChild(li);
   });
@@ -1126,18 +1131,46 @@ async function sendMessage(options = {}) {
         }
         const discordResult = await discordResponse.json();
         const localMessage = {
-          id: -Date.now(),
           username,
           content,
           channel_id: currentChannelId,
           inserted_at: new Date().toISOString(),
           role: currentRole,
+        };
+        const { data: savedMessage, error: saveError } = await supabaseClient
+          .from("messages")
+          .insert([localMessage])
+          .select("*")
+          .single();
+        if (saveError) throw saveError;
+
+        // Keep the Discord mapping durable so edits/deletes still work after
+        // a page reload.
+        const { data: discordChannel } = await supabaseClient
+          .from("discord_channels")
+          .select("discord_server_id")
+          .eq("channel_id", currentChannelId)
+          .maybeSingle();
+        if (discordChannel?.discord_server_id && discordResult.discord_message_id) {
+          const { error: mappingError } = await supabaseClient
+            .from("discord_message_mapping")
+            .upsert({
+              discord_server_id: discordChannel.discord_server_id,
+              discord_channel_id: discordResult.discord_channel_id,
+              chat_message_id: savedMessage.id,
+              discord_message_id: discordResult.discord_message_id
+            }, { onConflict: "chat_message_id,discord_message_id" });
+          if (mappingError) throw mappingError;
+        }
+
+        const renderedMessage = {
+          ...savedMessage,
           discord_message_id: discordResult.discord_message_id,
           discord_channel_id: discordResult.discord_channel_id,
           webhook_id: discordResult.webhook_id,
           webhook_token: discordResult.webhook_token,
         };
-        renderMessage(localMessage);
+        renderMessage(renderedMessage);
         input.value = "";
         hideMentionSuggestions();
         return;
