@@ -323,7 +323,7 @@ async function loadServers() {
   if (!target && serverSlug) target = servers.find(s => s.slug === serverSlug);
   if (!target && servers.length > 0) target = servers[0];
 
-  if (target && currentServerId !== target.id) {
+  if (target && !currentServerId) {
     await switchServer(target.id, false);
   } else {
     showNoServerScreen();

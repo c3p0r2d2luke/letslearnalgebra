@@ -701,6 +701,16 @@ async function waitForImagesBeforeScroll(container = messagesList, timeoutMs = 2
 
 // ======================== FULL FIXED loadUser FUNCTION ========================
 async function loadUser() {
+  if (window.__llaLoadUserPromise) return window.__llaLoadUserPromise;
+  window.__llaLoadUserPromise = loadUserInternal();
+  try {
+    return await window.__llaLoadUserPromise;
+  } finally {
+    window.__llaLoadUserPromise = null;
+  }
+}
+
+async function loadUserInternal() {
   console.log("🚀 loadUser() STARTED");
 
   const storedName = localStorage.getItem("chatUsername");

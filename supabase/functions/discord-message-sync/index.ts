@@ -63,6 +63,23 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       throw new Error("This Discord server is configured for incoming-only sync");
     }
 
+    const { data: discordAccount } = await supabaseClient
+      .from("discord_accounts")
+      .select("discord_username, discord_user_id, access_token")
+      .eq("username", message.username)
+      .maybeSingle();
+    let discordAvatarUrl: string | undefined;
+    if (discordAccount?.access_token) {
+      const profileResponse = await fetch(`${DISCORD_API}/users/@me`, {
+        headers: { Authorization: `Bearer ${discordAccount.access_token}` },
+      });
+      if (profileResponse.ok) {
+        const profile = await profileResponse.json();
+        if (profile.avatar) {
+          discordAvatarUrl = `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png`;
+        }
+      }
+    }
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     let sendUrl = webhookUrl;
     let headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -72,8 +89,8 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       sendUrl = webhook.url;
       payload = {
         content: message.content,
-        username: message.users?.display_name || message.users?.username || "Unknown",
-        avatar_url: message.users?.avatar_url || undefined,
+        username: discordAccount?.discord_username || message.users?.display_name || message.users?.username || "Unknown",
+        avatar_url: discordAvatarUrl,
         allowed_mentions: { parse: [] },
       };
     }
