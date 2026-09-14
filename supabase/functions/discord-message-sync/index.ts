@@ -21,6 +21,8 @@ serve(async (req: Request) => {
 
     if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
+    } else if (action === "sync_from_discord") {
+      return await syncMessagesFromDiscord(server_id);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
@@ -52,11 +54,14 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     // Fetch Discord channel mapping
     const { data: discordChannel, error: channelError } = await supabaseClient
       .from("discord_channels")
-      .select("discord_channel_id, discord_server_id")
+      .select("discord_channel_id, discord_server_id, discord_servers(sync_direction)")
       .eq("channel_id", channelId)
       .single();
 
     if (channelError) throw new Error("Channel is not synced to Discord");
+    if (discordChannel.discord_servers?.sync_direction === "incoming_only") {
+      throw new Error("This Discord server is configured for incoming-only sync");
+    }
 
     // Send to Discord via webhook or bot token
     let sendUrl = webhookUrl;
@@ -95,7 +100,6 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
         discord_message_id: discordMessage.id,
         discord_server_id: discordChannel.discord_server_id,
         discord_channel_id: discordChannel.discord_channel_id,
-        is_webhook: !!webhookUrl,
       });
 
     return new Response(JSON.stringify({ success: true, discord_message_id: discordMessage.id }), {
@@ -104,6 +108,91 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
   } catch (error) {
     console.error(error);
     throw error;
+  }
+
+  async function syncMessagesFromDiscord(serverId: string) {
+    if (!serverId) throw new Error("server_id is required");
+    const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+    if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
+
+    const { data: discordServer, error: serverError } = await supabaseClient
+      .from("discord_servers")
+      .select("id, sync_direction")
+      .eq("server_id", serverId)
+      .single();
+    if (serverError) throw serverError;
+    if (discordServer.sync_direction === "outgoing_only") {
+      return jsonResponse({ success: true, imported: 0 });
+    }
+
+    const { data: channels, error: channelsError } = await supabaseClient
+      .from("discord_channels")
+      .select("channel_id, discord_channel_id")
+      .eq("discord_server_id", discordServer.id)
+      .eq("channel_type", "text");
+    if (channelsError) throw channelsError;
+
+    let imported = 0;
+    for (const channel of channels || []) {
+      const response = await fetch(
+        `${DISCORD_API}/channels/${channel.discord_channel_id}/messages?limit=100`,
+        { headers: { Authorization: `Bot ${botToken}` } },
+      );
+      if (!response.ok) {
+        console.warn("[DISCORD-SYNC] Cannot read channel", channel.discord_channel_id, response.status);
+        continue;
+      }
+      const messages = await response.json();
+      for (const discordMessage of [...messages].reverse()) {
+        const { data: existing } = await supabaseClient
+          .from("discord_message_mapping")
+          .select("id")
+          .eq("discord_server_id", discordServer.id)
+          .eq("discord_message_id", discordMessage.id)
+          .maybeSingle();
+        if (existing || !discordMessage.content?.trim()) continue;
+
+        const discordUser = discordMessage.author;
+        const username = `discord-${discordUser.id}`;
+        const avatarUrl = discordUser.avatar
+          ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+          : null;
+        await supabaseClient.from("users").upsert({
+          username,
+          display_name: discordUser.global_name || discordUser.username || username,
+          avatar_url: avatarUrl,
+        }, { onConflict: "username" });
+
+        const { data: nativeMessage, error: messageError } = await supabaseClient
+          .from("messages")
+          .insert({
+            username,
+            content: discordMessage.content,
+            channel_id: channel.channel_id,
+            inserted_at: discordMessage.timestamp || new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (messageError) {
+          console.error("[DISCORD-SYNC] Message insert failed:", messageError);
+          continue;
+        }
+        await supabaseClient.from("discord_message_mapping").insert({
+          discord_server_id: discordServer.id,
+          discord_channel_id: channel.discord_channel_id,
+          chat_message_id: nativeMessage.id,
+          discord_message_id: discordMessage.id,
+        });
+        imported += 1;
+      }
+    }
+    return jsonResponse({ success: true, imported });
+  }
+
+  function jsonResponse(payload: Record<string, unknown>) {
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 }
 
@@ -190,7 +279,6 @@ async function receiveDiscordMessage(req: Request) {
               discord_message_id: id,
               discord_server_id: discordServer.id,
               discord_channel_id: channel_id,
-              is_webhook: false,
             });
         }
       }
