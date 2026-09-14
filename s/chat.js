@@ -649,6 +649,22 @@ async function loadMessages() {
         role_color: ""
       });
     });
+    const discordMemberIds = (discordProfiles || []).map((profile) => profile.member_id).filter(Boolean);
+    if (discordMemberIds.length) {
+      const [{ data: roleLinks }, { data: roles }] = await Promise.all([
+        supabaseClient.from("server_member_roles").select("member_id, role_id").in("member_id", discordMemberIds),
+        supabaseClient.from("server_roles").select("id, color").eq("server_id", currentServerId)
+      ]);
+      const roleColors = new Map((roles || []).map((role) => [role.id, role.color || ""]));
+      (roleLinks || []).forEach((link) => {
+        const profile = (discordProfiles || []).find((item) => item.member_id === link.member_id);
+        if (!profile) return;
+        setServerProfileData(currentServerId, `discord-${profile.discord_user_id}`, {
+          ...(getServerProfileData(currentServerId, `discord-${profile.discord_user_id}`) || {}),
+          role_color: roleColors.get(link.role_id) || ""
+        });
+      });
+    }
   }
   const messageIds = uniqueMessages.map((msg) => msg.id);
   const [{ data: reactions, error: reactionsError }] = await Promise.all([
