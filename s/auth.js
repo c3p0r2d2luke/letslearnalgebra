@@ -915,7 +915,6 @@ async function editMyServerProfile() {
   });
 
   if (currentConversationType === "channel") {
-    await loadMessages();
     renderMemberList();
   }
   renderDmList();
@@ -940,7 +939,6 @@ async function changeMyAvatar() {
     return;
   }
 
-  await loadMessages();
   renderMemberList();
   renderServerList();
 }

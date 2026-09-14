@@ -539,7 +539,28 @@ async function performDeleteCategory(catName) {
   renderChannelList();
 }
 
+let activeChannelLoadPromise = null;
+
 async function switchChannel(channelId) {
+  if (activeChannelLoadPromise && currentChannelId === channelId) {
+    return activeChannelLoadPromise;
+  }
+  if (
+    currentConversationType === "channel"
+    && currentChannelId === channelId
+    && messagesMap.size > 0
+  ) {
+    return;
+  }
+  activeChannelLoadPromise = switchChannelInternal(channelId);
+  try {
+    return await activeChannelLoadPromise;
+  } finally {
+    activeChannelLoadPromise = null;
+  }
+}
+
+async function switchChannelInternal(channelId) {
   // 🔥 If currently in a voice channel, leave it before switching to a text channel
   if (currentVoiceChannelId) {
     leaveVoiceChannel();
@@ -984,7 +1005,6 @@ async function saveName() {
   if (input) input.disabled = false;
   if (button) button.disabled = false;
 
-  loadMessages();
   initRealtime();
 
   const createBtn = document.getElementById("createChannelBtn");

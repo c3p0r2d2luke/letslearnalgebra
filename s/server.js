@@ -2447,9 +2447,6 @@ async function changeName(targetUser) {
 
     // 6. Re-render UI
     renderMemberList();
-    if (currentConversationType === "channel") {
-      await loadMessages();
-    }
 
     if (trimmedName) {
       if (isNicknameChange) {
