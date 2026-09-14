@@ -48,7 +48,7 @@ async function syncContentToDiscord(channelId: string, content: string) {
   if (!botToken || !content?.trim()) throw new Error("Discord sync is not configured");
   const { data: discordChannel, error } = await supabaseClient
     .from("discord_channels")
-    .select("discord_channel_id, discord_server_id, discord_servers(sync_direction, server_id)")
+    .select("discord_channel_id, discord_channel_name, discord_server_id, discord_servers(sync_direction, server_id, discord_guild_id)")
     .eq("channel_id", channelId)
     .single();
   if (error) throw error;
@@ -73,7 +73,28 @@ async function syncContentToDiscord(channelId: string, content: string) {
       }
     }
   }
-  const webhook = await getOrCreateSyncWebhook(channelId, botToken);
+  let discordChannelId = discordChannel.discord_channel_id;
+  let webhook;
+  try {
+    webhook = await getOrCreateSyncWebhook(discordChannelId, botToken);
+  } catch (webhookError) {
+    if (!String(webhookError.message).includes("Unknown Channel")) throw webhookError;
+    const guildId = discordChannel.discord_servers?.discord_guild_id;
+    const guildChannelsResponse = await fetch(`${DISCORD_API}/guilds/${guildId}/channels`, {
+      headers: { Authorization: `Bot ${botToken}` },
+    });
+    if (!guildChannelsResponse.ok) throw new Error(`Unable to refresh Discord channels: ${await guildChannelsResponse.text()}`);
+    const guildChannels = await guildChannelsResponse.json();
+    const replacement = guildChannels.find((candidate: Record<string, unknown>) =>
+      candidate.name === discordChannel.discord_channel_name && [0, 5].includes(candidate.type as number)
+    );
+    if (!replacement) throw webhookError;
+    discordChannelId = replacement.id;
+    await supabaseClient.from("discord_channels")
+      .update({ discord_channel_id: discordChannelId })
+      .eq("channel_id", channelId);
+    webhook = await getOrCreateSyncWebhook(discordChannelId, botToken);
+  }
   const response = await fetch(webhook.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
