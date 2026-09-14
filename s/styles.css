@@ -94,6 +94,26 @@
   background: #ed4245;
 }
 
+.discord-inline-code {
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: #1e1f22;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.discord-spoiler {
+  padding: 0 3px;
+  border-radius: 3px;
+  color: transparent;
+  background: #202225;
+  cursor: pointer;
+}
+
+.discord-spoiler:hover,
+.discord-spoiler:focus {
+  color: inherit;
+}
+
 /* Keep the visual language close to Discord's dense, opaque surfaces. */
 :root {
   --bg-main: #313338;

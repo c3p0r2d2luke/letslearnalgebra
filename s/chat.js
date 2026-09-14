@@ -2540,6 +2540,10 @@ async function deleteMessage(messageId) {
       }
     }
 
+    if (messageTable === "messages") {
+      await syncDiscordMessageChange("delete", messageId, undefined, localMessage);
+    }
+
     // 🧨 5. Delete message from DB
     const { data, error } = await supabaseClient
       .from(messageTable)
@@ -2548,10 +2552,6 @@ async function deleteMessage(messageId) {
       .select();
 
     if (error) throw error;
-
-    if (messageTable === "messages") {
-      await syncDiscordMessageChange("delete", messageId);
-    }
 
     if (data && data.length > 0) {
       alert("✅ Message + file deleted");
@@ -3761,6 +3761,18 @@ function formatMessageContent(content, role) {
   // Escape all message authors, including admins. Role controls moderation,
   // never whether user-controlled content becomes executable markup.
   let escaped = escapeHTML(content);
+
+  // Render the Markdown subset used by Discord while keeping the content escaped.
+  escaped = escaped
+    .replace(/`([^`\n]+)`/g, '<code class="discord-inline-code">$1</code>')
+    .replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\n]+)__/g, "<u>$1</u>")
+    .replace(/~~([^~\n]+)~~/g, "<s>$1</s>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!])/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!])/g, "$1<em>$2</em>")
+    .replace(/\|\|([^|\n]+)\|\|/g, '<span class="discord-spoiler">$1</span>')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
   // Now replace #channel patterns in the escaped string
   // The pattern looks for # followed by alphanumeric/underscore/hyphen

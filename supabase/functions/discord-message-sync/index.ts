@@ -70,8 +70,11 @@ serve(async (req: Request) => {
         if (error) throw error;
         mapping = data;
       }
-      if (!mapping) return jsonResponse({ success: true, skipped: true });
+      if (!mapping) throw new Error(`No Discord mapping found for LLA message ${messageId}`);
       let mutationUrl = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
+      if (webhookId && webhookToken) {
+        mutationUrl = `${DISCORD_API}/webhooks/${webhookId}/${webhookToken}/messages/${mapping.discord_message_id}`;
+      }
       if (!webhookId || !webhookToken) {
         const webhooksResponse = await fetch(
           `${DISCORD_API}/channels/${mapping.discord_channel_id}/webhooks`,
@@ -98,7 +101,7 @@ serve(async (req: Request) => {
       if (action === "delete") {
         await supabaseClient.from("discord_message_mapping").delete().eq("chat_message_id", messageId);
       }
-      return jsonResponse({ success: true, missing: response.status === 404 });
+      return jsonResponse({ success: true, missing: response.status === 404, discord_message_id: mapping.discord_message_id });
     }
 
     async function manageDiscordRole(body: Record<string, any>) {
@@ -294,7 +297,11 @@ async function getOrCreateSyncWebhook(channelId: string, botToken: string) {
     webhook = await createResponse.json();
   }
   if (!webhook.token) throw new Error("Discord sync webhook has no token");
-  return { url: `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true` };
+  return {
+    url: `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true`,
+    id: webhook.id,
+    token: webhook.token,
+  };
 }
 
 async function syncMessageToDiscord(messageId: string, channelId: string, webhookUrl?: string) {
