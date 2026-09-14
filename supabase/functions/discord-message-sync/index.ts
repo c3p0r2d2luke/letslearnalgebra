@@ -263,6 +263,7 @@ async function syncContentToDiscord(
     success: true,
     discord_message_id: discordMessage.id,
     discord_channel_id: discordChannelId,
+    lla_username: account?.discord_user_id ? `discord-${account.discord_user_id}` : username,
     webhook_id: webhook.id,
     webhook_token: webhook.token,
   });

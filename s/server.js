@@ -1250,10 +1250,7 @@ async function checkInviteOnLoad() {
 
 // Replace your existing createServer function with this:
 async function createServer(name, slug) {
-  // Check if user is SysAdmin
-  if (currentSystemRole !== "SysAdmin") {
-    return "❌ Only SysAdmins can create servers.";
-  }
+  if (!username) return "❌ You must be signed in to create a server.";
 
   const iconInput = document.getElementById("newServerIcon");
   const trimName = name.trim();
@@ -1298,7 +1295,7 @@ async function createServer(name, slug) {
 
   if (error) return "❌ Failed to create server: " + error.message;
 
-  // SysAdmin becomes the owner and admin
+  // The creator becomes the initial server owner/member.
   const { data: existingMember } = await supabaseClient
     .from("server_members")
     .select("id")
@@ -1332,12 +1329,11 @@ function initServerModals() {
   // In initServerModals(), modify the addServerBtn listener:
 const addBtn = document.getElementById("addServerBtn");
 if (addBtn) {
-  // Only show for SysAdmins
-  addBtn.style.display = currentSystemRole === "SysAdmin" ? "flex" : "none";
+  addBtn.style.display = username ? "flex" : "none";
 
   addBtn.addEventListener("click", () => {
-    if (currentSystemRole !== "SysAdmin") {
-      alert("❌ Only SysAdmins can create servers.");
+    if (!username) {
+      alert("❌ You must be signed in to create a server.");
       return;
     }
     openModal("serverModal");

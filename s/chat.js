@@ -1157,9 +1157,10 @@ async function sendMessage(options = {}) {
           throw new Error(await discordResponse.text());
         }
         const discordResult = await discordResponse.json();
-        const discordUsername = discordAccount?.discord_user_id
-          ? `discord-${discordAccount.discord_user_id}`
-          : username;
+        const discordUsername = discordResult.lla_username
+          || (discordAccount?.discord_user_id
+            ? `discord-${discordAccount.discord_user_id}`
+            : username);
         const localMessage = {
           username: discordUsername,
           content,
@@ -1706,7 +1707,7 @@ function createMessageElement(msg) {
 // ------------------------ Realtime Handler ------------------------
 async function handleRealtimeMessage(newMsg, eventType) {
   if (!newMsg) return;
-  if (newMsg.channel_id !== currentChannelId) return;
+  if (String(newMsg.channel_id) !== String(currentChannelId)) return;
 
   if (eventType === "INSERT") {
     const messageKey = Number(newMsg.id);
