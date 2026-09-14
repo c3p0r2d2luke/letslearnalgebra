@@ -565,5 +565,4 @@ async function syncMessagesFromDiscord() {
 window.addEventListener("load", async () => {
   await initializeDiscordIntegration();
   await syncMessagesFromDiscord();
-  window.setInterval(syncMessagesFromDiscord, 15000);
 });
