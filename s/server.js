@@ -349,6 +349,9 @@ async function switchServer(serverId, updateUrl = true) {
   currentConversationType = "channel";
   currentDmConversationId = null;
   currentServerId = serverId;
+  if (typeof startDiscordMessageSync === "function") {
+    startDiscordMessageSync(serverId);
+  }
   // Remove DM icon active state when switching to a server
   const _dmIcon = document.getElementById('dmServerIcon');
   if (_dmIcon) _dmIcon.classList.remove('active');

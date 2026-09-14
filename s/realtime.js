@@ -78,6 +78,12 @@ async function subscribeToCurrentChannel() {
   }
 
   // 2. Subscribe to the NEW channel with a filter
+  let resolveSubscription;
+  const subscriptionReady = new Promise((resolve) => {
+    resolveSubscription = resolve;
+  });
+  const subscriptionTimeout = setTimeout(() => resolveSubscription(), 5000);
+
   activeMessageChannel = supabaseClient
     .channel(`messages-channel-${currentChannelId}`)
     .on(
@@ -97,7 +103,13 @@ async function subscribeToCurrentChannel() {
     .subscribe((status) => {
       if (subscriptionGeneration !== messageSubscriptionGeneration) return;
       console.log(`Realtime status for channel ${currentChannelId}:`, status);
+      if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        clearTimeout(subscriptionTimeout);
+        resolveSubscription();
+      }
     });
+
+  await subscriptionReady;
 }
 
 supabaseClient

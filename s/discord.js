@@ -547,8 +547,13 @@ async function syncMessageToDiscord(messageId, channelId) {
   }
 }
 
+let discordSyncTimer = null;
+let discordSyncInFlight = false;
+
 async function syncMessagesFromDiscord() {
   if (typeof currentServerId === "undefined" || !currentServerId) return;
+  if (discordSyncInFlight) return;
+  discordSyncInFlight = true;
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
       method: "POST",
@@ -568,7 +573,24 @@ async function syncMessagesFromDiscord() {
     // with a second full history load.
   } catch (error) {
     console.error("Error receiving Discord messages:", error);
+  } finally {
+    discordSyncInFlight = false;
   }
+}
+
+function startDiscordMessageSync(serverId) {
+  if (discordSyncTimer) clearInterval(discordSyncTimer);
+  discordSyncTimer = null;
+  if (!serverId) return;
+
+  // Discord-originated messages do not produce Supabase realtime events until
+  // they are imported. This keeps that import incremental without reloading
+  // the rendered message list.
+  discordSyncTimer = setInterval(() => {
+    if (currentServerId === serverId && currentConversationType === "channel") {
+      syncMessagesFromDiscord();
+    }
+  }, 15000);
 }
 
 // ======================== INITIALIZATION ========================

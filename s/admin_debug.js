@@ -57,10 +57,26 @@ function initAdminDebugPanel() {
   const clearBtn = makeToolbarBtn("Clear", "#ed4245");
   clearBtn.addEventListener("click", clearConsole);
 
+  const copyBtn = makeToolbarBtn("Copy", "#5865f2");
+  copyBtn.addEventListener("click", async () => {
+    const text = [...output.querySelectorAll(".console-row")]
+      .filter((row) => row.style.display !== "none")
+      .map((row) => row.innerText)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "Copied";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
+    } catch (error) {
+      console.error("Failed to copy admin console output:", error);
+    }
+  });
+
   const closeBtn = makeToolbarBtn("\u{2715}", "#555");
   closeBtn.addEventListener("click", () => { adminDebugPanel.style.display = "none"; });
 
   toolbar.insertBefore(title, toolbar.firstChild);
+  toolbar.appendChild(copyBtn);
   toolbar.appendChild(clearBtn);
   toolbar.appendChild(closeBtn);
 
