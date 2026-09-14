@@ -1116,6 +1116,9 @@ async function sendMessage(options = {}) {
             channel_id: currentChannelId,
             content,
             username,
+            reply_to_discord_message_id: replyingTo
+              ? messageDataMap.get(Number(replyingTo))?.discord_message_id
+              : null,
           }),
         });
         if (!discordResponse.ok) {
@@ -1131,6 +1134,8 @@ async function sendMessage(options = {}) {
           role: currentRole,
           discord_message_id: discordResult.discord_message_id,
           discord_channel_id: discordResult.discord_channel_id,
+          webhook_id: discordResult.webhook_id,
+          webhook_token: discordResult.webhook_token,
         };
         renderMessage(localMessage);
         input.value = "";
@@ -3096,7 +3101,9 @@ async function syncDiscordMessageChange(action, messageId, content, localMessage
       message_id: messageId,
       content,
       discord_message_id: localMessage?.discord_message_id,
-      discord_channel_id: localMessage?.discord_channel_id
+      discord_channel_id: localMessage?.discord_channel_id,
+      webhook_id: localMessage?.webhook_id,
+      webhook_token: localMessage?.webhook_token
     })
   });
   if (!response.ok) {

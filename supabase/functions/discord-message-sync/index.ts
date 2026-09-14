@@ -21,7 +21,12 @@ serve(async (req: Request) => {
     const { action, message_id, channel_id, server_id, webhook_url } = body;
 
     if (action === "sync_content_to_discord") {
-      return await syncContentToDiscord(body.channel_id, body.content, body.username);
+      return await syncContentToDiscord(
+        body.channel_id,
+        body.content,
+        body.username,
+        body.reply_to_discord_message_id,
+      );
     } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
@@ -33,6 +38,8 @@ serve(async (req: Request) => {
         body.content,
         body.discord_message_id,
         body.discord_channel_id,
+        body.webhook_id,
+        body.webhook_token,
       );
     } else if (action === "manage_role") {
       return await manageDiscordRole(body);
@@ -46,6 +53,8 @@ serve(async (req: Request) => {
       content?: string,
       discordMessageId?: string,
       discordChannelId?: string,
+      webhookId?: string,
+      webhookToken?: string,
     ) {
       const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
       if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
@@ -62,8 +71,23 @@ serve(async (req: Request) => {
         mapping = data;
       }
       if (!mapping) return jsonResponse({ success: true, skipped: true });
-      const url = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
-      const response = await fetch(url, {
+      let mutationUrl = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
+      if (!webhookId || !webhookToken) {
+        const webhooksResponse = await fetch(
+          `${DISCORD_API}/channels/${mapping.discord_channel_id}/webhooks`,
+          { headers: { Authorization: `Bot ${botToken}` } },
+        );
+        if (webhooksResponse.ok) {
+          const webhooks = await webhooksResponse.json();
+          const syncWebhook = webhooks.find((item: Record<string, string>) => item.name === "LLA Chat Sync" && item.token);
+          webhookId = syncWebhook?.id;
+          webhookToken = syncWebhook?.token;
+        }
+      }
+      if (webhookId && webhookToken) {
+        mutationUrl = `${DISCORD_API}/webhooks/${webhookId}/${webhookToken}/messages/${mapping.discord_message_id}`;
+      }
+      const response = await fetch(mutationUrl, {
         method: action === "delete" ? "DELETE" : "PATCH",
         headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
         ...(action === "edit" ? { body: JSON.stringify({ content: content || "" }) } : {}),
@@ -143,7 +167,12 @@ serve(async (req: Request) => {
   }
 });
 
-async function syncContentToDiscord(channelId: string, content: string, username: string) {
+async function syncContentToDiscord(
+  channelId: string,
+  content: string,
+  username: string,
+  replyToDiscordMessageId?: string,
+) {
   const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
   if (!botToken || !content?.trim()) throw new Error("Discord sync is not configured");
   const { data: discordChannel, error } = await supabaseClient
@@ -232,6 +261,12 @@ async function syncContentToDiscord(channelId: string, content: string, username
       username: senderMember?.profile_display_name || username || "Unknown",
       avatar_url: senderMember?.profile_avatar_url || undefined,
       allowed_mentions: { users: [...new Set(mentions)] },
+      ...(replyToDiscordMessageId ? {
+        message_reference: {
+          message_id: replyToDiscordMessageId,
+          fail_if_not_exists: false,
+        },
+      } : {}),
     }),
   });
   if (!response.ok) throw new Error(`Discord API error: ${await response.text()}`);
@@ -240,6 +275,8 @@ async function syncContentToDiscord(channelId: string, content: string, username
     success: true,
     discord_message_id: discordMessage.id,
     discord_channel_id: discordChannelId,
+    webhook_id: webhook.id,
+    webhook_token: webhook.token,
   });
 }
 
@@ -310,6 +347,20 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     let sendUrl = webhookUrl;
     let headers: Record<string, string> = { "Content-Type": "application/json" };
     let payload: Record<string, unknown> = { content: message.content };
+    let replyReference: Record<string, unknown> | undefined;
+    if (message.reply_to) {
+      const { data: replyMapping } = await supabaseClient
+        .from("discord_message_mapping")
+        .select("discord_message_id")
+        .eq("chat_message_id", message.reply_to)
+        .maybeSingle();
+      if (replyMapping?.discord_message_id) {
+        replyReference = {
+          message_id: replyMapping.discord_message_id,
+          fail_if_not_exists: false,
+        };
+      }
+    }
     if (!webhookUrl && botToken) {
       const webhook = await getOrCreateSyncWebhook(discordChannel.discord_channel_id, botToken);
       sendUrl = webhook.url;
@@ -318,6 +369,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
         username: serverMember?.profile_display_name || discordAccount?.discord_username || message.users?.username || "Unknown",
         avatar_url: serverMember?.profile_avatar_url || discordAvatarUrl,
         allowed_mentions: { parse: [] },
+        ...(replyReference ? { message_reference: replyReference } : {}),
       };
     }
     if (!sendUrl) throw new Error("No Discord webhook or bot token is configured");
@@ -534,6 +586,17 @@ async function syncMessagesFromDiscord(serverId: string) {
             }, { onConflict: "member_id,discord_user_id" });
           }
         }
+        let replyTo: number | null = null;
+        const referencedDiscordId = discordMessage.referenced_message?.id || discordMessage.message_reference?.message_id;
+        if (referencedDiscordId) {
+          const { data: referencedMapping } = await supabaseClient
+            .from("discord_message_mapping")
+            .select("chat_message_id")
+            .eq("discord_server_id", discordServer.id)
+            .eq("discord_message_id", referencedDiscordId)
+            .maybeSingle();
+          replyTo = referencedMapping?.chat_message_id || null;
+        }
 
         const { data: nativeMessage, error: messageError } = await supabaseClient
           .from("messages")
@@ -542,6 +605,7 @@ async function syncMessagesFromDiscord(serverId: string) {
             content: messageContent,
             channel_id: channel.channel_id,
             inserted_at: discordMessage.timestamp || new Date().toISOString(),
+            reply_to: replyTo,
           })
           .select("id")
           .single();

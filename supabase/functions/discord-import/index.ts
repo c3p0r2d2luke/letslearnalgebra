@@ -382,6 +382,17 @@ async function importDiscordServer(
             display_name: authorDisplayName,
             avatar_url: authorAvatarUrl,
           }, { onConflict: "username", ignoreDuplicates: false });
+          let replyTo: number | null = null;
+          const referencedDiscordId = discordMessage.referenced_message?.id || discordMessage.message_reference?.message_id;
+          if (referencedDiscordId) {
+            const { data: referencedMapping } = await supabaseClient
+              .from("discord_message_mapping")
+              .select("chat_message_id")
+              .eq("discord_server_id", discordServer.id)
+              .eq("discord_message_id", referencedDiscordId)
+              .maybeSingle();
+            replyTo = referencedMapping?.chat_message_id || null;
+          }
           const { data: nativeMessage, error: messageError } = await supabaseClient
             .from("messages")
             .insert({
@@ -389,6 +400,7 @@ async function importDiscordServer(
               content: messageContent,
               channel_id: nativeChannel.id,
               inserted_at: discordMessage.timestamp || new Date().toISOString(),
+              reply_to: replyTo,
             })
             .select("id")
             .single();
