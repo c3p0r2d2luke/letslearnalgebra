@@ -30,7 +30,7 @@ serve(async (req: Request) => {
     } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
-      return await syncMessagesFromDiscord(server_id);
+      return await syncMessagesFromDiscord(server_id, channel_id);
     } else if (action === "edit" || action === "delete") {
       return await syncEditedOrDeletedMessage(
         action,
@@ -421,7 +421,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
 
 }
 
-async function syncMessagesFromDiscord(serverId: string) {
+async function syncMessagesFromDiscord(serverId: string, requestedChannelId?: string) {
     if (!serverId) throw new Error("server_id is required");
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
@@ -436,11 +436,13 @@ async function syncMessagesFromDiscord(serverId: string) {
       return jsonResponse({ success: true, imported: 0 });
     }
 
-    const { data: channels, error: channelsError } = await supabaseClient
+    let channelsQuery = supabaseClient
       .from("discord_channels")
       .select("channel_id, discord_channel_id")
       .eq("discord_server_id", discordServer.id)
       .eq("channel_type", "text");
+    if (requestedChannelId) channelsQuery = channelsQuery.eq("channel_id", requestedChannelId);
+    const { data: channels, error: channelsError } = await channelsQuery;
     if (channelsError) throw channelsError;
 
     let imported = 0;
@@ -456,7 +458,8 @@ async function syncMessagesFromDiscord(serverId: string) {
     for (const channel of channels || []) {
       const channelMessages: Record<string, any>[] = [];
       let before: string | null = null;
-      for (let page = 0; page < 10; page += 1) {
+      const maxPages = requestedChannelId ? 1 : 10;
+      for (let page = 0; page < maxPages; page += 1) {
         const query = new URLSearchParams({ limit: "100" });
         if (before) query.set("before", before);
         const response = await fetch(

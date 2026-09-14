@@ -561,6 +561,7 @@ async function syncMessagesFromDiscord() {
       body: JSON.stringify({
         action: "sync_from_discord",
         server_id: currentServerId,
+        channel_id: currentChannelId,
       }),
     });
     if (!response.ok) {
