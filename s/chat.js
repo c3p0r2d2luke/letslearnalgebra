@@ -589,6 +589,13 @@ async function switchChannel(channelId) {
   // realtime rows received while the query was in flight.
   await loadMessages();
 
+  // Import messages that were sent in Discord before this channel was opened.
+  // The realtime subscription is already ready, so imported rows are rendered
+  // by handleRealtimeMessage without a second destructive history reload.
+  if (currentServerId && typeof syncMessagesFromDiscord === "function") {
+    await syncMessagesFromDiscord();
+  }
+
   // 🔥 CRITICAL: Mark this channel as read immediately upon loading
   await markCurrentChannelAsRead();
 
@@ -871,8 +878,8 @@ async function loadUserInternal() {
   initServerModals();
   await loadDirectConversations();
   await loadServers();
-  if (typeof syncMessagesFromDiscord === "function" && currentServerId) {
-    await syncMessagesFromDiscord();
+  if (typeof startDiscordMessageSync === "function" && currentServerId) {
+    startDiscordMessageSync(currentServerId);
   }
   await checkInviteOnLoad();
 
@@ -1130,8 +1137,11 @@ async function sendMessage(options = {}) {
           throw new Error(await discordResponse.text());
         }
         const discordResult = await discordResponse.json();
+        const discordUsername = discordAccount?.discord_user_id
+          ? `discord-${discordAccount.discord_user_id}`
+          : username;
         const localMessage = {
-          username,
+          username: discordUsername,
           content,
           channel_id: currentChannelId,
           inserted_at: new Date().toISOString(),
