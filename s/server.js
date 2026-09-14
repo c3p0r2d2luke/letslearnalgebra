@@ -300,7 +300,7 @@ async function loadServers() {
         `)
         .eq("username", username);
 
-      if (!error) {
+      if (!error && Array.isArray(data)) {
         servers = data.map(d => d.servers).filter(Boolean);
       }
     }
@@ -323,9 +323,12 @@ async function loadServers() {
   if (!target && serverSlug) target = servers.find(s => s.slug === serverSlug);
   if (!target && servers.length > 0) target = servers[0];
 
-  if (target && !currentServerId) {
+  if (target && currentServerId !== target.id) {
     await switchServer(target.id, false);
-  } else {
+  } else if (!target && servers.length === 0 && currentServerId) {
+    renderServerList();
+    return;
+  } else if (!target) {
     showNoServerScreen();
   }
 

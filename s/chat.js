@@ -1062,6 +1062,36 @@ async function sendMessage(options = {}) {
   }
 
   try {
+    if (currentConversationType === "channel") {
+      const discordSync = await isChannelSyncedToDiscord(currentChannelId);
+      if (discordSync) {
+        const discordResponse = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "sync_content_to_discord",
+            channel_id: currentChannelId,
+            content,
+          }),
+        });
+        if (!discordResponse.ok) {
+          throw new Error(await discordResponse.text());
+        }
+        const localMessage = {
+          id: `discord-local-${Date.now()}`,
+          username,
+          content,
+          channel_id: currentChannelId,
+          inserted_at: new Date().toISOString(),
+          role: currentRole,
+        };
+        renderMessage(localMessage);
+        input.value = "";
+        hideMentionSuggestions();
+        return;
+      }
+    }
+
     const messageData = {
       username,
       content,

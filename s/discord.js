@@ -571,5 +571,4 @@ async function syncMessagesFromDiscord() {
 // Initialize on page load
 window.addEventListener("load", async () => {
   await initializeDiscordIntegration();
-  await syncMessagesFromDiscord();
 });

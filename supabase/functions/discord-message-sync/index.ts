@@ -17,12 +17,15 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { action, message_id, channel_id, server_id, webhook_url } = await req.json();
+    const body = await req.json();
+    const { action, message_id, channel_id, server_id, webhook_url } = body;
 
-    if (action === "sync_to_discord") {
+    if (action === "sync_content_to_discord") {
+      return await syncContentToDiscord(body.channel_id, body.content);
+    } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
-      return await syncMessagesFromDiscord(server_id);
+      return jsonResponse({ success: true, imported: 0, persistence_disabled: true });
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
@@ -61,6 +64,52 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     if (channelError) throw new Error("Channel is not synced to Discord");
     if (discordChannel.discord_servers?.sync_direction === "incoming_only") {
       throw new Error("This Discord server is configured for incoming-only sync");
+    }
+
+    async function syncContentToDiscord(channelId: string, content: string) {
+      const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+      if (!botToken || !content?.trim()) throw new Error("Discord sync is not configured");
+      const { data: discordChannel, error } = await supabaseClient
+        .from("discord_channels")
+        .select("discord_channel_id, discord_server_id, discord_servers(sync_direction, server_id)")
+        .eq("channel_id", channelId)
+        .single();
+      if (error) throw error;
+      if (discordChannel.discord_servers?.sync_direction === "incoming_only") {
+        throw new Error("This Discord server is configured for incoming-only sync");
+      }
+
+      const { data: members } = await supabaseClient
+        .from("discord_members")
+        .select("discord_user_id, discord_username, member_id, server_members(username, profile_display_name)")
+        .eq("discord_server_id", discordChannel.discord_server_id);
+      const mentions: string[] = [];
+      let discordContent = content;
+      for (const member of members || []) {
+        const names = [member.discord_username, member.server_members?.profile_display_name, member.server_members?.username]
+          .filter(Boolean)
+          .map((name) => String(name).replace(/^discord-/, ""));
+        for (const name of names) {
+          const pattern = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+          if (pattern.test(discordContent)) {
+            discordContent = discordContent.replace(pattern, `<@${member.discord_user_id}>`);
+            mentions.push(member.discord_user_id);
+            break;
+          }
+        }
+      }
+
+      const webhook = await getOrCreateSyncWebhook(discordChannel.discord_channel_id, botToken);
+      const response = await fetch(webhook.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: discordContent,
+          allowed_mentions: { users: [...new Set(mentions)] },
+        }),
+      });
+      if (!response.ok) throw new Error(`Discord API error: ${await response.text()}`);
+      return jsonResponse({ success: true });
     }
 
     const { data: discordAccount } = await supabaseClient
@@ -116,25 +165,6 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       );
     }
 
-    async function getOrCreateSyncWebhook(channelId: string, botToken: string) {
-      const headers = { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" };
-      const listResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, { headers });
-      if (!listResponse.ok) throw new Error(`Unable to inspect Discord webhooks: ${await listResponse.text()}`);
-      const webhooks = await listResponse.json();
-      let webhook = webhooks.find((item: Record<string, unknown>) => item.name === "LLA Chat Sync");
-      if (!webhook) {
-        const createResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ name: "LLA Chat Sync" }),
-        });
-        if (!createResponse.ok) throw new Error(`Unable to create Discord webhook: ${await createResponse.text()}`);
-        webhook = await createResponse.json();
-      }
-      if (!webhook.token) throw new Error("Discord sync webhook has no token");
-      return { url: `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true` };
-    }
-
     const discordMessage = await discordResponse.json();
 
     // Store mapping
@@ -153,6 +183,25 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
   } catch (error) {
     console.error(error);
     throw error;
+  }
+
+  async function getOrCreateSyncWebhook(channelId: string, botToken: string) {
+    const headers = { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" };
+    const listResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, { headers });
+    if (!listResponse.ok) throw new Error(`Unable to inspect Discord webhooks: ${await listResponse.text()}`);
+    const webhooks = await listResponse.json();
+    let webhook = webhooks.find((item: Record<string, unknown>) => item.name === "LLA Chat Sync");
+    if (!webhook) {
+      const createResponse = await fetch(`${DISCORD_API}/channels/${channelId}/webhooks`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "LLA Chat Sync" }),
+      });
+      if (!createResponse.ok) throw new Error(`Unable to create Discord webhook: ${await createResponse.text()}`);
+      webhook = await createResponse.json();
+    }
+    if (!webhook.token) throw new Error("Discord sync webhook has no token");
+    return { url: `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true` };
   }
 
 }
