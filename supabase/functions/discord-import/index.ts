@@ -356,20 +356,13 @@ async function importDiscordServer(
 
         const importedMessages = discordMessagesByChannel.get(discordChannel.id) || [];
         for (const discordMessage of importedMessages.reverse()) {
-          const embedText = (discordMessage.embeds || [])
-            .map((embed: Record<string, any>) => [
-              embed.author?.name,
-              embed.title,
-              embed.description,
-              ...(embed.fields || []).map((field: Record<string, string>) => `${field.name}: ${field.value}`),
-              embed.url,
-              embed.image?.url,
-              embed.thumbnail?.url,
-              embed.footer?.text,
-            ].filter(Boolean).join("\n"))
-            .filter(Boolean)
-            .join("\n\n");
-          const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
+          const embeds = (discordMessage.embeds || []).filter((embed: Record<string, any>) =>
+            embed.title || embed.description || embed.fields?.length || embed.url || embed.image?.url || embed.thumbnail?.url
+          );
+          const messageContent = [
+            discordMessage.content,
+            embeds.length ? `\n[LLA_EMBEDS]${JSON.stringify(embeds)}` : "",
+          ].filter(Boolean).join("\n\n").trim();
           if (!messageContent) continue;
           const discordAuthor = discordMessage.author;
           const authorUsername = `discord-${discordAuthor?.id || "unknown"}`;

@@ -494,11 +494,13 @@ async function syncMessagesFromDiscord(serverId: string) {
           .eq("discord_message_id", discordMessage.id)
           .maybeSingle();
         if (existing) continue;
-        const embedText = (discordMessage.embeds || [])
-          .map(formatDiscordEmbed)
-          .filter(Boolean)
-          .join("\n\n");
-        const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
+        const embeds = (discordMessage.embeds || []).filter((embed: Record<string, any>) =>
+          embed.title || embed.description || embed.fields?.length || embed.url || embed.image?.url || embed.thumbnail?.url
+        );
+        const messageContent = [
+          discordMessage.content,
+          embeds.length ? `\n[LLA_EMBEDS]${JSON.stringify(embeds)}` : "",
+        ].filter(Boolean).join("\n\n").trim();
         if (!messageContent) continue;
 
         const username = `discord-${discordUser.id}`;
@@ -630,20 +632,6 @@ async function syncMessagesFromDiscord(serverId: string) {
       }
     }
     return jsonResponse({ success: true, imported });
-  }
-
-  function formatDiscordEmbed(embed: Record<string, any>) {
-    const parts = [
-      embed.author?.name,
-      embed.title,
-      embed.description,
-      ...(embed.fields || []).map((field: Record<string, string>) => `${field.name}: ${field.value}`),
-      embed.url,
-      embed.image?.url,
-      embed.thumbnail?.url,
-      embed.footer?.text,
-    ].filter(Boolean);
-    return parts.join("\n");
   }
 
   function jsonResponse(payload: Record<string, unknown>) {

@@ -1369,6 +1369,17 @@ function createMessageElement(msg) {
 
   // 1. Clean content for display (remove the internal marker if it exists)
   const cleanContent = msg.content.replaceAll(NO_EMBED_PHRASE, "");
+  const embedMatch = cleanContent.match(/\n?\[LLA_EMBEDS\]([\s\S]+)$/);
+  let discordEmbeds = [];
+  let visibleContent = cleanContent;
+  if (embedMatch) {
+    try {
+      discordEmbeds = JSON.parse(embedMatch[1]);
+      visibleContent = cleanContent.slice(0, embedMatch.index).trimEnd();
+    } catch (error) {
+      console.warn("Unable to parse Discord embed metadata:", error);
+    }
+  }
   const hasNoEmbed = msg.content.includes(NO_EMBED_PHRASE);
   const timestamp = msg.inserted_at ? new Date(msg.inserted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -1451,7 +1462,7 @@ function createMessageElement(msg) {
     }
   } else {
     // --- TEXT MESSAGE HANDLING ---
-    let formatted = formatMessageContent(cleanContent, msg.role);
+    let formatted = formatMessageContent(visibleContent, msg.role);
 
     // Force @ Mention Styling
     formatted = formatted.replace(/@([a-zA-Z0-9_]+)/g, (match, name) => {
@@ -1466,15 +1477,75 @@ function createMessageElement(msg) {
     }
 
     contentDiv.innerHTML = formatted;
+    discordEmbeds.forEach((embed) => contentDiv.appendChild(createDiscordEmbedElement(embed)));
 
     // Apply long message class
-    if (cleanContent.length > 1000) {
+    if (visibleContent.length > 1000) {
       contentDiv.classList.add("long-message");
     }
 
     // Emoji-only message styling
-    if (isEmojiOnlyMessage(cleanContent)) {
+    if (isEmojiOnlyMessage(visibleContent)) {
       contentDiv.classList.add("emoji-only-message");
+    }
+
+    function createDiscordEmbedElement(embed) {
+      const card = document.createElement("article");
+      card.className = "discord-embed";
+      if (embed.color) {
+        const color = Number(embed.color);
+        if (Number.isFinite(color)) card.style.borderLeftColor = `#${color.toString(16).padStart(6, "0")}`;
+      }
+      if (embed.author?.name) {
+        const author = document.createElement("div");
+        author.className = "discord-embed-author";
+        author.textContent = embed.author.name;
+        card.appendChild(author);
+      }
+      if (embed.title) {
+        const title = embed.url ? document.createElement("a") : document.createElement("div");
+        title.className = "discord-embed-title";
+        title.textContent = embed.title;
+        if (embed.url) {
+          title.href = getSafeUrl(embed.url) || "#";
+          title.target = "_blank";
+          title.rel = "noopener noreferrer";
+        }
+        card.appendChild(title);
+      }
+      if (embed.description) {
+        const description = document.createElement("div");
+        description.className = "discord-embed-description";
+        description.innerHTML = formatMessageContent(embed.description, "");
+        card.appendChild(description);
+      }
+      if (Array.isArray(embed.fields) && embed.fields.length) {
+        const fields = document.createElement("div");
+        fields.className = "discord-embed-fields";
+        embed.fields.forEach((field) => {
+          const item = document.createElement("div");
+          item.className = "discord-embed-field";
+          item.innerHTML = `<strong>${escapeHTML(field.name || "")}</strong><div>${formatMessageContent(field.value || "", "")}</div>`;
+          fields.appendChild(item);
+        });
+        card.appendChild(fields);
+      }
+      const imageUrl = getSafeUrl(embed.image?.url || embed.thumbnail?.url || "");
+      if (imageUrl) {
+        const image = document.createElement("img");
+        image.className = "discord-embed-image";
+        image.src = imageUrl;
+        image.alt = embed.title || "Discord embed";
+        image.loading = "lazy";
+        card.appendChild(image);
+      }
+      if (embed.footer?.text) {
+        const footer = document.createElement("div");
+        footer.className = "discord-embed-footer";
+        footer.textContent = embed.footer.text;
+        card.appendChild(footer);
+      }
+      return card;
     }
 
     // --- CRITICAL GIF & LINK HANDLING ---
@@ -3764,6 +3835,7 @@ function formatMessageContent(content, role) {
 
   // Render the Markdown subset used by Discord while keeping the content escaped.
   escaped = escaped
+    .replace(/^# ([^\n]+)$/gm, '<h2 class="discord-heading">$1</h2>')
     .replace(/`([^`\n]+)`/g, '<code class="discord-inline-code">$1</code>')
     .replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")

@@ -114,6 +114,66 @@
   color: inherit;
 }
 
+.discord-heading {
+  margin: 8px 0;
+  color: #fff;
+  font-size: 1.45em;
+  line-height: 1.2;
+}
+
+.discord-embed {
+  max-width: 520px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 4px solid #5865f2;
+  border-radius: 4px;
+  background: #2b2d31;
+}
+
+.discord-embed-author,
+.discord-embed-footer {
+  color: #b5bac1;
+  font-size: 12px;
+}
+
+.discord-embed-title {
+  display: block;
+  margin: 3px 0 6px;
+  color: #00a8fc;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.discord-embed-description {
+  color: #dbdee1;
+  line-height: 1.4;
+}
+
+.discord-embed-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.discord-embed-field {
+  color: #dbdee1;
+  font-size: 13px;
+}
+
+.discord-embed-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  margin-top: 10px;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+.discord-embed-footer {
+  margin-top: 10px;
+}
+
 /* Keep the visual language close to Discord's dense, opaque surfaces. */
 :root {
   --bg-main: #313338;
