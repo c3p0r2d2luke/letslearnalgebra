@@ -1072,13 +1072,14 @@ async function sendMessage(options = {}) {
             action: "sync_content_to_discord",
             channel_id: currentChannelId,
             content,
+            username,
           }),
         });
         if (!discordResponse.ok) {
           throw new Error(await discordResponse.text());
         }
         const localMessage = {
-          id: `discord-local-${Date.now()}`,
+          id: -Date.now(),
           username,
           content,
           channel_id: currentChannelId,

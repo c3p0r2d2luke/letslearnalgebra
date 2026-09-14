@@ -21,7 +21,7 @@ serve(async (req: Request) => {
     const { action, message_id, channel_id, server_id, webhook_url } = body;
 
     if (action === "sync_content_to_discord") {
-      return await syncContentToDiscord(body.channel_id, body.content);
+      return await syncContentToDiscord(body.channel_id, body.content, body.username);
     } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
@@ -43,7 +43,7 @@ serve(async (req: Request) => {
   }
 });
 
-async function syncContentToDiscord(channelId: string, content: string) {
+async function syncContentToDiscord(channelId: string, content: string, username: string) {
   const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
   if (!botToken || !content?.trim()) throw new Error("Discord sync is not configured");
   const { data: discordChannel, error } = await supabaseClient
@@ -59,6 +59,12 @@ async function syncContentToDiscord(channelId: string, content: string) {
     .from("discord_members")
     .select("discord_user_id, discord_username, member_id, server_members(username, profile_display_name)")
     .eq("discord_server_id", discordChannel.discord_server_id);
+  const { data: senderMember } = await supabaseClient
+    .from("server_members")
+    .select("profile_display_name, profile_avatar_url")
+    .eq("server_id", discordChannel.discord_servers?.server_id)
+    .eq("username", username)
+    .maybeSingle();
   const mentions: string[] = [];
   let discordContent = content;
   for (const member of members || []) {
@@ -98,7 +104,12 @@ async function syncContentToDiscord(channelId: string, content: string) {
   const response = await fetch(webhook.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: discordContent, allowed_mentions: { users: [...new Set(mentions)] } }),
+    body: JSON.stringify({
+      content: discordContent,
+      username: senderMember?.profile_display_name || username || "Unknown",
+      avatar_url: senderMember?.profile_avatar_url || undefined,
+      allowed_mentions: { users: [...new Set(mentions)] },
+    }),
   });
   if (!response.ok) throw new Error(`Discord API error: ${await response.text()}`);
   return jsonResponse({ success: true });
