@@ -634,7 +634,7 @@ async function loadMessages() {
   if (discordChannel?.discord_server_id) {
     const { data: discordProfiles } = await supabaseClient
       .from("discord_members")
-      .select("discord_user_id, member_id, server_members(username, profile_display_name, profile_avatar_url, primary_role_id)")
+      .select("discord_user_id, discord_username, member_id, server_members(username, profile_display_name, profile_avatar_url, primary_role_id, role)")
       .eq("discord_server_id", discordChannel.discord_server_id);
     (discordProfiles || []).forEach((profile) => {
       const member = Array.isArray(profile.server_members)
