@@ -36,6 +36,8 @@ var _categoryRealtimeSub = null;
 var _customEmojiRealtimeSub = null;
 var _serverMembersLoadPromise = null;
 var _memberReloadTimer = null;
+var _lastServerMembersLoadAt = 0;
+var _lastServerMembersLoadServerId = null;
 // Remember the last server before entering DM "server" view so we can restore it
 var previousServerIdBeforeDm = null;
 
@@ -617,7 +619,16 @@ function showNoServerScreen() {
 }
 
 async function loadServerMembers() {
+  if (
+    !_serverMembersLoadPromise &&
+    _lastServerMembersLoadServerId === currentServerId &&
+    Date.now() - _lastServerMembersLoadAt < 750
+  ) {
+    return;
+  }
   if (_serverMembersLoadPromise) return _serverMembersLoadPromise;
+  _lastServerMembersLoadServerId = currentServerId;
+  _lastServerMembersLoadAt = Date.now();
   _serverMembersLoadPromise = loadServerMembersInternal();
   try {
     return await _serverMembersLoadPromise;
@@ -698,6 +709,38 @@ async function loadServerMembersInternal() {
         </div>`;
       }
       return; 
+    }
+
+    const { data: linkedDiscordAccount } = await supabaseClient
+      .from("discord_accounts")
+      .select("discord_user_id")
+      .eq("username", username)
+      .maybeSingle();
+    const { data: mappedDiscordMember } = linkedDiscordAccount
+      ? await supabaseClient
+        .from("discord_servers")
+        .select("id")
+        .eq("server_id", currentServerId)
+        .maybeSingle()
+      : { data: null };
+    const { data: linkedDiscordMember } = mappedDiscordMember && linkedDiscordAccount
+      ? await supabaseClient
+        .from("discord_members")
+        .select("member_id")
+        .eq("discord_server_id", mappedDiscordMember.id)
+        .eq("discord_user_id", linkedDiscordAccount.discord_user_id)
+        .maybeSingle()
+      : { data: null };
+    if (linkedDiscordMember?.member_id) {
+      const linkedMember = members.find((member) => member.id === linkedDiscordMember.member_id);
+      if (linkedMember && linkedMember.username !== username) {
+        const duplicateIndex = members.findIndex((member) => member.username === username);
+        if (duplicateIndex >= 0) {
+          members.splice(members.indexOf(linkedMember), 1);
+        } else {
+          linkedMember.username = username;
+        }
+      }
     }
 
     const memberIds = (members || []).map(m => m.id).filter(Boolean);
