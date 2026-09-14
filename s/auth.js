@@ -1411,6 +1411,9 @@ function stopMemberRealtime() {
     try { memberRealtimeSubscription.unsubscribe(); } catch {}
     memberRealtimeSubscription = null;
   }
+  if (typeof _memberRealtimeServerId !== "undefined") {
+    _memberRealtimeServerId = null;
+  }
 }
 
 function setMemberListVisibility() {
@@ -1954,4 +1957,3 @@ if (memberSearchInput) {
 
 wireSearchToggle(messageSearchToggle, messageSearchInput);
 wireSearchToggle(memberSearchToggle, memberSearchInput);
-

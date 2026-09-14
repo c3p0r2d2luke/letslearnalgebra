@@ -38,6 +38,7 @@ var _serverMembersLoadPromise = null;
 var _memberReloadTimer = null;
 var _lastServerMembersLoadAt = 0;
 var _lastServerMembersLoadServerId = null;
+var _memberRealtimeServerId = null;
 // Remember the last server before entering DM "server" view so we can restore it
 var previousServerIdBeforeDm = null;
 
@@ -1102,6 +1103,10 @@ async function updateChannelPresence(channelId) {
 function subscribeToPresence() {
   console.log("🔔 subscribeToPresence called, currentServerId:", currentServerId);
 
+  if (memberRealtimeSubscription && _memberRealtimeServerId === currentServerId) {
+    console.log("🔔 Member realtime already active for:", currentServerId);
+    return;
+  }
   const expectedTopic = `realtime:members-realtime-${currentServerId}`;
   const existingChannel = typeof supabaseClient.getChannels === "function"
     ? supabaseClient.getChannels().find((channel) => channel.topic === expectedTopic)
@@ -1143,8 +1148,7 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_members changed, reloading member list");
-      clearTimeout(_memberReloadTimer);
-      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
+      scheduleMemberListReload();
     })
     .on("postgres_changes", {
       event: "*",
@@ -1153,8 +1157,7 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_member_roles changed, reloading member list");
-      clearTimeout(_memberReloadTimer);
-      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
+      scheduleMemberListReload();
     })
     .on("postgres_changes", {
       event: "*",
@@ -1163,12 +1166,20 @@ function subscribeToPresence() {
       filter: `server_id=eq.${currentServerId}`
     }, async () => {
       console.log("🔄 server_roles changed, reloading member list");
-      clearTimeout(_memberReloadTimer);
-      _memberReloadTimer = setTimeout(() => loadServerMembers(), 250);
+      scheduleMemberListReload();
     })
     .subscribe();
+  _memberRealtimeServerId = currentServerId;
 
   console.log("✅ Member realtime subscription set up!");
+}
+
+function scheduleMemberListReload() {
+  if (_memberReloadTimer) return;
+  _memberReloadTimer = setTimeout(async () => {
+    _memberReloadTimer = null;
+    await loadServerMembers();
+  }, 750);
 }
 
 async function generateInvite() {
