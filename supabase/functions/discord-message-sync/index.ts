@@ -25,7 +25,7 @@ serve(async (req: Request) => {
     } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
-      return jsonResponse({ success: true, imported: 0, persistence_disabled: true });
+      return await syncMessagesFromDiscord(server_id);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
@@ -59,12 +59,35 @@ async function syncContentToDiscord(channelId: string, content: string, username
     .from("discord_members")
     .select("discord_user_id, discord_username, member_id, server_members(username, profile_display_name)")
     .eq("discord_server_id", discordChannel.discord_server_id);
-  const { data: senderMember } = await supabaseClient
-    .from("server_members")
-    .select("profile_display_name, profile_avatar_url")
-    .eq("server_id", discordChannel.discord_servers?.server_id)
+  const { data: account } = await supabaseClient
+    .from("discord_accounts")
+    .select("discord_user_id")
     .eq("username", username)
     .maybeSingle();
+  const { data: discordMember } = account?.discord_user_id
+    ? await supabaseClient
+      .from("discord_members")
+      .select("member_id")
+      .eq("discord_server_id", discordChannel.discord_server_id)
+      .eq("discord_user_id", account.discord_user_id)
+      .maybeSingle()
+    : { data: null };
+  let { data: senderMember } = discordMember?.member_id
+    ? await supabaseClient
+      .from("server_members")
+      .select("profile_display_name, profile_avatar_url")
+      .eq("id", discordMember.member_id)
+      .maybeSingle()
+    : { data: null };
+  if (!senderMember) {
+    const fallback = await supabaseClient
+      .from("server_members")
+      .select("profile_display_name, profile_avatar_url")
+      .eq("server_id", discordChannel.discord_servers?.server_id)
+      .eq("username", username)
+      .maybeSingle();
+    senderMember = fallback.data;
+  }
   const mentions: string[] = [];
   let discordContent = content;
   for (const member of members || []) {
@@ -272,6 +295,7 @@ async function syncMessagesFromDiscord(serverId: string) {
     if (channelsError) throw channelsError;
 
     let imported = 0;
+    const llaWebhookIds = new Set<string>();
     for (const channel of channels || []) {
       const response = await fetch(
         `${DISCORD_API}/channels/${channel.discord_channel_id}/messages?limit=100`,
@@ -283,7 +307,20 @@ async function syncMessagesFromDiscord(serverId: string) {
       }
       const messages = await response.json();
       for (const discordMessage of [...messages].reverse()) {
-        if (discordMessage.webhook_id) continue;
+        if (discordMessage.webhook_id && llaWebhookIds.has(discordMessage.webhook_id)) continue;
+        if (discordMessage.webhook_id) {
+          const webhookResponse = await fetch(
+            `${DISCORD_API}/channels/${channel.discord_channel_id}/webhooks`,
+            { headers: { Authorization: `Bot ${botToken}` } },
+          );
+          if (webhookResponse.ok) {
+            const webhooks = await webhookResponse.json();
+            webhooks
+              .filter((webhook: Record<string, string>) => webhook.name === "LLA Chat Sync")
+              .forEach((webhook: Record<string, string>) => llaWebhookIds.add(webhook.id));
+          }
+          if (llaWebhookIds.has(discordMessage.webhook_id)) continue;
+        }
         const { data: existing } = await supabaseClient
           .from("discord_message_mapping")
           .select("id")
@@ -292,7 +329,7 @@ async function syncMessagesFromDiscord(serverId: string) {
           .maybeSingle();
         if (existing) continue;
         const embedText = (discordMessage.embeds || [])
-          .map((embed: Record<string, string>) => [embed.title, embed.description, embed.url].filter(Boolean).join("\n"))
+          .map(formatDiscordEmbed)
           .filter(Boolean)
           .join("\n\n");
         const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
@@ -333,6 +370,20 @@ async function syncMessagesFromDiscord(serverId: string) {
       }
     }
     return jsonResponse({ success: true, imported });
+  }
+
+  function formatDiscordEmbed(embed: Record<string, any>) {
+    const parts = [
+      embed.author?.name,
+      embed.title,
+      embed.description,
+      ...(embed.fields || []).map((field: Record<string, string>) => `${field.name}: ${field.value}`),
+      embed.url,
+      embed.image?.url,
+      embed.thumbnail?.url,
+      embed.footer?.text,
+    ].filter(Boolean);
+    return parts.join("\n");
   }
 
   function jsonResponse(payload: Record<string, unknown>) {

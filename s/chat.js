@@ -826,6 +826,9 @@ async function loadUserInternal() {
   initServerModals();
   await loadDirectConversations();
   await loadServers();
+  if (typeof syncMessagesFromDiscord === "function" && currentServerId) {
+    await syncMessagesFromDiscord();
+  }
   await checkInviteOnLoad();
 
   watchForceLogout(username);

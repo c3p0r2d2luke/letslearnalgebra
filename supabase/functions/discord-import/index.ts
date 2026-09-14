@@ -356,9 +356,17 @@ async function importDiscordServer(
 
         const importedMessages = discordMessagesByChannel.get(discordChannel.id) || [];
         for (const discordMessage of importedMessages.reverse()) {
-          if (discordMessage.webhook_id) continue;
           const embedText = (discordMessage.embeds || [])
-            .map((embed: Record<string, string>) => [embed.title, embed.description, embed.url].filter(Boolean).join("\n"))
+            .map((embed: Record<string, any>) => [
+              embed.author?.name,
+              embed.title,
+              embed.description,
+              ...(embed.fields || []).map((field: Record<string, string>) => `${field.name}: ${field.value}`),
+              embed.url,
+              embed.image?.url,
+              embed.thumbnail?.url,
+              embed.footer?.text,
+            ].filter(Boolean).join("\n"))
             .filter(Boolean)
             .join("\n\n");
           const messageContent = [discordMessage.content, embedText].filter(Boolean).join("\n\n").trim();
@@ -412,15 +420,26 @@ async function importDiscordServer(
         if (discordMember.user?.bot) continue;
         const isImportingUser = linkedDiscordAccount?.discord_user_id === discordMember.user?.id;
         const displayName = discordMember.nick || discordMember.user?.global_name || discordMember.user?.username;
-        const avatarUrl = discordMember.user?.avatar
+        const avatarUrl = discordMember.avatar
+          ? `https://cdn.discordapp.com/guilds/${discordGuildId}/users/${discordMember.user.id}/avatars/${discordMember.avatar}.png`
+          : discordMember.user?.avatar
           ? `https://cdn.discordapp.com/avatars/${discordMember.user.id}/${discordMember.user.avatar}.png`
           : null;
 
         if (isImportingUser) {
-          await supabaseClient.from("server_members").update({
+          const { data: linkedMember } = await supabaseClient.from("server_members").update({
             profile_display_name: displayName || username,
             profile_avatar_url: avatarUrl,
-          }).eq("server_id", nativeServer.id).eq("username", username);
+          }).eq("server_id", nativeServer.id).eq("username", username).select("id").maybeSingle();
+          if (linkedMember) {
+            await supabaseClient.from("discord_members").upsert({
+              discord_server_id: discordServer.id,
+              member_id: linkedMember.id,
+              discord_user_id: discordMember.user.id,
+              discord_username: discordMember.user.username,
+              discord_roles: discordMember.roles || [],
+            }, { onConflict: "member_id,discord_user_id" });
+          }
           continue;
         }
 

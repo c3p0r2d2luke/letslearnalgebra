@@ -560,6 +560,11 @@ async function syncMessagesFromDiscord() {
     });
     if (!response.ok) {
       console.error("Failed to receive Discord messages:", await response.text());
+      return;
+    }
+    const result = await response.json();
+    if (result.imported > 0 && typeof loadMessages === "function") {
+      await loadMessages();
     }
   } catch (error) {
     console.error("Error receiving Discord messages:", error);
