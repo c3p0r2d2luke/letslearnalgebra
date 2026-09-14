@@ -454,16 +454,27 @@ async function syncMessagesFromDiscord(serverId: string) {
       llaBotUserId = botIdentity.id || null;
     }
     for (const channel of channels || []) {
-      const response = await fetch(
-        `${DISCORD_API}/channels/${channel.discord_channel_id}/messages?limit=100`,
-        { headers: { Authorization: `Bot ${botToken}` } },
-      );
-      if (!response.ok) {
-        console.warn("[DISCORD-SYNC] Cannot read channel", channel.discord_channel_id, response.status);
-        continue;
+      const channelMessages: Record<string, any>[] = [];
+      let before: string | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const query = new URLSearchParams({ limit: "100" });
+        if (before) query.set("before", before);
+        const response = await fetch(
+          `${DISCORD_API}/channels/${channel.discord_channel_id}/messages?${query.toString()}`,
+          { headers: { Authorization: `Bot ${botToken}` } },
+        );
+        if (!response.ok) {
+          console.warn("[DISCORD-SYNC] Cannot read channel", channel.discord_channel_id, response.status);
+          break;
+        }
+        const pageMessages = await response.json();
+        if (!Array.isArray(pageMessages) || pageMessages.length === 0) break;
+        channelMessages.push(...pageMessages);
+        if (pageMessages.length < 100) break;
+        before = pageMessages[pageMessages.length - 1]?.id || null;
+        if (!before) break;
       }
-      const messages = await response.json();
-      for (const discordMessage of [...messages].reverse()) {
+      for (const discordMessage of [...channelMessages].reverse()) {
         const discordUser = discordMessage.author;
         if (llaBotUserId && discordUser?.id === llaBotUserId) continue;
         await ensureDiscordMember(discordServer.id, serverId, discordUser);

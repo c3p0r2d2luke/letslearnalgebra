@@ -176,7 +176,7 @@ async function handleDiscordOAuthCallback(code, usernameParam) {
       throw new Error("Discord OAuth exchange failed: " + errorText);
     }
 
-    await response.json();
+    const result = await response.json();
     console.log("[DISCORD] OAuth exchange successful:", result);
 
     // Clean up URL query parameters
@@ -567,7 +567,10 @@ async function syncMessagesFromDiscord() {
       console.error("Failed to receive Discord messages:", await response.text());
       return;
     }
-    await response.json();
+    const result = await response.json();
+    if (result.imported > 0) {
+      console.info(`[DISCORD] Imported ${result.imported} new message(s)`);
+    }
     // The active channel is already subscribed to Supabase realtime. Imported
     // rows arrive through that subscription; avoid clearing the rendered list
     // with a second full history load.
