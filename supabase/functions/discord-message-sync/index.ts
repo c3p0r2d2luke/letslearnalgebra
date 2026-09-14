@@ -75,21 +75,6 @@ serve(async (req: Request) => {
       if (webhookId && webhookToken) {
         mutationUrl = `${DISCORD_API}/webhooks/${webhookId}/${webhookToken}/messages/${mapping.discord_message_id}`;
       }
-      if (!webhookId || !webhookToken) {
-        const webhooksResponse = await fetch(
-          `${DISCORD_API}/channels/${mapping.discord_channel_id}/webhooks`,
-          { headers: { Authorization: `Bot ${botToken}` } },
-        );
-        if (webhooksResponse.ok) {
-          const webhooks = await webhooksResponse.json();
-          const syncWebhook = webhooks.find((item: Record<string, string>) => item.name === "LLA Chat Sync" && item.token);
-          webhookId = syncWebhook?.id;
-          webhookToken = syncWebhook?.token;
-        }
-      }
-      if (webhookId && webhookToken) {
-        mutationUrl = `${DISCORD_API}/webhooks/${webhookId}/${webhookToken}/messages/${mapping.discord_message_id}`;
-      }
       const response = await fetch(mutationUrl, {
         method: action === "delete" ? "DELETE" : "PATCH",
         headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
@@ -504,6 +489,23 @@ async function syncMessagesFromDiscord(serverId: string) {
         if (!messageContent) continue;
 
         const username = `discord-${discordUser.id}`;
+        const { data: sameMessage } = await supabaseClient
+          .from("messages")
+          .select("id")
+          .eq("channel_id", channel.channel_id)
+          .eq("username", username)
+          .eq("inserted_at", discordMessage.timestamp)
+          .eq("content", messageContent)
+          .maybeSingle();
+        if (sameMessage) {
+          await supabaseClient.from("discord_message_mapping").upsert({
+            discord_server_id: discordServer.id,
+            discord_channel_id: channel.discord_channel_id,
+            chat_message_id: sameMessage.id,
+            discord_message_id: discordMessage.id,
+          }, { onConflict: "chat_message_id,discord_message_id" });
+          continue;
+        }
         const avatarUrl = discordUser.avatar
           ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
           : null;

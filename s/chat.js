@@ -1646,15 +1646,16 @@ async function handleRealtimeMessage(newMsg, eventType) {
   if (newMsg.channel_id !== currentChannelId) return;
 
   if (eventType === "INSERT") {
-    if (messagesMap.has(newMsg.id) || messagesMap.has(Number(newMsg.id))) return;
+    const messageKey = Number(newMsg.id);
+    if (messagesMap.has(newMsg.id) || messagesMap.has(messageKey)) return;
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(newMsg.id, newMsg);
+    messageDataMap.set(messageKey, newMsg);
     renderMessage(newMsg);
 
     // Update the checkpoint immediately so we don't count this message as unread later
     // We pass the new message ID so the "read" state moves forward
-    if (currentServerId) {
-      setServerCheckpoint(currentServerId, newMsg.id);
+    if (currentServerId && Number.isFinite(messageKey)) {
+      setServerCheckpoint(currentServerId, messageKey);
     }
 
     setTimeout(() => {
