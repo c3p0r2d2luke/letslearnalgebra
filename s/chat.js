@@ -637,11 +637,13 @@ async function loadMessages() {
       .select("discord_user_id, member_id, server_members(username, profile_display_name, profile_avatar_url, primary_role_id)")
       .eq("discord_server_id", discordChannel.discord_server_id);
     (discordProfiles || []).forEach((profile) => {
-      const member = profile.server_members;
+      const member = Array.isArray(profile.server_members)
+        ? profile.server_members[0]
+        : profile.server_members;
       if (!member) return;
       const profileUsername = `discord-${profile.discord_user_id}`;
       setServerProfileData(currentServerId, profileUsername, {
-        display_name: member.profile_display_name || profileUsername,
+        display_name: member.profile_display_name || profile.discord_username || profileUsername,
         avatar_url: member.profile_avatar_url || "",
         role: member.role || "",
         role_color: ""
