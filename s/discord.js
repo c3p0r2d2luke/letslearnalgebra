@@ -473,8 +473,9 @@ async function importSelectedDiscordGuilds() {
 
     const importedSummary = results.map((result) => {
       const imported = result.imported || {};
+      const diagnostics = result.diagnostics || {};
       const warnings = result.warnings?.length ? `\n  Warnings: ${result.warnings.join(" ")}` : "";
-      return `\n${imported.channels || 0} channels, ${imported.roles || 0} roles, ${imported.members || 0} members.${warnings}`;
+      return `\n${imported.categories || 0} categories, ${imported.channels || 0} channels, ${imported.roles || 0} roles, ${imported.members || 0} members, ${imported.messages || 0} messages. API: channels ${diagnostics.channels_status ?? "?"}, roles ${diagnostics.roles_status ?? "?"}, members ${diagnostics.members_status ?? "?"}.${warnings}`;
     }).join("");
     const failureMessage = failures.length ? `\n\nFailed:\n${failures.join("\n")}` : "";
     alert(`✅ Imported ${results.length} Discord server(s) successfully.${importedSummary}${failureMessage}`);
@@ -531,7 +532,7 @@ async function syncMessageToDiscord(messageId, channelId) {
     });
 
     if (!response.ok) {
-      console.error("Failed to sync message to Discord");
+      console.error("Failed to sync message to Discord:", await response.text());
     }
   } catch (error) {
     console.error("Error syncing message to Discord:", error);

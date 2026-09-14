@@ -6,29 +6,39 @@ const DISCORD_API = "https://discord.com/api/v10";
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabaseClient = createClient(supabaseUrl, supabaseKey);
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { action, message_id, channel_id, server_id, webhook_url, bot_token } = await req.json();
+    const { action, message_id, channel_id, server_id, webhook_url } = await req.json();
 
     if (action === "sync_to_discord") {
-      return await syncMessageToDiscord(message_id, channel_id, webhook_url, bot_token);
+      return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
 
-    return new Response(JSON.stringify({ error: "Invalid action" }), { status: 400 });
+    return new Response(JSON.stringify({ error: "Invalid action" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error(error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
 
-async function syncMessageToDiscord(messageId: string, channelId: string, webhookUrl: string, botToken: string) {
+async function syncMessageToDiscord(messageId: string, channelId: string, webhookUrl?: string) {
   try {
     // Fetch message from DB
     const { data: message, error: messageError } = await supabaseClient
@@ -52,10 +62,12 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     let sendUrl = webhookUrl;
     let headers: any = { "Content-Type": "application/json" };
 
+    const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     if (!webhookUrl && botToken) {
       sendUrl = `${DISCORD_API}/channels/${discordChannel.discord_channel_id}/messages`;
       headers["Authorization"] = `Bot ${botToken}`;
     }
+    if (!sendUrl) throw new Error("No Discord webhook or bot token is configured");
 
     const payload = {
       content: message.content,
@@ -79,7 +91,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     await supabaseClient
       .from("discord_message_mapping")
       .insert({
-        message_id: parseInt(messageId),
+        chat_message_id: parseInt(messageId),
         discord_message_id: discordMessage.id,
         discord_server_id: discordChannel.discord_server_id,
         discord_channel_id: discordChannel.discord_channel_id,
@@ -87,7 +99,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       });
 
     return new Response(JSON.stringify({ success: true, discord_message_id: discordMessage.id }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error(error);
