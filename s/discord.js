@@ -518,6 +518,13 @@ async function isChannelSyncedToDiscord(channelId) {
 // Sync a message to Discord
 async function syncMessageToDiscord(messageId, channelId) {
   try {
+    const { data: existingMapping } = await supabaseClient
+      .from("discord_message_mapping")
+      .select("id")
+      .eq("chat_message_id", messageId)
+      .maybeSingle();
+    if (existingMapping) return;
+
     const syncInfo = await isChannelSyncedToDiscord(channelId);
     if (!syncInfo) return; // Channel not synced
 

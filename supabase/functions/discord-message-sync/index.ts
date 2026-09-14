@@ -54,7 +54,7 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     // Fetch Discord channel mapping
     const { data: discordChannel, error: channelError } = await supabaseClient
       .from("discord_channels")
-      .select("discord_channel_id, discord_server_id, discord_servers(sync_direction, discord_guild_id, discord_guild_name)")
+      .select("discord_channel_id, discord_server_id, discord_servers(sync_direction, discord_guild_id, discord_guild_name, server_id)")
       .eq("channel_id", channelId)
       .single();
 
@@ -66,6 +66,12 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
     const { data: discordAccount } = await supabaseClient
       .from("discord_accounts")
       .select("discord_username, discord_user_id, access_token")
+      .eq("username", message.username)
+      .maybeSingle();
+    const { data: serverMember } = await supabaseClient
+      .from("server_members")
+      .select("profile_display_name, profile_avatar_url")
+      .eq("server_id", discordChannel.discord_servers.server_id)
       .eq("username", message.username)
       .maybeSingle();
     let discordAvatarUrl: string | undefined;
@@ -89,8 +95,8 @@ async function syncMessageToDiscord(messageId: string, channelId: string, webhoo
       sendUrl = webhook.url;
       payload = {
         content: message.content,
-        username: discordAccount?.discord_username || message.users?.display_name || message.users?.username || "Unknown",
-        avatar_url: discordAvatarUrl,
+        username: serverMember?.profile_display_name || discordAccount?.discord_username || message.users?.username || "Unknown",
+        avatar_url: serverMember?.profile_avatar_url || discordAvatarUrl,
         allowed_mentions: { parse: [] },
       };
     }

@@ -57,6 +57,11 @@ async function importDiscordServer(
     console.log("[DISCORD-IMPORT] Sync direction:", syncDirection);
 
     let accessToken = accessTokenInput;
+    const { data: linkedDiscordAccount } = await supabaseClient
+      .from("discord_accounts")
+      .select("discord_user_id")
+      .eq("username", username)
+      .maybeSingle();
 
     // Look up user's discord account to ensure we have the latest tokens
     if (username) {
@@ -405,16 +410,25 @@ async function importDiscordServer(
     if (Array.isArray(discordMembers)) {
       for (const discordMember of discordMembers) {
         if (discordMember.user?.bot) continue;
+        const isImportingUser = linkedDiscordAccount?.discord_user_id === discordMember.user?.id;
+        const displayName = discordMember.nick || discordMember.user?.global_name || discordMember.user?.username;
+        const avatarUrl = discordMember.user?.avatar
+          ? `https://cdn.discordapp.com/avatars/${discordMember.user.id}/${discordMember.user.avatar}.png`
+          : null;
+
+        if (isImportingUser) {
+          await supabaseClient.from("server_members").update({
+            profile_display_name: displayName || username,
+            profile_avatar_url: avatarUrl,
+          }).eq("server_id", nativeServer.id).eq("username", username);
+          continue;
+        }
 
         // Skip adding owner again if already added
         const memberUsername = discordMember.user?.username;
         if (memberUsername && memberUsername === username) continue;
 
         const placeholderUsername = `discord-${discordMember.user?.id || Date.now()}`;
-        const avatarUrl = discordMember.user?.avatar
-          ? `https://cdn.discordapp.com/avatars/${discordMember.user.id}/${discordMember.user.avatar}.png`
-          : null;
-        const displayName = discordMember.nick || discordMember.user?.global_name || discordMember.user?.username;
         await supabaseClient.from("users").upsert({
           username: placeholderUsername,
           display_name: displayName || placeholderUsername,
