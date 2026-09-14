@@ -724,9 +724,9 @@ async function loadMessages() {
     const existing = messagesMap.get(msg.id) || messagesMap.get(Number(msg.id));
     if (existing) existing.remove();
     const li = createMessageElement(msg);
-    messagesMap.set(msg.id, li);
-    messagesMap.set(Number(msg.id), li);
-    messageDataMap.set(msg.id, msg);
+    const messageKey = Number(msg.id);
+    messagesMap.set(messageKey, li);
+    messageDataMap.set(messageKey, msg);
     fragment.appendChild(li);
   });
   messagesList.appendChild(fragment);
@@ -758,7 +758,6 @@ async function reconcileCurrentChannelMessages() {
   await loadAvatarMapForUsernames(missing.map((message) => message.username));
   missing.forEach((message) => {
     renderMessage(message);
-    messageDataMap.set(Number(message.id), message);
   });
   console.info(`[SYNC] Reconciled ${missing.length} message(s) missed by realtime`);
 }
@@ -1406,24 +1405,25 @@ async function buildLinkPreview(url) {
 
 // ------------------------ Render Message ------------------------
 function renderMessage(msg) {
+  const normalizedId = Number(msg.id);
   const li = createMessageElement(msg);
-  const existingLi = messagesMap.get(msg.id) || messagesMap.get(Number(msg.id));
+  const existingLi = messagesMap.get(normalizedId) || messagesMap.get(msg.id);
 
   if (existingLi) {
     existingLi.replaceWith(li);
   } else if (msg.reply_to) {
-    const parentLi = messagesMap.get(msg.reply_to);
+    const parentLi = messagesMap.get(Number(msg.reply_to)) || messagesMap.get(msg.reply_to);
     if (parentLi && parentLi.parentNode === messagesList) {
       parentLi.insertAdjacentElement("afterend", li);
     } else {
-      messagesList.appendChild(li);
+      insertMessageInOrder(li, msg);
     }
   } else {
-    messagesList.appendChild(li);
+    insertMessageInOrder(li, msg);
   }
 
-  messagesMap.set(msg.id, li);
-  messageDataMap.set(msg.id, msg);
+  messagesMap.set(normalizedId, li);
+  messageDataMap.set(normalizedId, msg);
   applyMessageSearchFilter();
 
   // Only auto-scroll if user is already near bottom
@@ -1435,9 +1435,21 @@ function renderMessage(msg) {
 
 }
 
+function insertMessageInOrder(li, msg) {
+  const timestamp = new Date(msg.inserted_at || 0).getTime();
+  const rows = [...messagesList.querySelectorAll("li[data-message-id]")];
+  const next = rows.find((row) => {
+    const existing = messageDataMap.get(Number(row.dataset.messageId));
+    return existing && new Date(existing.inserted_at || 0).getTime() > timestamp;
+  });
+  if (next) next.before(li);
+  else messagesList.appendChild(li);
+}
+
 function createMessageElement(msg) {
   const li = document.createElement("li");
   li.dataset.id = msg.id;
+  li.dataset.messageId = String(msg.id);
   li.dataset.user = msg.username;
 
   const row = document.createElement("div");
@@ -1591,7 +1603,16 @@ function createMessageElement(msg) {
       if (embed.author?.name) {
         const author = document.createElement("div");
         author.className = "discord-embed-author";
-        author.textContent = embed.author.name;
+        if (embed.author.icon_url) {
+          const icon = document.createElement("img");
+          icon.src = getSafeUrl(embed.author.icon_url) || "";
+          icon.alt = "";
+          icon.loading = "lazy";
+          author.appendChild(icon);
+        }
+        const authorName = document.createElement("span");
+        authorName.textContent = embed.author.name;
+        author.appendChild(authorName);
         card.appendChild(author);
       }
       if (embed.title) {
@@ -1622,7 +1643,16 @@ function createMessageElement(msg) {
         });
         card.appendChild(fields);
       }
-      const imageUrl = getSafeUrl(embed.image?.url || embed.thumbnail?.url || "");
+      const thumbnailUrl = getSafeUrl(embed.thumbnail?.url || "");
+      if (thumbnailUrl) {
+        const thumbnail = document.createElement("img");
+        thumbnail.className = "discord-embed-thumbnail";
+        thumbnail.src = thumbnailUrl;
+        thumbnail.alt = "";
+        thumbnail.loading = "lazy";
+        card.appendChild(thumbnail);
+      }
+      const imageUrl = getSafeUrl(embed.image?.url || "");
       if (imageUrl) {
         const image = document.createElement("img");
         image.className = "discord-embed-image";
@@ -1772,7 +1802,7 @@ async function handleRealtimeMessage(newMsg, eventType) {
 
   else if (eventType === "UPDATE") {
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(newMsg.id, newMsg);
+    messageDataMap.set(Number(newMsg.id), newMsg);
     renderMessage(newMsg);
     if (messageMentionsUser(newMsg.content, username)) {
       showMentionToast(newMsg);
@@ -1790,11 +1820,13 @@ async function handleRealtimeMessage(newMsg, eventType) {
   }
 
   else if (eventType === "DELETE") {
-    messageDataMap.delete(newMsg.id);
+    const messageKey = Number(newMsg.id);
+    messageDataMap.delete(messageKey);
 
-    const li = messagesMap.get(newMsg.id);
+    const li = messagesMap.get(messageKey) || messagesMap.get(newMsg.id);
     if (li) {
       li.remove();
+      messagesMap.delete(messageKey);
       messagesMap.delete(newMsg.id);
     }
     applyMessageSearchFilter();

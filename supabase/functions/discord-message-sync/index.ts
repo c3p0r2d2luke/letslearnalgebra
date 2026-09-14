@@ -478,6 +478,30 @@ async function syncMessagesFromDiscord(serverId: string, requestedChannelId?: st
         before = pageMessages[pageMessages.length - 1]?.id || null;
         if (!before) break;
       }
+      if (requestedChannelId && channelMessages.length) {
+        const discordIds = new Set(channelMessages.map((message) => message.id));
+        const oldestTimestamp = channelMessages[channelMessages.length - 1]?.timestamp;
+        if (oldestTimestamp) {
+          const { data: recentLlaMessages } = await supabaseClient
+            .from("messages")
+            .select("id, inserted_at")
+            .eq("channel_id", channel.channel_id)
+            .gte("inserted_at", oldestTimestamp);
+          const recentIds = (recentLlaMessages || []).map((message) => message.id);
+          if (recentIds.length) {
+            const { data: mappings } = await supabaseClient
+              .from("discord_message_mapping")
+              .select("chat_message_id, discord_message_id")
+              .in("chat_message_id", recentIds);
+            const staleIds = (mappings || [])
+              .filter((mapping) => !discordIds.has(mapping.discord_message_id))
+              .map((mapping) => mapping.chat_message_id);
+            if (staleIds.length) {
+              await supabaseClient.from("messages").delete().in("id", staleIds);
+            }
+          }
+        }
+      }
       for (const discordMessage of [...channelMessages].reverse()) {
         const discordUser = discordMessage.author;
         if (llaBotUserId && discordUser?.id === llaBotUserId) continue;

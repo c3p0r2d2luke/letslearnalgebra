@@ -136,6 +136,21 @@
   font-size: 12px;
 }
 
+.discord-embed-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.discord-embed-author img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .discord-embed-title {
   display: block;
   margin: 3px 0 6px;
@@ -168,6 +183,15 @@
   margin-top: 10px;
   border-radius: 3px;
   object-fit: contain;
+}
+
+.discord-embed-thumbnail {
+  float: right;
+  width: 80px;
+  height: 80px;
+  margin: 0 0 8px 12px;
+  border-radius: 3px;
+  object-fit: cover;
 }
 
 .discord-embed-footer {
