@@ -131,6 +131,23 @@ async function importDiscordServer(
     }
     console.log("[DISCORD-IMPORT] Guild fetched:", guild.name);
 
+    const { data: existingDiscordServers, error: existingServerError } = await supabaseClient
+      .from("discord_servers")
+      .select("id, server_id")
+      .eq("discord_guild_id", discordGuildId)
+      .limit(1);
+    if (existingServerError) throw existingServerError;
+    if (existingDiscordServers?.[0]) {
+      return new Response(JSON.stringify({
+        success: true,
+        already_imported: true,
+        server_id: existingDiscordServers[0].server_id,
+        discord_server_id: existingDiscordServers[0].id,
+        imported: { channels: 0, roles: 0, members: 0, messages: 0, categories: 0 },
+        warnings: ["This Discord server is already imported; no duplicate data was created."],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Fetch channels using User Token (or Bot Token fallback if bot token exists)
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     const diagnostics = {
@@ -182,7 +199,6 @@ async function importDiscordServer(
     }
     console.log("[DISCORD-IMPORT] Fetched", discordChannels.length, "channels");
 
-    /*
     // Fetch roles
     console.log("[DISCORD-IMPORT] Fetching roles...");
     let rolesResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/roles`, {
@@ -201,6 +217,7 @@ async function importDiscordServer(
     }
     console.log("[DISCORD-IMPORT] Fetched", discordRoles.length, "roles");
 
+    /*
     // Fetch members
     console.log("[DISCORD-IMPORT] Fetching members...");
     let membersResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/members?limit=1000`, {
@@ -239,9 +256,8 @@ async function importDiscordServer(
     }
 
     */
-    // Discord owns roles, members, and message history. Keep those out of
-    // Supabase; the sync endpoint imports only new messages on demand.
-    const discordRoles: Record<string, any>[] = [];
+    // Discord owns members and message history. Keep those out of Supabase;
+    // the sync endpoint imports only new messages on demand.
     const discordMembers: Record<string, any>[] = [];
     const discordMessagesByChannel = new Map<string, Record<string, any>[]>();
 
@@ -564,9 +580,6 @@ async function importDiscordServer(
         warnings: [
           ...(!botToken ? ["Set DISCORD_BOT_TOKEN and invite the bot to this server to import channels, roles, and members."] : []),
           ...(discordChannels.length === 0 ? ["No Discord channels were imported."] : []),
-          ...(discordRoles.length === 0 ? ["No Discord roles were imported."] : []),
-          ...(discordMembers.length === 0 ? ["No Discord members were imported."] : []),
-          ...(discordMessagesByChannel.size === 0 ? ["No Discord message history was imported."] : []),
         ],
         diagnostics,
       }),
