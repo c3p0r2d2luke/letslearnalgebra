@@ -40,7 +40,7 @@ serve(async (req: Request) => {
       }
       const { data: importers, error: importerError } = await supabaseClient
         .from("users")
-        .select("username, sys_admin")
+        .select("username")
         .eq("auth_id", authData.user.id)
         .limit(1);
       if (importerError) {
@@ -51,8 +51,8 @@ serve(async (req: Request) => {
         });
       }
       const importer = importers?.[0];
-      if (!importer?.sys_admin) {
-        return new Response(JSON.stringify({ error: "Only SysAdmins can import Discord servers." }), {
+      if (!importer?.username) {
+        return new Response(JSON.stringify({ error: "No LLA user profile is linked to this account." }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

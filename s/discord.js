@@ -335,10 +335,6 @@ async function fetchDiscordGuilds() {
 
 // Show Discord import dialog in Add Server modal
 function showDiscordImportUI() {
-  if (currentSystemRole !== "SysAdmin") {
-    alert("❌ Only SysAdmins can import Discord servers.");
-    return;
-  }
   if (typeof openModal === "function") {
     openModal("importDiscordModal");
     loadDiscordImportGuilds();
@@ -347,7 +343,6 @@ function showDiscordImportUI() {
 
 // Load and display Discord guilds in modal
 async function loadDiscordImportGuilds() {
-  if (currentSystemRole !== "SysAdmin") return;
   const guildsList = document.getElementById("discordGuildsList");
   if (!guildsList) return;
 
@@ -422,15 +417,17 @@ function selectDiscordGuild(guildId) {
 // Import all selected Discord guilds
 async function importSelectedDiscordGuilds() {
   console.log("[DISCORD] Import button clicked");
-  if (currentSystemRole !== "SysAdmin") {
-    alert("❌ Only SysAdmins can import Discord servers.");
-    return;
-  }
   const selected = [...document.querySelectorAll('input[name="discord-guild"]:checked')];
   if (selected.length === 0) {
     alert("❌ Please select at least one Discord server to import");
     return;
   }
+
+  const shouldImport = window.confirm(
+    "⚠️ Before importing, make sure the \"LLA Chat Bot\" bot is already in every selected Discord server. " +
+    "If it is not there, the import will not work. Continue?"
+  );
+  if (!shouldImport) return;
 
   const username = localStorage.getItem("chatUsername") || window.chatUsername;
   const currentAcc = discordAccount || window.discordAccount;

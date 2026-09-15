@@ -271,7 +271,7 @@ async function loadServers() {
     const isSysManager = currentSystemRole === "SysManager";
     const discordImportButton = document.getElementById("goDiscordImport");
     if (discordImportButton) {
-      discordImportButton.style.display = isSysAdmin ? "" : "none";
+      discordImportButton.style.display = "";
     }
 
     if (isSysAdmin) {
@@ -1372,13 +1372,9 @@ if (addBtn) {
 
   const goDiscordImport = document.getElementById("goDiscordImport");
   if (goDiscordImport) {
-    goDiscordImport.style.display = currentSystemRole === "SysAdmin" ? "" : "none";
+    goDiscordImport.style.display = "";
   }
   if (goDiscordImport) goDiscordImport.addEventListener("click", async () => {
-    if (currentSystemRole !== "SysAdmin") {
-      alert("❌ Only SysAdmins can import Discord servers.");
-      return;
-    }
     closeModal("serverModal");
     if (typeof openModal === "function") {
       openModal("importDiscordModal");
