@@ -217,7 +217,6 @@ async function importDiscordServer(
     }
     console.log("[DISCORD-IMPORT] Fetched", discordRoles.length, "roles");
 
-    /*
     // Fetch members
     console.log("[DISCORD-IMPORT] Fetching members...");
     let membersResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/members?limit=1000`, {
@@ -254,12 +253,6 @@ async function importDiscordServer(
         }
       }
     }
-
-    */
-    // Discord owns members and message history. Keep those out of Supabase;
-    // the sync endpoint imports only new messages on demand.
-    const discordMembers: Record<string, any>[] = [];
-    const discordMessagesByChannel = new Map<string, Record<string, any>[]>();
 
     // Create native server in database
     console.log("[DISCORD-IMPORT] Creating native server in database...");
