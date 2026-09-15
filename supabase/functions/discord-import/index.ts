@@ -38,11 +38,11 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const { data: importer, error: importerError } = await supabaseClient
+      const { data: importers, error: importerError } = await supabaseClient
         .from("users")
         .select("username, sys_admin")
         .eq("auth_id", authData.user.id)
-        .maybeSingle();
+        .limit(1);
       if (importerError) {
         console.error("[DISCORD-IMPORT] Failed to load authenticated user:", importerError);
         return new Response(JSON.stringify({ error: "Unable to verify the authenticated user." }), {
@@ -50,6 +50,7 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      const importer = importers?.[0];
       if (!importer?.sys_admin) {
         return new Response(JSON.stringify({ error: "Only SysAdmins can import Discord servers." }), {
           status: 403,
