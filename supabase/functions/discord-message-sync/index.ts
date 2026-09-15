@@ -474,12 +474,15 @@ async function syncMessagesFromDiscord(serverId: string, requestedChannelId?: st
     const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
     if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
 
-    const { data: discordServer, error: serverError } = await supabaseClient
+    const { data: discordServers, error: serverError } = await supabaseClient
       .from("discord_servers")
       .select("id, sync_direction")
       .eq("server_id", serverId)
-      .single();
+      .order("id", { ascending: true })
+      .limit(1);
     if (serverError) throw serverError;
+    const discordServer = discordServers?.[0];
+    if (!discordServer) throw new Error("Discord server mapping not found");
     if (discordServer.sync_direction === "outgoing_only") {
       return jsonResponse({ success: true, imported: 0 });
     }
@@ -641,22 +644,28 @@ async function receiveDiscordMessage(req: Request) {
       const { guild_id, channel_id, author, content, id } = payload.data;
 
       // Find corresponding Discord server and channel
-      const { data: discordServer, error: serverError } = await supabaseClient
+      const { data: discordServers, error: serverError } = await supabaseClient
         .from("discord_servers")
         .select("id, server_id")
         .eq("discord_guild_id", guild_id)
-        .single();
+      .order("id", { ascending: true })
+      .limit(1);
 
       if (serverError) return new Response("Server not synced", { status: 404 });
+      const discordServer = discordServers?.[0];
+      if (!discordServer) return new Response("Server not synced", { status: 404 });
 
-      const { data: discordChannel, error: channelError } = await supabaseClient
-        .from("discord_channels")
-        .select("channel_id")
-        .eq("discord_channel_id", channel_id)
-        .eq("discord_server_id", discordServer.id)
-        .single();
+      const { data: discordChannels, error: channelError } = await supabaseClient
+      .from("discord_channels")
+      .select("channel_id")
+      .eq("discord_channel_id", channel_id)
+      .eq("discord_server_id", discordServer.id)
+      .order("channel_id", { ascending: true })
+      .limit(1);
 
       if (channelError) return new Response("Channel not synced", { status: 404 });
+      const discordChannel = discordChannels?.[0];
+      if (!discordChannel) return new Response("Channel not synced", { status: 404 });
 
       const username = `discord-${author.id || author.username || "unknown"}`;
 
