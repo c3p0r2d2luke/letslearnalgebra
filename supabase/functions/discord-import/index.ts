@@ -24,6 +24,31 @@ serve(async (req: Request) => {
     const { action, discord_guild_id, discord_guild, access_token, username, sync_direction } = body;
 
     if (action === "import_server") {
+      const authToken = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+      if (!authToken) {
+        return new Response(JSON.stringify({ error: "Authentication is required." }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: authData, error: authError } = await supabaseClient.auth.getUser(authToken);
+      if (authError || !authData.user) {
+        return new Response(JSON.stringify({ error: "Invalid authentication." }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: importer } = await supabaseClient
+        .from("users")
+        .select("username, sys_admin")
+        .eq("auth_id", authData.user.id)
+        .maybeSingle();
+      if (!importer?.sys_admin || importer.username !== username) {
+        return new Response(JSON.stringify({ error: "Only SysAdmins can import Discord servers." }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       console.log("[DISCORD-IMPORT] Starting server import for guild:", discord_guild_id, "user:", username, "sync direction:", sync_direction);
       return await importDiscordServer(discord_guild_id, access_token, username, sync_direction, discord_guild);
     }
@@ -148,6 +173,7 @@ async function importDiscordServer(
     }
     console.log("[DISCORD-IMPORT] Fetched", discordChannels.length, "channels");
 
+    /*
     // Fetch roles
     console.log("[DISCORD-IMPORT] Fetching roles...");
     let rolesResponse = await fetch(`${DISCORD_API}/guilds/${discordGuildId}/roles`, {
@@ -202,6 +228,13 @@ async function importDiscordServer(
         }
       }
     }
+
+    */
+    // Discord owns roles, members, and message history. Keep those out of
+    // Supabase; the sync endpoint imports only new messages on demand.
+    const discordRoles: Record<string, any>[] = [];
+    const discordMembers: Record<string, any>[] = [];
+    const discordMessagesByChannel = new Map<string, Record<string, any>[]>();
 
     // Create native server in database
     console.log("[DISCORD-IMPORT] Creating native server in database...");

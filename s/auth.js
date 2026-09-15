@@ -1278,6 +1278,27 @@ function setServerCheckpoint(serverId, messageId = null) {
   writeServerCheckpointMap(checkpointMap);
 }
 
+async function markServerMessagesRead(serverId) {
+  if (!serverId || !username) return;
+  await loadChannelServerMap([serverId]);
+  const channelIds = [...channelServerMap.entries()]
+    .filter(([, mappedServerId]) => mappedServerId === serverId)
+    .map(([channelId]) => channelId);
+  let lastMessageId = null;
+  if (channelIds.length) {
+    const { data, error } = await supabaseClient
+      .from("messages")
+      .select("id")
+      .in("channel_id", channelIds)
+      .order("id", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    lastMessageId = data?.[0]?.id || null;
+  }
+  setServerCheckpoint(serverId, lastMessageId);
+  markServerMentionsRead(serverId);
+}
+
 function getServerCheckpoint(serverId) {
   if (!serverId) return null;
   const checkpointMap = readServerCheckpointMap();

@@ -269,6 +269,10 @@ async function loadServers() {
     await loadPersistedServerOrder();
     const isSysAdmin = currentSystemRole === "SysAdmin";
     const isSysManager = currentSystemRole === "SysManager";
+    const discordImportButton = document.getElementById("goDiscordImport");
+    if (discordImportButton) {
+      discordImportButton.style.display = isSysAdmin ? "" : "none";
+    }
 
     if (isSysAdmin) {
       // SysAdmins see EVERY server
@@ -1367,7 +1371,14 @@ if (addBtn) {
   });
 
   const goDiscordImport = document.getElementById("goDiscordImport");
+  if (goDiscordImport) {
+    goDiscordImport.style.display = currentSystemRole === "SysAdmin" ? "" : "none";
+  }
   if (goDiscordImport) goDiscordImport.addEventListener("click", async () => {
+    if (currentSystemRole !== "SysAdmin") {
+      alert("❌ Only SysAdmins can import Discord servers.");
+      return;
+    }
     closeModal("serverModal");
     if (typeof openModal === "function") {
       openModal("importDiscordModal");
@@ -1886,6 +1897,20 @@ function showServerContextMenu(x, y, serverId) {
   const canLeave = !isOwner;
 
   menu.innerHTML = "";
+
+  const markRead = document.createElement("button");
+  markRead.textContent = "Mark All Messages as Read";
+  markRead.onclick = async (e) => {
+    e.stopPropagation();
+    menu.style.display = "none";
+    try {
+      await markServerMessagesRead(serverId);
+    } catch (error) {
+      console.error("❌ Failed to mark server messages as read:", error);
+      alert("❌ Failed to mark messages as read.");
+    }
+  };
+  menu.appendChild(markRead);
 
   // --- Management Options (Owner/SysAdmin only) ---
   if (canManage) {

@@ -56,7 +56,10 @@ async function getDiscordSessionAccount() {
 
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-oauth`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
       body: JSON.stringify({
         action: "link_session",
         username,
@@ -332,6 +335,10 @@ async function fetchDiscordGuilds() {
 
 // Show Discord import dialog in Add Server modal
 function showDiscordImportUI() {
+  if (currentSystemRole !== "SysAdmin") {
+    alert("❌ Only SysAdmins can import Discord servers.");
+    return;
+  }
   if (typeof openModal === "function") {
     openModal("importDiscordModal");
     loadDiscordImportGuilds();
@@ -340,6 +347,7 @@ function showDiscordImportUI() {
 
 // Load and display Discord guilds in modal
 async function loadDiscordImportGuilds() {
+  if (currentSystemRole !== "SysAdmin") return;
   const guildsList = document.getElementById("discordGuildsList");
   if (!guildsList) return;
 
@@ -396,14 +404,6 @@ async function loadDiscordImportGuilds() {
 
   html += `
     <div style="margin-top: 10px;">
-      <label style="font-size: 12px; display: block; margin-bottom: 6px; color: #ccc;">
-        <strong>Sync Direction:</strong>
-      </label>
-      <select id="syncDirection" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #2f3136; color: #fff; border: 1px solid #444; border-radius: 4px;">
-        <option value="bidirectional">Bidirectional (sync both ways)</option>
-        <option value="incoming_only">Incoming Only (Discord → Chat)</option>
-        <option value="outgoing_only">Outgoing Only (Chat → Discord)</option>
-      </select>
       <button onclick="importSelectedDiscordGuilds()" style="padding: 10px 15px; background: #43B581; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%;">
         ✅ Import Selected Servers
       </button>
@@ -422,13 +422,16 @@ function selectDiscordGuild(guildId) {
 // Import all selected Discord guilds
 async function importSelectedDiscordGuilds() {
   console.log("[DISCORD] Import button clicked");
+  if (currentSystemRole !== "SysAdmin") {
+    alert("❌ Only SysAdmins can import Discord servers.");
+    return;
+  }
   const selected = [...document.querySelectorAll('input[name="discord-guild"]:checked')];
   if (selected.length === 0) {
     alert("❌ Please select at least one Discord server to import");
     return;
   }
 
-  const syncDirection = document.getElementById("syncDirection")?.value || "bidirectional";
   const username = localStorage.getItem("chatUsername") || window.chatUsername;
   const currentAcc = discordAccount || window.discordAccount;
   const selectedGuilds = selected.map((checkbox) =>
@@ -436,6 +439,7 @@ async function importSelectedDiscordGuilds() {
   ).filter(Boolean);
 
   try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
     const guildsList = document.getElementById("discordGuildsList");
     if (guildsList) {
       guildsList.innerHTML = `<p style='text-align: center; padding: 20px;'>⏳ Importing ${selectedGuilds.length} Discord server(s)... This may take a moment.</p>`;
@@ -447,14 +451,17 @@ async function importSelectedDiscordGuilds() {
       try {
         const response = await fetch(`${supabaseUrl}/functions/v1/discord-import`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
           body: JSON.stringify({
             action: "import_server",
             discord_guild_id: guild.id,
             discord_guild: guild,
             access_token: currentAcc ? currentAcc.access_token : null,
             username,
-            sync_direction: syncDirection,
+            sync_direction: "bidirectional",
           }),
         });
         const responseText = await response.text();
@@ -473,9 +480,8 @@ async function importSelectedDiscordGuilds() {
 
     const importedSummary = results.map((result) => {
       const imported = result.imported || {};
-      const diagnostics = result.diagnostics || {};
       const warnings = result.warnings?.length ? `\n  Warnings: ${result.warnings.join(" ")}` : "";
-      return `\n${imported.categories || 0} categories, ${imported.channels || 0} channels, ${imported.roles || 0} roles, ${imported.members || 0} members, ${imported.messages || 0} messages. API: channels ${diagnostics.channels_status ?? "?"}, roles ${diagnostics.roles_status ?? "?"}, members ${diagnostics.members_status ?? "?"}.${warnings}`;
+      return `\n${imported.channels || 0} channels mapped. No Discord users or message history was imported.${warnings}`;
     }).join("");
     const failureMessage = failures.length ? `\n\nFailed:\n${failures.join("\n")}` : "";
     alert(`✅ Imported ${results.length} Discord server(s) successfully.${importedSummary}${failureMessage}`);
@@ -572,12 +578,8 @@ async function syncMessagesFromDiscord() {
     if (result.imported > 0) {
       console.info(`[DISCORD] Imported ${result.imported} new message(s)`);
     }
-    if (typeof reconcileCurrentChannelMessages === "function") {
-      await reconcileCurrentChannelMessages();
-    }
     // The active channel is already subscribed to Supabase realtime. Imported
-    // rows arrive through that subscription; avoid clearing the rendered list
-    // with a second full history load.
+    // rows arrive through that subscription; do not reload message history.
   } catch (error) {
     console.error("Error receiving Discord messages:", error);
   } finally {
