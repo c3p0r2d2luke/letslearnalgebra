@@ -70,7 +70,9 @@ serve(async (req: Request) => {
         if (error) throw error;
         mapping = data;
       }
-      if (!mapping) throw new Error(`No Discord mapping found for LLA message ${messageId}`);
+      // Native LLA messages have no Discord counterpart. They are deleted
+      // locally by the caller and should not fail because of that.
+      if (!mapping) return jsonResponse({ success: true, skipped: true });
       let mutationUrl = `${DISCORD_API}/channels/${mapping.discord_channel_id}/messages/${mapping.discord_message_id}`;
       if (webhookId && webhookToken) {
         mutationUrl = `${DISCORD_API}/webhooks/${webhookId}/${webhookToken}/messages/${mapping.discord_message_id}`;
@@ -172,49 +174,42 @@ async function syncContentToDiscord(
   if (discordChannel.discord_servers?.sync_direction === "incoming_only") {
     throw new Error("This Discord server is configured for incoming-only sync");
   }
-  const { data: members } = await supabaseClient
-    .from("discord_members")
-    .select("discord_user_id, discord_username, member_id, server_members(username, profile_display_name)")
-    .eq("discord_server_id", discordChannel.discord_server_id);
+  // Resolve mention targets directly from Discord. This is deliberately
+  // transient: importing a server must not create Supabase user records.
+  const guildId = discordChannel.discord_servers?.discord_guild_id;
+  let members: Record<string, any>[] = [];
+  if (guildId && botToken) {
+    const membersResponse = await fetch(
+      `${DISCORD_API}/guilds/${guildId}/members?limit=1000`,
+      { headers: { Authorization: `Bot ${botToken}` } },
+    );
+    if (membersResponse.ok) members = await membersResponse.json();
+  }
   const { data: account } = await supabaseClient
     .from("discord_accounts")
     .select("discord_user_id")
     .eq("username", username)
     .maybeSingle();
-  const { data: discordMember } = account?.discord_user_id
-    ? await supabaseClient
-      .from("discord_members")
-      .select("member_id")
-      .eq("discord_server_id", discordChannel.discord_server_id)
-      .eq("discord_user_id", account.discord_user_id)
-      .maybeSingle()
-    : { data: null };
-  let { data: senderMember } = discordMember?.member_id
-    ? await supabaseClient
-      .from("server_members")
-      .select("profile_display_name, profile_avatar_url")
-      .eq("id", discordMember.member_id)
-      .maybeSingle()
-    : { data: null };
-  if (!senderMember) {
-    const fallback = await supabaseClient
-      .from("server_members")
-      .select("profile_display_name, profile_avatar_url")
-      .eq("server_id", discordChannel.discord_servers?.server_id)
-      .eq("username", username)
-      .maybeSingle();
-    senderMember = fallback.data;
-  }
+  const { data: senderMember } = await supabaseClient
+    .from("server_members")
+    .select("profile_display_name, profile_avatar_url")
+    .eq("server_id", discordChannel.discord_servers?.server_id)
+    .eq("username", username)
+    .maybeSingle();
   const mentions: string[] = [];
   let discordContent = content;
-  for (const member of members || []) {
-    const names = [member.discord_username, member.server_members?.profile_display_name, member.server_members?.username]
-      .filter(Boolean).map((name) => String(name).replace(/^discord-/, ""));
+  for (const member of members) {
+    const names = [
+      member.nick,
+      member.user?.global_name,
+      member.user?.username,
+    ].filter(Boolean).map((name) => String(name).replace(/^discord-/, ""));
     for (const name of names) {
-      const pattern = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`(^|[^\\w])@${escapedName}(?=$|[^\\w])`, "gi");
       if (pattern.test(discordContent)) {
-        discordContent = discordContent.replace(pattern, `<@${member.discord_user_id}>`);
-        mentions.push(member.discord_user_id);
+        discordContent = discordContent.replace(pattern, `$1<@${member.user.id}>`);
+        mentions.push(member.user.id);
         break;
       }
     }

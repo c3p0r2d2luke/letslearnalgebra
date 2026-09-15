@@ -1671,7 +1671,7 @@ function createMessageElement(msg) {
     }
 
     // --- CRITICAL GIF & LINK HANDLING ---
-    const urlMatch = cleanContent.match(/https?:\/\/[^\s]+/);
+    const urlMatch = discordEmbeds.length ? null : cleanContent.match(/https?:\/\/[^\s]+/);
     
     if (urlMatch) {
       const url = getSafeUrl(urlMatch[0]);
