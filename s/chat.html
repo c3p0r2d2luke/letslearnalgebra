@@ -500,6 +500,24 @@
     <hr style="border:none;border-top:1px solid var(--surface-border);margin:0 0 16px;">
 
     <div class="server-options-list">
+      <label class="modal-label" for="serverOptionVerification">Discord Verification Level</label>
+      <select id="serverOptionVerification" class="modal-input">
+        <option value="0">None</option><option value="1">Low</option><option value="2">Medium</option>
+        <option value="3">High</option><option value="4">Highest</option>
+      </select>
+      <label class="modal-label" for="serverOptionNotifications">Discord Default Notifications</label>
+      <select id="serverOptionNotifications" class="modal-input">
+        <option value="0">All Messages</option><option value="1">Only Mentions</option>
+      </select>
+      <label class="modal-label" for="serverOptionContentFilter">Discord Explicit Content Filter</label>
+      <select id="serverOptionContentFilter" class="modal-input">
+        <option value="0">Disabled</option><option value="1">Members Without Roles</option><option value="2">All Members</option>
+      </select>
+      <label class="modal-label" for="serverOptionAfkTimeout">Discord AFK Timeout</label>
+      <select id="serverOptionAfkTimeout" class="modal-input">
+        <option value="60">1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option><option value="3600">1 hour</option>
+      </select>
       <label class="server-option-row">
         <div class="server-option-copy">
           <span class="server-option-title">Bad Word Filter</span>

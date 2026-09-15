@@ -43,6 +43,8 @@ serve(async (req: Request) => {
       );
     } else if (action === "manage_role") {
       return await manageDiscordRole(body);
+    } else if (action === "manage_guild") {
+      return await manageDiscordGuild(body);
     } else if (action === "receive_from_discord") {
       return await receiveDiscordMessage(req);
     }
@@ -116,6 +118,7 @@ serve(async (req: Request) => {
         color: parseInt(String(body.color || "#5865f2").replace("#", ""), 16),
         hoist: false,
         mentionable: true,
+        ...(body.permissions ? { permissions: String(body.permissions) } : {}),
       };
       const response = await fetch(url, {
         method: body.operation === "create" ? "POST" : body.operation === "delete" ? "DELETE" : "PATCH",
@@ -131,7 +134,7 @@ serve(async (req: Request) => {
           discord_role_id: role.id,
           discord_role_name: role.name,
           discord_color: `#${Number(role.color || 0).toString(16).padStart(6, "0")}`,
-          discord_permissions: role.permissions,
+          discord_permissions: String(role.permissions || body.permissions || "0"),
         });
       } else if (body.operation === "update") {
         await supabaseClient.from("discord_roles").update({
@@ -142,6 +145,55 @@ serve(async (req: Request) => {
         await supabaseClient.from("discord_roles").delete().eq("role_id", body.role_id);
       }
       return jsonResponse({ success: true, discord_role_id: role?.id || discordRoleId });
+    }
+
+    async function manageDiscordGuild(body: Record<string, any>) {
+      const botToken = Deno.env.get("DISCORD_BOT_TOKEN");
+      if (!botToken) throw new Error("DISCORD_BOT_TOKEN is not configured");
+      const { data: server } = await supabaseClient
+        .from("discord_servers")
+        .select("discord_guild_id")
+        .eq("server_id", body.server_id)
+        .single();
+      if (!server) throw new Error("Discord server mapping not found");
+      const payload: Record<string, string | number> = {};
+      if (body.name) payload.name = String(body.name);
+      for (const key of ["verification_level", "default_message_notifications", "explicit_content_filter", "afk_timeout"]) {
+        if (body[key] !== undefined) payload[key] = Number(body[key]);
+      }
+      if (body.icon_url) {
+        const iconResponse = await fetch(body.icon_url);
+        if (iconResponse.ok) {
+          const bytes = new Uint8Array(await iconResponse.arrayBuffer());
+          let binary = "";
+          bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+          payload.icon = `data:${iconResponse.headers.get("content-type") || "image/png"};base64,${btoa(binary)}`;
+        }
+      }
+      const response = await fetch(`${DISCORD_API}/guilds/${server.discord_guild_id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`Discord server update failed: ${await response.text()}`);
+      const current = await response.json();
+      const { data: existing } = await supabaseClient
+        .from("discord_servers")
+        .select("metadata")
+        .eq("discord_guild_id", server.discord_guild_id)
+        .maybeSingle();
+      await supabaseClient.from("discord_servers").update({
+        metadata: {
+          ...(existing?.metadata || {}),
+          discord_settings: {
+            verification_level: current.verification_level,
+            default_message_notifications: current.default_message_notifications,
+            explicit_content_filter: current.explicit_content_filter,
+            afk_timeout: current.afk_timeout
+          }
+        }
+      }).eq("discord_guild_id", server.discord_guild_id);
+      return jsonResponse({ success: true });
     }
 
     return new Response(JSON.stringify({ error: "Invalid action" }), {

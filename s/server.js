@@ -1987,6 +1987,8 @@ async function updateServerSettingValues(serverId, values = {}) {
     
   if (error) throw error;
 
+  if (field === "name") await syncDiscordGuildSetting(serverId, { name: trimmed });
+
   // Update local cache
   serverSettingsCache.set(serverId, {
     ...getEffectiveServerSettings(serverId),
@@ -2033,6 +2035,15 @@ async function openServerOptionsModal(serverId) {
   document.getElementById("serverOptionAdminEmoji").checked = Boolean(settings.admin_only_custom_emojis);
   document.getElementById("serverOptionLinks").checked = Boolean(settings.allow_plaintext_links);
   document.getElementById("serverOptionEveryone").checked = Boolean(settings.allow_everyone_mentions);
+  const discordMapping = (await supabaseClient.from("discord_servers")
+    .select("metadata")
+    .eq("server_id", serverId)
+    .maybeSingle()).data;
+  const discordSettings = discordMapping?.metadata?.discord_settings || {};
+  document.getElementById("serverOptionVerification").value = String(discordSettings.verification_level ?? "0");
+  document.getElementById("serverOptionNotifications").value = String(discordSettings.default_message_notifications ?? "0");
+  document.getElementById("serverOptionContentFilter").value = String(discordSettings.explicit_content_filter ?? "0");
+  document.getElementById("serverOptionAfkTimeout").value = String(discordSettings.afk_timeout ?? "300");
   document.getElementById("serverOptionWordList").value = words.join(", ");
   setServerOptionsError("");
   modal.style.display = "flex";
@@ -2057,6 +2068,12 @@ async function saveServerOptionsModal() {
 
   try {
     await updateServerSettingValues(serverId, values);
+    await syncDiscordGuildSetting(serverId, {
+      verification_level: Number(document.getElementById("serverOptionVerification").value),
+      default_message_notifications: Number(document.getElementById("serverOptionNotifications").value),
+      explicit_content_filter: Number(document.getElementById("serverOptionContentFilter").value),
+      afk_timeout: Number(document.getElementById("serverOptionAfkTimeout").value)
+    });
 
     const { data: existingRows, error: existingError } = await supabaseClient
       .from("server_word_filters")
@@ -2123,6 +2140,21 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // --- Action Handlers ---
+
+async function syncDiscordGuildSetting(serverId, values) {
+  const { data: mapping } = await supabaseClient
+    .from("discord_servers")
+    .select("id")
+    .eq("server_id", serverId)
+    .maybeSingle();
+  if (!mapping) return;
+  const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "manage_guild", server_id: serverId, ...values })
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
 
 async function editServerSetting(serverId, field) {
   const server = servers.find(s => s.id === serverId);
@@ -2221,6 +2253,8 @@ async function editServerIcon(serverId) {
 
       if (updateError) throw updateError;
 
+      await syncDiscordGuildSetting(serverId, { icon_url: newIconUrl });
+
       server.icon_url = newIconUrl;
       renderServerList();
       alert("✅ Icon updated!");
@@ -2232,6 +2266,7 @@ async function editServerIcon(serverId) {
         uploadBtn.textContent = "📎";
         uploadBtn.disabled = false;
       }
+
     }
   };
 
@@ -3111,7 +3146,41 @@ const ROLE_PERMISSION_DEFS = [
   { key: "bypass_word_filter",  title: "Bypass Bad-Word Filter",  desc: "Send messages without the bad-word filter censoring them." },
   { key: "create_invites",      title: "Create Invites",          desc: "Create new invite links for this server." },
   { key: "use_custom_emojis",   title: "Use Custom Emojis",       desc: "Use server custom emojis even when restricted to admins." }
+  ,{ key: "view_channels", title: "View Channels", desc: "See text, voice, and category channels." }
+  ,{ key: "send_messages", title: "Send Messages", desc: "Send messages in text channels." }
+  ,{ key: "embed_links", title: "Embed Links", desc: "Show rich link previews." }
+  ,{ key: "read_message_history", title: "Read Message History", desc: "Read messages sent before joining." }
+  ,{ key: "connect_voice", title: "Connect to Voice", desc: "Join voice channels." }
+  ,{ key: "speak_voice", title: "Speak in Voice", desc: "Transmit audio in voice channels." }
+  ,{ key: "mute_members", title: "Mute Members", desc: "Mute members in voice channels." }
+  ,{ key: "deafen_members", title: "Deafen Members", desc: "Deafen members in voice channels." }
+  ,{ key: "move_members", title: "Move Members", desc: "Move members between voice channels." }
+  ,{ key: "manage_channels", title: "Manage Channels", desc: "Create, edit, and delete channels." }
+  ,{ key: "manage_webhooks", title: "Manage Webhooks", desc: "Manage Discord webhooks." }
+  ,{ key: "manage_server", title: "Manage Server", desc: "Change server-wide Discord settings." }
+  ,{ key: "kick_members", title: "Kick Members", desc: "Remove members from the Discord server." }
+  ,{ key: "ban_members", title: "Ban Members", desc: "Ban members from the Discord server." }
+  ,{ key: "mention_everyone_discord", title: "Mention Everyone", desc: "Use @everyone and @here in Discord." }
+  ,{ key: "administrator", title: "Administrator", desc: "Grant all Discord permissions." }
 ];
+
+const DISCORD_PERMISSION_BITS = {
+  create_instant_invite: 1n, administrator: 8n, manage_channels: 16n, manage_server: 32n,
+  view_channels: 1024n, send_messages: 2048n, manage_messages: 8192n, embed_links: 16384n,
+  attach_files: 32768n, read_message_history: 65536n, mention_everyone_discord: 131072n,
+  use_external_emojis: 262144n, connect_voice: 1048576n, speak_voice: 2097152n,
+  mute_members: 4194304n, deafen_members: 8388608n, move_members: 16777216n,
+  manage_webhooks: 536870912n, kick_members: 2n, ban_members: 4n
+};
+
+function getDiscordRolePermissions(perms) {
+  return Object.entries(DISCORD_PERMISSION_BITS)
+    .filter(([key]) => perms[key] || (key === "create_instant_invite" && perms.create_invites)
+      || (key === "manage_messages" && perms.manage_messages)
+      || (key === "attach_files" && perms.send_attachments)
+      || (key === "use_external_emojis" && perms.use_custom_emojis))
+    .reduce((bits, [, value]) => bits | value, 0n).toString();
+}
 
 let serverRolesCache = [];
 let editingRoleId = null;
@@ -3274,7 +3343,7 @@ async function saveCurrentRole() {
       if (error) throw error;
       const cached = serverRolesCache.find((r) => r.id === editingRoleId);
       if (cached) { cached.name = name; cached.role = name; cached.color = color; cached.permissions = permissions; }
-      await syncDiscordRole("update", { id: editingRoleId, name, color });
+      await syncDiscordRole("update", { id: editingRoleId, name, color, permissions });
     }
     renderServerRolesList();
     setServerRolesError("");
@@ -3308,7 +3377,7 @@ async function deleteCurrentRole() {
       .delete()
       .eq("id", editingRoleId);
     if (error) throw error;
-    await syncDiscordRole("delete", { id: editingRoleId });
+    await syncDiscordRole("delete", { id: editingRoleId, permissions: role.permissions });
     serverRolesCache = serverRolesCache.filter((r) => r.id !== editingRoleId);
     editingRoleId = null;
     document.getElementById("serverRolesEditor").style.display = "none";
@@ -3337,7 +3406,8 @@ async function deleteCurrentRole() {
         server_id: currentServerOptionsTargetId,
         role_id: role.id,
         name: role.name,
-        color: role.color
+        color: role.color,
+        permissions: getDiscordRolePermissions(role.permissions || {})
       })
     });
     if (!response.ok) {
