@@ -38,19 +38,27 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const { data: importer } = await supabaseClient
+      const { data: importer, error: importerError } = await supabaseClient
         .from("users")
         .select("username, sys_admin")
         .eq("auth_id", authData.user.id)
         .maybeSingle();
-      if (!importer?.sys_admin || importer.username !== username) {
+      if (importerError) {
+        console.error("[DISCORD-IMPORT] Failed to load authenticated user:", importerError);
+        return new Response(JSON.stringify({ error: "Unable to verify the authenticated user." }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!importer?.sys_admin) {
         return new Response(JSON.stringify({ error: "Only SysAdmins can import Discord servers." }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      console.log("[DISCORD-IMPORT] Starting server import for guild:", discord_guild_id, "user:", username, "sync direction:", sync_direction);
-      return await importDiscordServer(discord_guild_id, access_token, username, sync_direction, discord_guild);
+      const importerUsername = importer.username;
+      console.log("[DISCORD-IMPORT] Starting server import for guild:", discord_guild_id, "user:", importerUsername, "sync direction:", sync_direction);
+      return await importDiscordServer(discord_guild_id, access_token, importerUsername, sync_direction, discord_guild);
     }
 
     console.error("[DISCORD-IMPORT] Invalid action:", action);
