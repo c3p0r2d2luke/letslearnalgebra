@@ -261,6 +261,7 @@ async function markCurrentChannelAsRead() {
   if (messagesMap.size > 0) {
     const maxId = Math.max(...Array.from(messagesMap.keys()));
     setChannelCheckpoint(currentChannelId, maxId);
+    currentChannelMentionReadThroughId = maxId;
     unreadChannelCounts?.set(Number(currentChannelId), 0);
     channelMentionCounts?.set(Number(currentChannelId), 0);
     const server = servers.find((item) => item.id === currentServerId);
@@ -275,6 +276,7 @@ async function markCurrentChannelAsRead() {
     }
     if (typeof renderChannelList === "function") renderChannelList();
     if (typeof renderServerList === "function") renderServerList();
+    if (typeof updateMentionReadBar === "function") updateMentionReadBar();
   }
 }
 

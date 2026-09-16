@@ -589,7 +589,7 @@ function handleMentionReadScroll() {
 }
 
 document.getElementById("mentionReadButton")?.addEventListener("click", () => {
-  if (currentChannelMentionMessageId) markMentionMessagesReadThrough(currentChannelMentionMessageId);
+  void markCurrentChannelAsRead();
 });
 messagesList?.addEventListener("scroll", handleMentionReadScroll);
 
