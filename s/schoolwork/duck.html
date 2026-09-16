@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <base href="https://duckmath.freetls.fastly.net">
+    <!-- ads, defer maybe?-->
+    <script async="" src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8362959866002557" crossorigin="anonymous">
+    </script>
+    <!-- Deploy variant. Source value is "default" (Cloudflare Pages / Firebase / GitLab — same `dist` artifact).
+         syncAndRewritePublic and the per-deploy scripts overwrite the content per variant
+         (linux-duckmath, linux-knowledge, linux-freezenova, linux-freezenova-wgplayer, s3-wgplayer, ...).
+         Read at runtime via getDeployKind() in helperFuncs.js. -->
+    <meta name="dm-deploy-kind" content="default" />
+    <!-- Meta Tags for SEO -->
+    <meta charset="UTF-8" data-rh="true" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" data-rh="true" />
+    <!-- do not change!!!-->
+    <meta name="description" content="Study hard and learn faster! With Quizlet, you can study for your classes and get better grades! All with a fun and engaging interface!" data-rh="true" />
+    <meta name="keywords" content="school site studying pratice quizlet" data-rh="true" />
+    <!-- Open Graph Meta Tags for Social Sharing -->
+    <meta property="og:title" content="duck" data-rh="true" />
+    <meta property="og:description" content="Study hard and learn faster! With Quizlet, you can study for your classes and get better grades! All with a fun and engaging interface!" data-rh="true" />
+    <meta property="og:image" content="/imgs/og_image.png" data-rh="true" />
+    <meta property="og:type" content="website" data-rh="true" />
+    <!-- Twitter Card Tags for Sharing -->
+    <meta name="twitter:card" content="summary_large_image" data-rh="true" />
+    <meta name="twitter:title" content="duck" data-rh="true" />
+    <meta name="twitter:description" content="Study hard and learn faster! With Quizlet, you can study for your classes and get better grades! All with a fun and engaging interface!" data-rh="true" />
+    <meta name="twitter:image" content="/imgs/og_image.png" data-rh="true" />
+    <!--* Favicon -->
+    <link rel="icon" type="image/x-icon" href="/imgs/duck.webp" id="favicon" />
+    <link rel="mask-icon" type="" href="/imgs/duck.webp" color="#111" />
+    <title>
+      duck
+    </title>
+    <!-- Google tag (gtag.js) -->
+    <script>
+      (function () {
+        const isC = location.hostname.includes(&#34;.cloudfront.net&#34;);
+        const GA_ID = isC ? &#34;G-06CRR7PB6E&#34; : &#34;G-9KMPQDZXZM&#34;;
+
+        const gtagScript = document.createElement(&#34;script&#34;);
+        gtagScript.async = true;
+        gtagScript.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
+        document.head.appendChild(gtagScript);
+
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        window.gtag = gtag;
+
+        gtag(&#34;js&#34;, new Date());
+        gtag(&#34;config&#34;, GA_ID);
+      })();
+    </script>
+    <script type="module" crossorigin="" src="/assets/index-BNherK3s.js">
+    </script>
+    <link rel="stylesheet" crossorigin="" href="/assets/index-DiPW5G92.css" />
+  </head>
+  <body>
+    <div id="root">
+    </div>
+  </body>
+</html>

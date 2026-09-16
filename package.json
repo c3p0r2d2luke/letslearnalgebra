@@ -1,0 +1,35 @@
+{
+  "name": "letslearnalgebra",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3p0r2d2luke/letslearnalgebra.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/c3p0r2d2luke/letslearnalgebra/issues"
+  },
+  "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "eslint": "^10.0.3"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "npm": "^11.12.1",
+    "supabase": "^2.85.0",
+    "ws": "^8.20.1"
+  }
+}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome</title>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #landing-page {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        #start-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        #snowflake-container {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: black;
+            overflow: hidden;
+        }
+
+        .snowflake {
+            position: absolute;
+            top: -20px;
+            color: white;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="landing-page">
+    <h2>Welcome to LLA</h2>
+    <button id="start-btn">Open Games</button>
+</div>
+
+<div id="snowflake-container"></div>
+
+<script>
+const startBtn = document.getElementById('start-btn');
+const landingPage = document.getElementById('landing-page');
+const container = document.getElementById('snowflake-container');
+
+const SNOWFLAKE_COUNT = 200000000000000000;
+
+let created = 0;
+
+function createFlake() {
+    const el = document.createElement('div');
+    el.className = 'snowflake';
+    el.textContent = '❄';
+
+    const x = Math.random() * window.innerWidth;
+    const y = Math.random() * window.innerHeight;
+
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+
+    el.dataset.y = y;
+    el.dataset.speed = 1 + Math.random() * 2;
+
+    container.appendChild(el);
+}
+
+function spawn() {
+    for (let i = 0; i < 50000 && created < SNOWFLAKE_COUNT; i++) {
+        createFlake();
+        created++;
+    }
+    if (created < SNOWFLAKE_COUNT) {
+        setTimeout(spawn, 40);
+    }
+}
+
+function animate() {
+    const flakes = container.children;
+    const h = window.innerHeight;
+
+    for (let i = 0; i < flakes.length; i++) {
+        const f = flakes[i];
+        let y = parseFloat(f.dataset.y);
+        let speed = parseFloat(f.dataset.speed);
+
+        y += speed;
+
+        if (y > h) y = -20;
+
+        f.dataset.y = y;
+        f.style.transform = `translateY(${y}px)`;
+    }
+
+    requestAnimationFrame(animate);
+}
+
+startBtn.onclick = () => {
+    landingPage.style.display = 'none';
+    container.style.display = 'block';
+
+    spawn();
+    animate();
+};
+</script>
+
+</body>
+</html>

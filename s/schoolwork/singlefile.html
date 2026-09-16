@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>GN-Math</title>
+
+<style>
+:root{
+    --bg:#0f172a;
+    --surface:#1e293b;
+    --surface2:#334155;
+    --text:#f8fafc;
+    --muted:#94a3b8;
+    --accent:#fc2651;
+    --accent2:#ff4d75;
+    --border:#475569;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+    --radius:16px;
+}
+
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+}
+
+header{
+    position:sticky;
+    top:0;
+    z-index:100;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    box-shadow:var(--shadow);
+}
+
+.header-inner{
+    max-width:1400px;
+    margin:auto;
+    padding:1rem;
+    display:flex;
+    gap:1rem;
+    align-items:center;
+    flex-wrap:wrap;
+}
+
+.logo{
+    font-size:1.6rem;
+    font-weight:800;
+}
+
+.search{
+    flex:1;
+    min-width:220px;
+}
+
+.search input{
+    width:100%;
+    padding:.9rem 1rem;
+    border:none;
+    border-radius:12px;
+    background:rgba(255,255,255,.15);
+    color:white;
+    outline:none;
+    font-size:1rem;
+}
+
+.search input::placeholder{
+    color:rgba(255,255,255,.7);
+}
+
+main{
+    max-width:1400px;
+    margin:auto;
+    padding:1.5rem;
+}
+
+.stats{
+    color:var(--muted);
+    margin-bottom:1rem;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+    gap:1.25rem;
+}
+
+.card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    overflow:hidden;
+    transition:.2s;
+    cursor:pointer;
+    box-shadow:var(--shadow);
+}
+
+.card:hover{
+    transform:translateY(-6px);
+    border-color:var(--accent);
+}
+
+.card img{
+    width:100%;
+    aspect-ratio:1/1;
+    object-fit:cover;
+    display:block;
+    background:#111827;
+}
+
+.card-title{
+    padding:1rem;
+    text-align:center;
+    font-weight:700;
+    min-height:72px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+#viewer{
+    position:fixed;
+    inset:0;
+    background:black;
+    display:none;
+    flex-direction:column;
+    z-index:9999;
+}
+
+.viewer-top{
+    background:#111827;
+    padding:.75rem 1rem;
+    display:flex;
+    align-items:center;
+    gap:1rem;
+}
+
+.viewer-title{
+    flex:1;
+    font-weight:700;
+}
+
+.viewer-top button{
+    border:none;
+    background:var(--accent);
+    color:white;
+    padding:.7rem 1rem;
+    border-radius:10px;
+    cursor:pointer;
+    font-weight:700;
+}
+
+.viewer-top button:hover{
+    background:var(--accent2);
+}
+
+#gameFrame{
+    flex:1;
+    width:100%;
+    border:none;
+    background:black;
+}
+
+footer{
+    padding:2rem;
+    text-align:center;
+    color:var(--muted);
+}
+
+@media(max-width:600px){
+    .grid{
+        grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <div class="header-inner">
+        <div class="logo">GN-Math</div>
+
+        <div class="search">
+            <input
+                type="text"
+                id="search"
+                placeholder="Search games..."
+            >
+        </div>
+    </div>
+</header>
+
+<main>
+
+<section>
+    <h2>Featured</h2>
+    <div class="grid" id="featuredGrid"></div>
+</section>
+
+<br>
+
+<section>
+    <div class="stats" id="stats">
+        Loading zones...
+    </div>
+
+    <div class="grid" id="grid"></div>
+</section>
+
+</main>
+
+
+<div id="viewer">
+
+    <div class="viewer-top">
+        <div class="viewer-title" id="viewerTitle">
+            Loading...
+        </div>
+
+        <button onclick="fullscreenGame()">
+            Fullscreen
+        </button>
+
+        <button onclick="closeViewer()">
+            Close
+        </button>
+    </div>
+
+    <iframe
+        id="gameFrame"
+        allowfullscreen
+    ></iframe>
+
+</div>
+
+<footer>
+    GN-Math rebuilt cleanly ✨
+</footer>
+
+<script>
+
+const featuredGames = [
+    "Minecraft 1.12.2",
+    "Cookie Clicker",
+    "1v1.LoL",
+    "Drive Mad",
+    "Retro Bowl",
+    "Moto X3M",
+    "Poly Track",
+    "Monkey Mart",
+    "OMORI",
+    "ULTRAKILL",
+    "People Playground",
+    "Bendy and the Ink Machine"
+];
+
+
+const COVER_URL =
+"https://cdn.jsdelivr.net/gh/freebuisness/covers@main";
+
+const HTML_URL =
+"https://lla.ipv64.net/s/schoolwork/html-main";
+
+let allZones = [];
+
+async function loadZones() {
+
+    try {
+
+        const response = await fetch("./zones.json");
+        const zones = await response.json();
+
+        allZones = zones.map(zone => {
+
+            return {
+                ...zone,
+
+                cover: zone.cover
+                    ? zone.cover.replace(
+                        "{COVER_URL}",
+                        COVER_URL
+                    )
+                    : "",
+
+                url: zone.url
+                    ? zone.url.replace(
+                        "{HTML_URL}",
+                        HTML_URL
+                    )
+                    : ""
+            };
+
+        });
+
+        renderZones(allZones);
+
+    } catch(err) {
+
+        console.error(err);
+
+        document.getElementById("stats")
+            .textContent =
+            "Failed to load zones.json";
+
+    }
+}
+
+function renderZones(zones) {
+
+    const grid =
+        document.getElementById("grid");
+
+    const featuredGrid =
+        document.getElementById("featuredGrid");
+
+    const stats =
+        document.getElementById("stats");
+
+    grid.innerHTML = "";
+    featuredGrid.innerHTML = "";
+
+    // Alphabetical sort
+    zones.sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+
+    stats.textContent =
+        `${zones.length} games`;
+
+    zones.forEach(zone => {
+
+        const card =
+            document.createElement("div");
+
+        card.className = "card";
+
+        card.innerHTML = `
+            <img
+                loading="lazy"
+                src="${zone.cover}"
+                alt="${zone.name}"
+            >
+
+            <div class="card-title">
+                ${zone.name}
+            </div>
+        `;
+
+        card.onclick = () => openGame(zone);
+
+        // Put featured games up top
+        if(featuredGames.includes(zone.name)){
+
+            featuredGrid.appendChild(
+                card.cloneNode(true)
+            );
+
+            featuredGrid.lastChild.onclick =
+                () => openGame(zone);
+        }
+
+        grid.appendChild(card);
+
+    });
+}
+
+
+function openGame(zone){
+
+    document.getElementById("viewer")
+        .style.display = "flex";
+
+    document.getElementById("viewerTitle")
+        .textContent = zone.name;
+
+    document.getElementById("gameFrame")
+        .src = zone.url;
+}
+
+function closeViewer(){
+
+    document.getElementById("viewer")
+        .style.display = "none";
+
+    document.getElementById("gameFrame")
+        .src = "";
+}
+
+function fullscreenGame(){
+
+    const iframe =
+        document.getElementById("gameFrame");
+
+    if(iframe.requestFullscreen){
+        iframe.requestFullscreen();
+    }
+}
+
+document.getElementById("search")
+.addEventListener("input", e => {
+
+    const query =
+        e.target.value.toLowerCase();
+
+    const filtered =
+        allZones.filter(zone =>
+            zone.name
+                .toLowerCase()
+                .includes(query)
+        );
+
+    renderZones(filtered);
+
+});
+
+loadZones();
+</script>
+
+</body>
+</html>

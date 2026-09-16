@@ -1,0 +1,6 @@
+sql-stuff
+node_modules/
+surge.sh
+*.pem
+*.sh
+supabase/

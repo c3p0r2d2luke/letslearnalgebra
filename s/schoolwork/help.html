@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>⚡Portal⚡</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    
+    <!-- CodeMirror JS (Required for the editor to work) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style id="theme-styles">
+        :root {
+            /* Dynamic Theme Variables */
+            --primary-color: #2563eb;
+            --bg-color: #020617;
+            --dialog-bg: #0f172a;
+            --card-bg: rgba(15, 23, 42, 0.85);
+            --sidebar-bg: #0f172a;
+            --button-bg: rgba(255, 255, 255, 0.1); 
+            --text-main: #ffffff;
+            --text-dim: #94a3b8;
+            --border-color: transparent; 
+            
+            /* Animation Constants */
+            --spring-easing: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* Layout Setup */
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden; 
+            background-color: var(--bg-color);
+            background-image: var(--bg-image, none);
+            background-attachment: fixed;
+            background-size: cover;
+            background-position: center;
+            color: var(--text-main);
+            font-family: 'Fredoka One', cursive, sans-serif;
+            letter-spacing: 0.5px;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Live CSS Injection Point */
+        #custom-css-injector {}
+
+        /* --- ALIVE BACKGROUND LAYER --- */
+        #ambient-grid {
+            position: fixed;
+            top: -50%; left: -50%; width: 200%; height: 200%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+            background-size: 60px 60px;
+            z-index: 0; 
+            pointer-events: none;
+            animation: backgroundMove 120s linear infinite;
+            transform: rotate(15deg);
+            /* Smart blending ensures visibility on both light and dark backgrounds */
+            mix-blend-mode: exclusion;
+            opacity: 0.15;
+        }
+
+        @keyframes backgroundMove {
+            0% { transform: rotate(15deg) translateY(0); }
+            100% { transform: rotate(15deg) translateY(-50px); }
+        }
+
+        #app-container {
+            height: 100%;
+            width: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            position: relative;
+            z-index: 1; 
+            padding-bottom: 100px;
+        }
+
+        /* --- HIDE UI MODE --- */
+        body.ui-hidden #app-container,
+        body.ui-hidden .history-controls,
+        body.ui-hidden .portal-nav-container,
+        body.ui-hidden .floating-btn,
+        body.ui-hidden #dev-mode-btn,
+        body.ui-hidden #notification-container {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: opacity 0.5s ease;
+        }
+
+        #ui-restore-overlay {
+            display: none;
+            position: fixed; inset: 0; z-index: 20000;
+            cursor: pointer;
+        }
+        body.ui-hidden #ui-restore-overlay { display: block; }
+
+        /* --- GLOBAL ANIMATIONS --- */
+        button, .btn-icon, .floating-btn, .history-btn, .portal-trigger, .app-card, .dropdown-item, .debug-toggle, input[type="range"] {
+            transition: all 0.4s var(--spring-easing);
+        }
+
+        button:active, .btn-icon:active, .floating-btn:active, .history-btn:active, .portal-trigger:active, .app-card:active, .debug-toggle:active {
+            transform: scale(0.92) !important;
+            transition: transform 0.1s ease-out;
+        }
+
+        /* Card Styling */
+        .app-card {
+            cursor: pointer;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            position: relative;
+            will-change: transform;
+            backdrop-filter: blur(10px);
+            color: var(--text-main);
+        }
+        .app-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--primary-color);
+            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.6);
+            z-index: 20;
+        }
+
+        .action-btns {
+            position: absolute;
+            top: 12px; right: 12px; display: flex; gap: 8px; 
+            opacity: 0;
+            transform: translateY(-10px) scale(0.9); transition: all 0.3s var(--spring-easing); z-index: 50;
+        }
+        .app-card:hover .action-btns { opacity: 1; transform: translateY(0) scale(1); }
+
+        .btn-icon { 
+            padding: 0; border-radius: 12px; background: var(--button-bg); 
+            display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--border-color); color: var(--text-dim); 
+            width: 44px; height: 44px; font-size: 20px;
+            backdrop-filter: blur(4px);
+        }
+        .btn-icon:hover { transform: scale(1.15); border-color: var(--text-main); color: var(--text-main); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .move-btn:hover { background: #059669; border-color: #34d399; color: white; }
+        .delete-btn:hover { background: #991b1b; border-color: #f87171; color: white; }
+        .edit-btn:hover { background: #1d4ed8; border-color: #60a5fa; color: white; }
+
+        .custom-dialog {
+            background-color: var(--dialog-bg);
+            border: 1px solid var(--border-color); max-height: 90vh; overflow-y: auto;
+            animation: dialogPop 0.4s var(--spring-easing);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            color: var(--text-main);
+        }
+        @keyframes dialogPop { from { opacity: 0; transform: scale(0.9) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        
+        #fullscreen-container {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 9000; background-color: var(--bg-color); 
+            backdrop-filter: blur(20px); flex-direction: column; transform-origin: center;
+        }
+
+        .animate-open { animation: zoomIn 0.5s var(--spring-easing) forwards; }
+        .animate-close { animation: zoomOut 0.4s var(--spring-easing) forwards; }
+        @keyframes zoomIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes zoomOut { from { transform: scale(1); opacity: 1; } to { transform: scale(0.92); opacity: 0; } }
+
+        .spin-once { animation: spin 0.8s var(--spring-easing); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @keyframes itemPop { from { opacity: 0; transform: scale(0.8) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .animate-pop-in { opacity: 0; animation: itemPop 0.5s var(--spring-easing) forwards; }
+
+        #fullscreen-frame { 
+            position: fixed; top: 0; left: 0; bottom: 0; right: 0; 
+            width: 100%; height: 100%; border: none; z-index: 9001; background-color: transparent; 
+        }
+
+        #iframe-loader {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 9002; display: none; flex-direction: column; 
+            align-items: center; gap: 15px; color: var(--text-main); pointer-events: none;
+        }
+
+        .portal-nav-container { 
+            position: fixed; z-index: 10000; bottom: 32px; left: 32px;
+            display: none; width: 56px; height: 56px;
+        }
+        
+        /* The Nexus Button */
+        .portal-trigger {
+            background: var(--primary-color); color: white; width: 56px; height: 56px;
+            border-radius: 18px; display: flex; align-items: center; justify-content: center;
+            font-size: 24px; cursor: pointer; box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            transition: all 0.4s var(--spring-easing); opacity: 0.5; border: 1px solid rgba(255,255,255,0.1);
+        }
+        .portal-trigger:hover { 
+            opacity: 1; transform: scale(1.15) rotate(90deg); border-color: white;
+            box-shadow: 0 0 30px var(--primary-color);
+        }
+
+        .portal-dropdown {
+            position: absolute; bottom: 70px; left: 0;
+            background: var(--dialog-bg); border: 1px solid var(--border-color);
+            border-radius: 24px; padding: 10px; width: 220px;
+            display: flex; flex-direction: column; gap: 4px;
+            box-shadow: 0 20px 40px -5px rgba(0,0,0,0.6); backdrop-filter: blur(12px);
+            transform-origin: bottom left; transform: scale(0.8) translateY(20px);
+            opacity: 0; visibility: hidden; transition: all 0.3s var(--spring-easing); pointer-events: none;
+        }
+        
+        .portal-nav-container.top-positioned .portal-dropdown { bottom: auto; top: 70px; transform-origin: top left; }
+        .portal-dropdown.active { transform: scale(1) translateY(0); opacity: 1; visibility: visible; pointer-events: auto; }
+
+        .dropdown-item {
+            width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+            color: var(--text-dim); border-radius: 16px; cursor: pointer; border: none; background: transparent;
+            font-size: 14px; font-family: 'Fredoka One', cursive; font-weight: 400; 
+            transition: all 0.2s var(--spring-easing);
+        }
+        .dropdown-item:hover { background: var(--primary-color); color: white; transform: translateX(6px) scale(1.02); }
+
+        #reposition-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; cursor: none; 
+        }
+        #ghost-button {
+            position: absolute; width: 56px; height: 56px; background: var(--primary-color);
+            border-radius: 18px; opacity: 0.8; pointer-events: none; display: flex; align-items: center;
+            justify-content: center; color: white; font-size: 24px; border: 2px dashed white;
+            transform: translate(-50%, -50%); box-shadow: 0 0 20px rgba(255,255,255,0.3);
+        }
+
+        .floating-btn {
+            position: fixed; background: var(--button-bg); color: var(--text-main); padding: 16px; border-radius: 50%;
+            border: 1px solid var(--border-color); cursor: pointer; z-index: 100; display: flex;
+            align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+            transition: all 0.4s var(--spring-easing);
+            backdrop-filter: blur(8px);
+        }
+        .floating-btn:hover { 
+            background: var(--primary-color); transform: translateY(-4px) scale(1.15) rotate(10deg);
+            box-shadow: 0 10px 30px -5px var(--primary-color); border-color: white; color: white;
+        }
+        
+        .add-btn { bottom: 32px; left: 32px; }
+        .help-btn { bottom: 32px; left: 104px; }
+        .settings-btn { bottom: 32px; right: 32px; }
+        .export-btn { bottom: 32px; right: 104px; }
+
+        .history-controls {
+            position: fixed; top: 32px; right: 32px; display: flex; gap: 12px; z-index: 2000;
+        }
+
+        .history-btn {
+            background: var(--button-bg); color: var(--text-main); width: 44px; height: 44px;
+            border-radius: 12px; border: 1px solid var(--border-color); display: flex;
+            align-items: center; justify-content: center; cursor: pointer;
+            transition: all 0.2s; backdrop-filter: blur(4px);
+        }
+        .history-btn:hover { transform: scale(1.15); background: var(--primary-color); border-color: white;}
+        .history-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; background: #1e293b; }
+
+        .icon-grid {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; max-height: 150px;
+            overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px;
+        }
+        .icon-item {
+            aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+            border-radius: 8px; cursor: pointer; border: 2px solid transparent; font-size: 20px;
+            transition: all 0.2s var(--spring-easing); color: var(--text-main);
+        }
+        .icon-item:hover { background: rgba(255,255,255,0.1); transform: scale(1.15); }
+        .icon-item.selected { border-color: var(--primary-color); background: rgba(37, 99, 235, 0.2); transform: scale(1.05); }
+
+        .tab-btn {
+            padding: 10px; border-radius: 12px; flex: 1; font-size: 0.875rem;
+            background: rgba(0,0,0,0.2); color: var(--text-dim); transition: all 0.3s;
+            font-family: 'Fredoka One', cursive; 
+        }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+        .tab-btn.active { background: var(--primary-color); color: white; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3); transform: scale(1.05); }
+
+        .custom-dialog button { transition: all 0.3s var(--spring-easing); }
+        .custom-dialog button:hover { transform: scale(1.03); filter: brightness(1.1); }
+        .custom-dialog button:active { transform: scale(0.95); }
+
+        #notification-container {
+            position: fixed; top: 24px; left: 50%; transform: translateX(-50%); z-index: 10500;
+        }
+        .notification {
+            background: var(--dialog-bg); border: 1px solid var(--border-color); padding: 12px 24px; border-radius: 99px;
+            margin-bottom: 8px; display: flex; align-items: center; gap: 12px; color: var(--text-main);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); animation: notifSlide 0.4s var(--spring-easing);
+            font-weight: 400; font-size: 14px; backdrop-filter: blur(8px);
+        }
+        .notification.success { border-color: #059669; color: #a7f3d0; }
+        .notification.error { border-color: #dc2626; color: #fecaca; }
+        .notification.info { border-color: #334155; color: white; }
+        
+        @keyframes notifSlide { from { transform: translateY(-30px) scale(0.9); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--primary-color); border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* --- DEV DEBUG STYLES --- */
+        #dev-sidebar {
+            position: fixed; top: 0; right: -400px; width: 400px; height: 100%;
+            background: var(--sidebar-bg); border-left: 1px solid var(--border-color); z-index: 11000;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+        }
+        #dev-sidebar.open { right: 0; }
+        
+        .debug-toggle {
+            position: fixed; bottom: 32px; right: 180px; 
+            /* Fix: Increased Z-Index to be above fullscreen container */
+            z-index: 10200;
+            width: 56px; height: 56px; 
+            background: #eab308; color: #422006;
+            border-radius: 18px; 
+            display: none; align-items: center; justify-content: center;
+            font-size: 24px; cursor: pointer; box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .debug-toggle:hover { 
+            transform: scale(1.15) rotate(180deg);
+            box-shadow: 0 0 25px #eab308;
+            border-color: white;
+        }
+
+        /* Inspector Highlight */
+        .inspect-highlight {
+            outline: 3px solid #eab308 !important;
+            background: rgba(234, 179, 8, 0.2) !important;
+            cursor: crosshair !important;
+        }
+        
+        /* CodeMirror Overrides */
+        .CodeMirror { height: 100%; font-family: 'Fira Code', monospace; font-size: 13px; border-radius: 8px; }
+
+        /* Icon Studio */
+        #icon-preview-box { transition: all 0.3s var(--spring-easing); }
+    </style>
+</head>
+<body class="p-0">
+
+    <div id="ambient-grid"></div>
+    <div id="ui-restore-overlay" onclick="restoreUI()" title="Click to show UI"></div>
+    <style id="custom-css-injector"></style>
+    <div id="notification-container"></div>
+
+    <div id="dev-mode-btn" class="debug-toggle" onclick="toggleDevSidebar()" title="Open Debug Console"><i class="ph ph-bug"></i></div>
+
+    <!-- Unified Code Editor Modal -->
+    <div id="code-editor-modal" class="fixed inset-0 z-[15000] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeCodeEditor()"></div>
+        <div class="relative custom-dialog rounded-[1rem] w-full max-w-5xl h-[85vh] flex flex-col bg-[#282a36] text-white shadow-2xl">
+            <div class="p-4 border-b border-white/10 flex justify-between items-center bg-[#21222c]">
+                <div class="flex items-center gap-3"><i class="ph ph-code-block text-purple-400 text-xl"></i><h3 id="code-editor-title" class="font-bold text-slate-200 font-sans">Code Studio</h3></div>
+                <div class="flex gap-2">
+                    <button onclick="saveCodeEditor()" class="px-5 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-xs font-bold text-white flex items-center gap-2"><i class="ph ph-check"></i> Apply</button>
+                    <button onclick="closeCodeEditor()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold text-white">Cancel</button>
+                </div>
+            </div>
+            <div class="flex-grow relative bg-[#282a36]"><textarea id="unified-code-area"></textarea></div>
+        </div>
+    </div>
+
+    <!-- Icon Studio Modal -->
+    <div id="icon-studio-modal" class="fixed inset-0 z-[14500] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeModal('icon-studio-modal')"></div>
+        <div class="relative custom-dialog rounded-[1rem] w-full max-w-2xl text-white p-8">
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2"><i class="ph ph-shapes text-pink-400"></i> Icon Studio</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Controls -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Phosphor Class Name</label>
+                        <input type="text" id="icon-studio-name" value="ph-rocket" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 font-mono text-sm" oninput="updateIconStudio()">
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="flex-1">
+                             <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Color</label>
+                             <input type="color" id="icon-studio-color" value="#ffffff" class="w-full h-10 rounded cursor-pointer" oninput="updateIconStudio()">
+                        </div>
+                        <div class="flex-1">
+                             <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Size (px)</label>
+                             <input type="number" id="icon-studio-size" value="64" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm" oninput="updateIconStudio()">
+                        </div>
+                    </div>
+                     <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Animation</label>
+                        <select id="icon-studio-anim" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm" onchange="updateIconStudio()">
+                            <option value="">None</option>
+                            <option value="spin">Spin</option>
+                            <option value="bounce">Bounce</option>
+                            <option value="pulse">Pulse</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div class="flex flex-col items-center justify-center bg-black/40 rounded-xl border border-white/5 p-8 relative">
+                    <p class="absolute top-2 left-2 text-[10px] text-slate-500 uppercase font-bold">Preview</p>
+                    <div id="icon-preview-box" class="flex items-center justify-center">
+                        <i id="icon-preview-target" class="ph ph-rocket"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 flex justify-end gap-2">
+                <button onclick="copyIconHTML()" class="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-bold shadow-lg">Copy HTML</button>
+                <button onclick="closeModal('icon-studio-modal')" class="px-6 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-bold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Function Library Modal -->
+    <div id="function-lib-modal" class="fixed inset-0 z-[14000] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeModal('function-lib-modal')"></div>
+        <div class="relative custom-dialog rounded-[1rem] w-full max-w-4xl h-[70vh] flex flex-col text-white shadow-2xl overflow-hidden">
+            <div class="p-4 border-b border-white/10 flex justify-between items-center bg-slate-900/50">
+                <h3 class="font-bold text-teal-400 font-sans text-xl"><i class="ph ph-flask"></i> Function Playground</h3>
+                <button onclick="closeModal('function-lib-modal')" class="text-slate-400 hover:text-white"><i class="ph ph-x text-xl"></i></button>
+            </div>
+            <div class="flex flex-grow overflow-hidden">
+                <div class="w-1/3 bg-black/20 border-r border-white/5 overflow-y-auto p-2 space-y-1">
+                    <button onclick="selectFunc('notify')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-blue-300">notify()</button>
+                    <button onclick="selectFunc('hideUI')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-purple-300">hideUI()</button>
+                    <button onclick="selectFunc('toggleDevMode')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-yellow-300">toggleDevMode()</button>
+                    <button onclick="selectFunc('setThemeColor')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-orange-300">setThemeColor()</button>
+                    <button onclick="selectFunc('addMockApp')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-red-300">addMockApp()</button>
+                    <button onclick="selectFunc('clearOverrides')" class="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 text-sm font-mono text-gray-300">clearOverrides()</button>
+                </div>
+                <div class="w-2/3 p-6 bg-slate-900/30 flex flex-col">
+                    <div id="func-config-area" class="flex-grow"><p class="text-slate-500 italic text-center mt-20">Select a function to experiment</p></div>
+                    <div class="mt-4 pt-4 border-t border-white/10 flex justify-end">
+                        <button id="run-func-btn" onclick="runSelectedFunc()" class="px-8 py-3 bg-teal-600 hover:bg-teal-500 rounded-xl font-bold text-white shadow-lg disabled:opacity-50" disabled><i class="ph ph-play"></i> Run</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dev Sidebar -->
+    <div id="dev-sidebar">
+        <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900">
+            <h3 class="font-bold text-yellow-500 flex items-center gap-2"><i class="ph ph-bug"></i> Dev Debug</h3>
+            <button onclick="toggleDevSidebar()" class="text-slate-400 hover:text-white"><i class="ph ph-x text-xl"></i></button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-6">
+            
+            <!-- Inspector Tool -->
+            <div class="bg-yellow-900/20 p-4 rounded-xl border border-yellow-700/30">
+                <label class="block text-xs font-bold text-yellow-500 uppercase mb-2">Element Inspector</label>
+                <button id="inspector-btn" onclick="toggleInspector()" class="w-full py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-lg">
+                    <i class="ph ph-crosshair"></i> Start Picker
+                </button>
+                
+                <div id="inspector-panel" class="hidden mt-4 space-y-3 pt-3 border-t border-yellow-700/30">
+                    <div class="flex justify-between items-center">
+                        <p class="text-[10px] text-yellow-500 font-bold uppercase">Selected: <span id="insp-tag-name" class="text-white">DIV</span></p>
+                        <button onclick="clearInspectorSelection()" class="text-[10px] text-red-400 hover:text-white"><i class="ph ph-x"></i> Deselect</button>
+                    </div>
+                    
+                    <div>
+                        <label class="text-[10px] text-slate-400 uppercase">Text Content</label>
+                        <textarea id="insp-text" class="w-full bg-black/40 text-white text-xs p-2 rounded border border-slate-700 h-16 outline-none focus:border-yellow-500 font-sans" oninput="liveUpdateElement('text')"></textarea>
+                    </div>
+                    
+                    <!-- Dynamic Inputs for Images/Icons -->
+                    <div id="insp-extra-inputs" class="hidden space-y-2"></div>
+
+                    <div class="grid grid-cols-2 gap-2"><div><label class="text-[10px] text-slate-400 uppercase">Color</label><input type="color" id="insp-color" class="w-full h-8 rounded cursor-pointer" oninput="liveUpdateElement('color')"></div><div><label class="text-[10px] text-slate-400 uppercase">Background</label><input type="color" id="insp-bg" class="w-full h-8 rounded cursor-pointer" oninput="liveUpdateElement('bg')"></div></div>
+                    <button onclick="updateSelectedElement('delete')" class="w-full py-2 bg-red-900/50 text-red-400 rounded text-xs font-bold border border-red-900 hover:bg-red-900">Delete Element</button>
+                </div>
+            </div>
+            
+            <!-- Tools -->
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Code Studio</label><div class="grid grid-cols-1 gap-2"><button onclick="openEditorFor('css')" class="py-3 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-bold hover:bg-blue-600/30 flex items-center justify-center gap-2"><i class="ph ph-paint-brush"></i> Edit Live CSS</button><button onclick="openEditorFor('json')" class="py-3 bg-green-600/20 text-green-400 border border-green-500/30 rounded-lg text-xs font-bold hover:bg-green-600/30 flex items-center justify-center gap-2"><i class="ph ph-brackets-curly"></i> Edit App State</button></div></div>
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Experiments</label><button onclick="openFunctionLibrary()" class="w-full py-3 bg-teal-600/20 text-teal-400 border border-teal-500/30 rounded-lg text-xs font-bold hover:bg-teal-600/30 flex items-center justify-center gap-2"><i class="ph ph-flask"></i> Function Playground</button></div>
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Icon Tools</label><button onclick="openIconStudio()" class="w-full py-3 bg-pink-600/20 text-pink-400 border border-pink-500/30 rounded-lg text-xs font-bold hover:bg-pink-600/30 flex items-center justify-center gap-2"><i class="ph ph-shapes"></i> Icon Studio</button></div>
+            
+            <!-- Quick JS & Theme -->
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Run JS</label><div class="flex gap-2"><input type="text" id="debug-js-input" placeholder="alert('Hello')" class="flex-grow bg-black/50 border border-slate-700 rounded-lg p-2 font-mono text-xs text-green-400 outline-none focus:border-yellow-500"><button onclick="runDebugJS()" class="px-3 bg-slate-800 text-green-400 rounded-lg text-xs font-bold hover:bg-slate-700">Run</button></div></div>
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Storage</label><div class="grid grid-cols-2 gap-2"><button onclick="clearSpecificStorage('apps')" class="py-2 bg-slate-800 text-orange-400 rounded-lg text-xs font-bold hover:bg-slate-700">Wipe Apps</button><button onclick="clearSpecificStorage('theme')" class="py-2 bg-slate-800 text-yellow-400 rounded-lg text-xs font-bold hover:bg-slate-700">Wipe Theme</button></div></div>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div id="app-container" class="p-6 md:p-12"><header class="mb-12"><h1 id="p-name" class="text-6xl font-black text-white tracking-tighter drop-shadow-2xl">⚡Portal⚡</h1><p id="p-desc" class="text-slate-400 mt-4 text-xl font-medium max-w-2xl italic">a portal where you can acess stuff with ease...</p></header><div id="apps-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"></div></div>
+    
+    <div class="history-controls"><button id="undo-btn" class="history-btn" onclick="undo()" title="Undo"><i class="ph ph-arrow-u-up-left"></i></button><button id="redo-btn" class="history-btn" onclick="redo()" title="Redo"><i class="ph ph-arrow-u-up-right"></i></button></div>
+    
+    <!-- Modals (Choice, Settings, Help, Export) identical to prev, omitted for length in this block -->
+    <div id="choice-modal" class="fixed inset-0 z-[1500] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeModal('choice-modal')"></div><div class="relative custom-dialog p-8 rounded-[2rem] w-full max-w-sm shadow-2xl text-white text-center"><h2 class="text-3xl font-black mb-2 tracking-tight">Launch</h2><div class="space-y-4 mt-8"><button id="launch-iframe" class="w-full py-5 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500 flex items-center justify-center gap-3 shadow-lg"><i class="ph ph-browser text-2xl"></i> Inside Portal</button><button id="launch-cloaked" class="w-full py-5 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 flex items-center justify-center gap-3 border border-slate-700"><i class="ph ph-mask-happy text-2xl"></i> Cloaked Tab</button></div></div></div>
+    <div id="add-modal" class="fixed inset-0 z-[1600] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeModal('add-modal')"></div><div class="relative custom-dialog p-8 rounded-[2rem] w-full max-w-lg text-white"><h2 class="text-2xl font-bold mb-6">App Manager</h2><div class="flex gap-2 mb-6 bg-black/40 p-1.5 rounded-2xl"><button onclick="setAddType('url')" id="add-tab-url" class="tab-btn active">URL</button><button onclick="setAddType('html')" id="add-tab-html" class="tab-btn">HTML</button></div><div class="space-y-4"><input type="text" id="add-name" placeholder="Name..." class="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-4 outline-none focus:border-blue-500 transition-colors font-sans"><input type="text" id="add-desc" placeholder="Description..." class="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-4 outline-none focus:border-blue-500 transition-colors font-sans"><div id="url-input-group"><input type="text" id="add-url" placeholder="https://..." class="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-4 outline-none focus:border-blue-500 transition-colors font-sans"></div><div id="html-input-group" class="hidden relative"><textarea id="add-html" placeholder="Paste HTML code here" rows="4" class="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-4 font-mono outline-none focus:border-blue-500 transition-colors text-xs resize-y"></textarea><button onclick="openAppHtmlEditor()" class="absolute bottom-3 right-3 px-3 py-1.5 bg-purple-600/90 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold backdrop-blur-sm transition-all flex items-center gap-1 shadow-lg border border-purple-400/30 z-10"><i class="ph ph-code"></i> Code Studio</button></div><div class="bg-black/20 p-4 rounded-xl border border-white/5"><input type="text" id="add-emoji" maxlength="3" placeholder="⚡" class="w-full bg-transparent border-b border-slate-700 px-2 py-2 outline-none focus:border-blue-500 text-center text-3xl font-bold" oninput="validateEmojiInput(this)"></div><div id="icon-picker" class="icon-grid"></div><div class="grid grid-cols-2 gap-4 mt-4"><button onclick="document.getElementById('icon-upload').click()" class="bg-slate-800 hover:bg-slate-700 py-4 rounded-xl font-bold text-xs transition-colors border border-slate-700">Upload Icon</button><input type="file" id="icon-upload" class="hidden" accept="image/*" onchange="handleIconUpload(event)"><input type="color" id="add-color" class="w-full h-full bg-black/40 border border-slate-700 rounded-xl p-1 cursor-pointer min-h-[50px]"></div></div><div class="flex gap-4 mt-8"><button onclick="saveNewApp()" class="flex-grow py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500">Save</button><button onclick="closeModal('add-modal')" class="px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold">Cancel</button></div></div></div>
+    <div id="settings-modal" class="fixed inset-0 z-[1700] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeModal('settings-modal')"></div><div class="relative custom-dialog rounded-[2rem] max-w-xl w-full text-white p-8"><h2 class="text-3xl font-bold mb-8">Settings</h2><div class="space-y-6"><div class="flex items-center justify-between bg-slate-900/50 p-4 rounded-xl border border-white/5"><div><span class="text-sm font-bold text-yellow-500 uppercase tracking-widest block mb-1">Dev Debug Mode</span><span class="text-xs text-slate-400 font-sans">Enable developer tools & sidebar</span></div><label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" id="dev-mode-toggle" class="sr-only peer" onchange="toggleDevMode()"><div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div></label></div><button onclick="openThemeEditor()" class="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-sm shadow-lg shadow-purple-900/20 hover:scale-[1.02] transition-transform">🎨 Customize Theme Colors</button><div><label class="text-xs uppercase text-slate-500 font-bold mb-2 block font-sans">Title</label><input type="text" id="set-name" class="w-full bg-black/40 border border-slate-700 rounded-xl p-4 outline-none focus:border-blue-500 transition-colors"></div><div><label class="text-xs uppercase text-slate-500 font-bold mb-2 block font-sans">Description</label><textarea id="set-desc" class="w-full bg-black/40 border border-slate-700 rounded-xl p-4 outline-none focus:border-blue-500 transition-colors" rows="2"></textarea></div><div class="grid grid-cols-2 gap-3"><button onclick="showBgPicker()" class="py-4 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-sm transition-all border border-slate-700">Change BG</button><button onclick="startRepositioning()" class="py-4 bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"><i class="ph ph-arrows-out-cardinal"></i> Move Button</button></div><button onclick="resetMenuPosition()" class="w-full py-3 bg-slate-800 text-slate-400 rounded-xl font-bold text-xs hover:bg-slate-700 transition-all">Reset Button Position</button><button onclick="hideUI()" class="w-full py-3 bg-indigo-900/30 text-indigo-300 border border-indigo-500/30 rounded-xl font-bold text-xs hover:bg-indigo-900/50 transition-all">Hide UI (Screenshot Mode)</button><div class="pt-6 border-t border-slate-800 space-y-3"><div class="grid grid-cols-2 gap-3"><button onclick="resetThemeOnly()" class="py-3 bg-slate-900 text-yellow-500 border border-yellow-500/20 rounded-xl font-bold text-xs hover:bg-yellow-500/10">Reset Theme</button><button onclick="resetAppsOnly()" class="py-3 bg-slate-900 text-orange-500 border border-orange-500/20 rounded-xl font-bold text-xs hover:bg-orange-500/10">Reset Apps</button></div><button onclick="resetEverything()" class="w-full py-4 bg-red-900/20 text-red-400 border border-red-900/30 rounded-xl font-bold text-xs hover:bg-red-900/30">Reset Everything</button></div></div><button onclick="saveSettings()" class="w-full py-5 rounded-2xl font-bold mt-8 bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/30">Save</button></div></div>
+    <div id="bg-choice-modal" class="fixed inset-0 z-[1600] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeModal('bg-choice-modal')"></div><div class="relative custom-dialog p-8 rounded-[2rem] w-full max-w-md text-white"><h2 class="text-2xl font-bold mb-2">Background Studio</h2><div class="space-y-4 mt-6"><div class="grid grid-cols-3 gap-2 bg-black/30 p-1 rounded-xl"><button onclick="setBgMode('file')" id="btn-bg-file" class="py-3 rounded-lg text-xs font-bold bg-slate-700 text-white">Image</button><button onclick="setBgMode('solid')" id="btn-bg-solid" class="py-3 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800">Solid</button><button onclick="setBgMode('gradient')" id="btn-bg-grad" class="py-3 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800">Gradient</button></div><div id="bg-inputs" class="bg-slate-800/50 rounded-xl p-6 border border-slate-700 min-h-[120px] flex flex-col justify-center"><div id="bg-input-file" class="text-center"><button onclick="document.getElementById('bg-file-upload').click()" class="py-3 px-6 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold shadow-lg shadow-blue-900/30">Select Image File</button><p class="text-[10px] text-slate-500 mt-2 font-sans">Supports PNG, JPG, GIF</p></div><div id="bg-input-solid" class="hidden"><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Pick Color</label><input type="color" class="w-full h-12 rounded-lg cursor-pointer" oninput="applySolidBg(this.value)"></div><div id="bg-input-grad" class="hidden"><label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Pick Gradient Colors</label><div class="flex gap-2"><input type="color" id="grad-1" class="h-12 flex-grow rounded cursor-pointer" value="#2563eb" oninput="applyGradientBg()"><input type="color" id="grad-2" class="h-12 flex-grow rounded cursor-pointer" value="#020617" oninput="applyGradientBg()"></div></div></div></div><button onclick="closeModal('bg-choice-modal')" class="w-full py-3 mt-6 rounded-xl font-bold bg-slate-900 text-slate-400 hover:bg-slate-800">Done</button></div></div>
+    <div id="color-theme-modal" class="fixed inset-0 z-[1650] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeModal('color-theme-modal')"></div><div class="relative custom-dialog p-8 rounded-[2rem] w-full max-w-lg text-white"><h2 class="text-2xl font-bold mb-6">Theme Studio</h2><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="space-y-1"><label class="text-[10px] font-bold uppercase text-slate-400">Accent</label><input type="color" id="edit-primary" class="w-full h-10 rounded cursor-pointer bg-transparent border border-white/10"></div><div class="space-y-1"><label class="text-[10px] font-bold uppercase text-slate-400">Main Background</label><input type="color" id="edit-bg" class="w-full h-10 rounded cursor-pointer bg-transparent border border-white/10"></div><div class="space-y-1"><label class="text-[10px] font-bold uppercase text-slate-400">Text Color</label><input type="color" id="edit-text-main" class="w-full h-10 rounded cursor-pointer bg-transparent border border-white/10"></div><div class="space-y-1"><label class="text-[10px] font-bold uppercase text-slate-400">Borders</label><input type="color" id="edit-border" class="w-full h-10 rounded cursor-pointer bg-transparent border border-white/10"></div></div><div class="mt-6 space-y-4"><div><label class="text-[10px] font-bold uppercase text-slate-400 flex justify-between">Card Background <span id="card-alpha-val">85%</span></label><div class="flex gap-2"><input type="color" id="edit-card-color" class="h-10 w-12 rounded cursor-pointer bg-transparent border border-white/10"><input type="range" id="edit-card-alpha" min="0" max="1" step="0.05" class="flex-grow"></div></div><div><label class="text-[10px] font-bold uppercase text-slate-400 flex justify-between">Dialog/Menu Background <span id="dialog-alpha-val">100%</span></label><div class="flex gap-2"><input type="color" id="edit-dialog-color" class="h-10 w-12 rounded cursor-pointer bg-transparent border border-white/10"><input type="range" id="edit-dialog-alpha" min="0" max="1" step="0.05" class="flex-grow"></div></div></div><div class="flex gap-4 mt-8"><button onclick="saveThemeColors()" class="flex-grow py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500">Apply Colors</button><button onclick="resetThemeOnly(); closeModal('color-theme-modal')" class="px-6 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold">Reset</button></div></div></div>
+    <!-- ... Help Modal ... -->
+    <div id="help-modal" class="fixed inset-0 z-[1900] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeModal('help-modal')"></div><div class="relative custom-dialog rounded-[2rem] max-w-xl w-full text-white p-8"><h2 class="text-3xl font-bold mb-6">Help</h2><div class="space-y-4 text-slate-300 max-h-[60vh] overflow-y-auto pr-2"><div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><p class="font-bold text-white mb-2 flex items-center gap-2"><i class="ph ph-browser text-blue-400"></i> Viewing Modes</p><p class="text-sm font-sans mb-1"><strong class="text-white">Inside Portal:</strong> Opens apps directly within this tab. Fast and immersive.</p><p class="text-sm font-sans text-slate-400">Note: Some sites (like Google) block this. If you see a white screen, use Cloaked Tab.</p></div><div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><p class="font-bold text-white mb-2 flex items-center gap-2"><i class="ph ph-mask-happy text-purple-400"></i> Cloaked Tab</p><p class="text-sm font-sans">Opens the app in a generic `about:blank` page. This hides the URL from history and bypasses "frame buster" scripts.</p></div><div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><p class="font-bold text-white mb-2 flex items-center gap-2"><i class="ph ph-arrows-out-cardinal text-green-400"></i> Customize</p><ul class="text-sm font-sans list-disc pl-4 space-y-1"><li><strong>Move Button:</strong> Go to Settings > Move Button to place the menu anywhere.</li><li><strong>Icons:</strong> You can upload images or use Emojis/Numbers (0-999) as app icons.</li><li><strong>Background:</strong> Upload any image to set it as your wallpaper.</li></ul></div><div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><p class="font-bold text-white mb-2 flex items-center gap-2"><i class="ph ph-share-network text-yellow-400"></i> Data Sync</p><p class="text-sm font-sans">Use the Sync button to get a code. Paste this code on another device to transfer your entire setup instantly.</p></div></div><button onclick="closeModal('help-modal')" class="w-full py-4 rounded-2xl font-bold mt-8 bg-slate-800 hover:bg-slate-700 transition-colors">Got it</button></div></div>
+    <!-- ... Export Modal ... -->
+    <div id="export-modal" class="fixed inset-0 z-[1800] hidden flex items-center justify-center p-4"><div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeModal('export-modal')"></div><div class="relative custom-dialog rounded-[2rem] max-w-xl w-full text-white p-8"><h2 class="text-2xl font-bold mb-4">Sync</h2><textarea id="sync-code-area" rows="6" class="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-3 font-mono text-xs mb-6 outline-none focus:border-blue-500 transition-colors"></textarea><div class="grid grid-cols-2 gap-4"><button onclick="copySyncCode()" class="py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold transition-colors">Copy</button><button onclick="importSyncCode()" class="py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-bold transition-colors">Import</button></div></div></div>
+    <!-- Fullscreen Viewer -->
+    <div id="fullscreen-container"><div id="dynamic-iframe-slot"></div><div id="iframe-loader"><div class="spinner"></div><p class="text-sm font-medium">Loading...</p></div></div>
+    <!-- Portal Navigation Menu -->
+    <div class="portal-nav-container" id="movable-menu"><div id="portal-menu" class="portal-dropdown"><button class="dropdown-item" onclick="reloadFullscreen()"><i class="ph ph-arrows-clockwise" id="refresh-icon"></i> Refresh</button><button class="dropdown-item" onclick="toggleNativeFullscreen()"><i class="ph ph-corners-out"></i> Fullscreen</button><button class="dropdown-item" onclick="openExternal()"><i class="ph ph-arrow-square-out"></i> New Tab</button><div class="h-[1px] bg-slate-700 my-1 mx-2"></div><button class="dropdown-item text-yellow-500 hover:bg-yellow-500/10" onclick="toggleDevModeFromMenu()"><i class="ph ph-bug"></i> <span id="nexus-dev-text">Enable Debug</span></button><div class="h-[1px] bg-slate-700 my-1 mx-2"></div><button class="dropdown-item danger text-red-400 hover:bg-red-500/10 hover:text-red-300" onclick="closeFullscreen()"><i class="ph ph-house-line"></i> Return</button></div><div class="portal-trigger" onclick="togglePortalMenu(event)"><i class="ph ph-squares-four"></i></div></div>
+    <!-- Dashboard Buttons -->
+    <button class="floating-btn add-btn w-16 h-16" onclick="showAdd()" title="Add App"><i class="ph ph-plus text-2xl"></i></button><button class="floating-btn help-btn w-16 h-16" onclick="toggleModal('help-modal')" title="Help"><i class="ph ph-question text-2xl"></i></button><button class="floating-btn export-btn w-16 h-16" onclick="showExport()" title="Sync Data"><i class="ph ph-share-network text-2xl"></i></button><button class="floating-btn settings-btn w-16 h-16" onclick="toggleModal('settings-modal')" title="Settings"><i class="ph ph-sliders-horizontal text-2xl"></i></button>
+
+    <script>
+        const STORAGE_KEY_APPS = 'portal_apps_stable';
+        const STORAGE_KEY_THEME = 'portal_theme_stable';
+        const ICONS = ['ph-globe', 'ph-game-controller', 'ph-bird', 'ph-code', 'ph-video', 'ph-music-notes', 'ph-pencil', 'ph-chat', 'ph-books', 'ph-briefcase', 'ph-terminal', 'ph-calculator', 'ph-calendar', 'ph-cloud', 'ph-heart'];
+
+        let historyLogs = [];
+        let historyIndex = -1;
+        let currentApp = null;
+        let editingAppId = null;
+        let selectedIcon = 'ph-globe';
+        let customIconData = null;
+        let customTextIcon = null;
+        let addType = 'url';
+        let devMode = false;
+        let inspectMode = false;
+        let selectedElement = null;
+        let codeEditorInstance = null;
+        let currentEditorCallback = null;
+        let activeFuncExperiment = null;
+
+        const defaultApps = [
+            { id: 'd1', name: 'DuckMath', color: '#fbbf24', icon: 'ph-bird', desc: 'Productivity', content: 'https://lla.ipv64.net/s/schoolwork/duck.html', isDefault: true },
+            { id: 'd2', name: 'GN-Math', color: '#f97316', icon: 'ph-game-controller', desc: 'Resources', content: 'https://lla.ipv64.net/s/schoolwork/singlefile.html', isDefault: true },
+            { id: 'd3', name: 'WebSim', color: '#EF4444', icon: 'ph-globe', desc: 'Simulation', content: 'https://lla.ipv64.net/s/schoolwork/web.html', isDefault: true }
+        ];
+
+        let savedApps = [];
+        try { const stored = localStorage.getItem(STORAGE_KEY_APPS); if(stored) savedApps = JSON.parse(stored); } catch(e){}
+        if (!savedApps || savedApps.length === 0) { savedApps = JSON.parse(JSON.stringify(defaultApps)); } 
+        else { const existingIds = savedApps.map(a => a.id); defaultApps.forEach(def => { if(!existingIds.includes(def.id)) savedApps.push(def); }); }
+
+        let combinedApps = [...savedApps]; 
+
+        let state = {
+            userApps: combinedApps,
+            theme: JSON.parse(localStorage.getItem(STORAGE_KEY_THEME) || JSON.stringify({
+                name: "⚡Portal⚡",
+                desc: "a portal where you can acess stuff with ease...",
+                colors: { primary: "#2563eb", bg1: "#020617", dialog: "#0f172a", card: "#0f172a", cardAlpha: 0.85, dialogAlpha: 1.0, textMain: "#ffffff", textDim: "#94a3b8", border: "transparent" },
+                bgImage: "",
+                menuPos: { left: '32px', bottom: '32px' },
+                domOverrides: [] // New Persistence Layer
+            }))
+        };
+
+        // --- ICON STUDIO ---
+        function openIconStudio() {
+            closeModal('dev-sidebar');
+            toggleModal('icon-studio-modal');
+        }
+
+        function updateIconStudio() {
+            const name = document.getElementById('icon-studio-name').value;
+            const color = document.getElementById('icon-studio-color').value;
+            const size = document.getElementById('icon-studio-size').value;
+            const anim = document.getElementById('icon-studio-anim').value;
+            
+            const target = document.getElementById('icon-preview-target');
+            const box = document.getElementById('icon-preview-box');
+            
+            // Set basic props
+            target.className = `ph ${name}`;
+            target.style.color = color;
+            target.style.fontSize = `${size}px`;
+            
+            // Animation
+            target.style.animation = anim === 'spin' ? 'spin 2s linear infinite' : anim === 'bounce' ? 'bounce 1s infinite' : anim === 'pulse' ? 'pulse 2s infinite' : 'none';
+            
+            // Box glow
+            box.style.boxShadow = `0 0 30px ${color}40`;
+        }
+
+        function copyIconHTML() {
+            const target = document.getElementById('icon-preview-target');
+            const html = target.outerHTML;
+            navigator.clipboard.writeText(html).then(() => notify("HTML Copied!", "success"));
+        }
+
+        // --- UNIFIED CODE EDITOR ---
+        function openCodeEditor(mode, initialContent, callback) {
+            const modal = document.getElementById('code-editor-modal');
+            const textarea = document.getElementById('unified-code-area');
+            const title = document.getElementById('code-editor-title');
+            
+            modal.classList.remove('hidden');
+            title.innerText = mode === 'css' ? 'Edit CSS' : mode === 'json' ? 'Edit State' : 'Edit HTML';
+            currentEditorCallback = callback;
+
+            if(codeEditorInstance) {
+                codeEditorInstance.toTextArea();
+            }
+            
+            textarea.value = initialContent;
+            
+            let cmMode = 'javascript'; 
+            if (mode === 'css') cmMode = 'css';
+            if (mode === 'html') cmMode = 'htmlmixed';
+            if (mode === 'json') cmMode = { name: "javascript", json: true };
+
+            codeEditorInstance = CodeMirror.fromTextArea(textarea, {
+                lineNumbers: true,
+                mode: cmMode,
+                theme: 'dracula',
+                lineWrapping: true
+            });
+            
+            setTimeout(() => codeEditorInstance.refresh(), 50); 
+        }
+
+        function saveCodeEditor() {
+            if(currentEditorCallback && codeEditorInstance) {
+                currentEditorCallback(codeEditorInstance.getValue());
+            }
+            closeCodeEditor();
+        }
+
+        function closeCodeEditor() {
+            document.getElementById('code-editor-modal').classList.add('hidden');
+        }
+
+        // Bridge functions for Sidebar buttons
+        function openEditorFor(type) {
+            if (type === 'css') {
+                const currentCSS = document.getElementById('custom-css-injector').innerHTML || "/* Add custom CSS here */\nbody {\n  \n}";
+                openCodeEditor('css', currentCSS, (newCSS) => {
+                    document.getElementById('custom-css-injector').innerHTML = newCSS;
+                    notify("CSS Applied", "success");
+                    consoleLog("CSS Updated");
+                });
+            } else if (type === 'json') {
+                openCodeEditor('json', JSON.stringify(state, null, 2), (newJson) => {
+                    try {
+                        state = JSON.parse(newJson);
+                        commitChanges(); applyTheme(); renderApps();
+                        notify("State Updated", "success");
+                    } catch(e) { notify("Invalid JSON", "error"); }
+                });
+            } else if (type === 'html') {
+                openCodeEditor('html', document.documentElement.outerHTML, (newHTML) => {
+                    if(confirm("Warning: Injecting full HTML replaces the entire page. Continue?")) {
+                         document.open(); document.write(newHTML); document.close();
+                         notify("HTML Injected", "warning");
+                    }
+                });
+            }
+        }
+        
+        function openAppHtmlEditor() {
+             const currentCode = document.getElementById('add-html').value;
+             openCodeEditor('html', currentCode, (newCode) => {
+                 document.getElementById('add-html').value = newCode;
+             });
+        }
+
+
+        // --- FUNCTION PLAYGROUND ---
+        function openFunctionLibrary() {
+            closeModal('dev-sidebar'); // Close sidebar to see modal better
+            toggleModal('function-lib-modal');
+        }
+
+        function selectFunc(funcName) {
+            activeFuncExperiment = funcName;
+            const container = document.getElementById('func-config-area');
+            const runBtn = document.getElementById('run-func-btn');
+            runBtn.disabled = false;
+            
+            let content = '';
+            
+            if (funcName === 'notify') {
+                content = `
+                    <h4 class="font-bold text-lg mb-4 text-blue-300">notify(msg, type, icon)</h4>
+                    <p class="text-sm text-slate-400 mb-4">Displays a toast notification.</p>
+                    <div class="space-y-3">
+                        <input type="text" id="lib-notify-msg" placeholder="Message" class="w-full bg-black/40 border border-slate-700 rounded p-2 text-sm text-white">
+                        <select id="lib-notify-type" class="w-full bg-black/40 border border-slate-700 rounded p-2 text-sm text-white">
+                            <option value="info">Info (Blue)</option>
+                            <option value="success">Success (Green)</option>
+                            <option value="error">Error (Red)</option>
+                        </select>
+                        <input type="text" id="lib-notify-icon" placeholder="Icon (e.g. ph-check)" class="w-full bg-black/40 border border-slate-700 rounded p-2 text-sm text-white" value="ph-check">
+                    </div>
+                `;
+            } else if (funcName === 'hideUI') {
+                 content = `
+                    <h4 class="font-bold text-lg mb-4 text-purple-300">hideUI()</h4>
+                    <p class="text-sm text-slate-400 mb-4">Hides the entire interface for screenshots. Click anywhere to restore.</p>
+                    <p class="text-xs text-yellow-500">Warning: UI will vanish in 2 seconds.</p>
+                `;
+            } else if (funcName === 'toggleDevMode') {
+                 content = `
+                    <h4 class="font-bold text-lg mb-4 text-yellow-300">toggleDevMode()</h4>
+                    <p class="text-sm text-slate-400 mb-4">Toggles the developer sidebar and floating button.</p>
+                `;
+            } else if (funcName === 'toggleNativeFullscreen') {
+                 content = `
+                    <h4 class="font-bold text-lg mb-4 text-green-300">toggleNativeFullscreen()</h4>
+                    <p class="text-sm text-slate-400 mb-4">Forces the browser into fullscreen mode.</p>
+                `;
+            } else if (funcName === 'reloadFullscreen') {
+                 content = `
+                    <h4 class="font-bold text-lg mb-4 text-pink-300">reloadFullscreen()</h4>
+                    <p class="text-sm text-slate-400 mb-4">Simulates a refresh of the currently active app iframe.</p>
+                    <p class="text-xs text-slate-500">Requires an app to be open.</p>
+                `;
+            } else if (funcName === 'setThemeColor') {
+                content = `<h4 class="font-bold text-lg mb-4 text-orange-300">setThemeColor(color)</h4><input type="color" id="lib-theme-color" class="w-full h-12 rounded cursor-pointer">`;
+            } else if (funcName === 'addMockApp') {
+                content = `<h4 class="font-bold text-lg mb-4 text-red-300">addMockApp()</h4><p class="text-sm text-slate-400">Adds a test app to the grid.</p>`;
+            } else if (funcName === 'clearOverrides') {
+                content = `<h4 class="font-bold text-lg mb-4 text-gray-300">clearOverrides()</h4><p class="text-sm text-slate-400">Resets all Inspector changes.</p>`;
+            }
+
+            container.innerHTML = content;
+        }
+
+        function runSelectedFunc() {
+            closeModal('function-lib-modal'); // Close to see effects
+            
+            if (activeFuncExperiment === 'notify') {
+                const msg = document.getElementById('lib-notify-msg').value || "Hello World";
+                const type = document.getElementById('lib-notify-type').value;
+                const icon = document.getElementById('lib-notify-icon').value;
+                notify(msg, type, icon);
+            } else if (activeFuncExperiment === 'hideUI') {
+                hideUI();
+            } else if (activeFuncExperiment === 'toggleDevMode') {
+                toggleDevMode();
+            } else if (activeFuncExperiment === 'toggleNativeFullscreen') {
+                toggleNativeFullscreen();
+            } else if (activeFuncExperiment === 'reloadFullscreen') {
+                reloadFullscreen();
+            } else if (activeFuncExperiment === 'setThemeColor') {
+                 liveUpdateTheme(document.getElementById('lib-theme-color').value);
+            } else if (activeFuncExperiment === 'addMockApp') { 
+                 state.userApps.push({id:Date.now().toString(),name:'Mock App',desc:'Test',icon:'ph-cube',color:'#ffffff'}); 
+                 renderApps(); 
+                 notify("Mock App Added"); 
+            } else if (activeFuncExperiment === 'clearOverrides') {
+                 clearOverrides();
+            }
+        }
+
+
+        // --- INSPECTOR LOGIC ---
+        function toggleInspector() {
+            inspectMode = !inspectMode;
+            const btn = document.getElementById('inspector-btn');
+            
+            if(inspectMode) {
+                btn.innerHTML = '<i class="ph ph-stop"></i> Stop Picking';
+                btn.classList.add('bg-red-600', 'hover:bg-red-500');
+                btn.classList.remove('bg-yellow-600', 'hover:bg-yellow-500');
+                document.body.addEventListener('mouseover', handleInspectHover);
+                document.body.addEventListener('click', handleInspectClick, true);
+                notify("Hover to inspect", "info");
+            } else {
+                btn.innerHTML = '<i class="ph ph-crosshair"></i> Start Picker';
+                btn.classList.remove('bg-red-600', 'hover:bg-red-500');
+                btn.classList.add('bg-yellow-600', 'hover:bg-yellow-500');
+                document.body.removeEventListener('mouseover', handleInspectHover);
+                document.body.removeEventListener('click', handleInspectClick, true);
+                clearHighlight();
+            }
+        }
+
+        function clearHighlight() {
+            const existing = document.querySelector('.inspect-highlight');
+            if(existing) existing.classList.remove('inspect-highlight');
+        }
+
+        function handleInspectHover(e) {
+            // Don't highlight sidebar or modal elements
+            if(e.target.closest('#dev-sidebar') || e.target.closest('#dev-mode-btn') || e.target.closest('.custom-dialog')) return;
+            clearHighlight();
+            e.target.classList.add('inspect-highlight');
+        }
+
+        function handleInspectClick(e) {
+            if(e.target.closest('#dev-sidebar') || e.target.closest('#dev-mode-btn')) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            
+            selectedElement = e.target;
+            
+            // Keep the highlight on the selected element specifically
+            clearHighlight(); 
+            selectedElement.classList.add('inspect-highlight');
+
+            // Populate Editor
+            const panel = document.getElementById('inspector-panel');
+            panel.classList.remove('hidden');
+            
+            document.getElementById('insp-tag-name').innerText = selectedElement.tagName;
+            document.getElementById('insp-text').value = selectedElement.innerText;
+            
+            // Show extra inputs based on element type
+            const extraInputs = document.getElementById('insp-extra-inputs');
+            extraInputs.innerHTML = '';
+            extraInputs.classList.add('hidden');
+
+            if (selectedElement.tagName === 'IMG') {
+                extraInputs.classList.remove('hidden');
+                extraInputs.innerHTML = `<div><label class="text-[10px] text-slate-400 uppercase">Image Source</label><input type="text" value="${selectedElement.src}" class="w-full bg-black/40 text-white text-xs p-2 rounded border border-slate-700" onchange="liveUpdateElement('src', this.value)"></div>`;
+            } else if (selectedElement.tagName === 'I' || selectedElement.tagName === 'SPAN') {
+                 extraInputs.classList.remove('hidden');
+                 extraInputs.innerHTML = `<div><label class="text-[10px] text-slate-400 uppercase">Class (Icon)</label><input type="text" value="${selectedElement.className}" class="w-full bg-black/40 text-white text-xs p-2 rounded border border-slate-700" onchange="liveUpdateElement('class', this.value)"></div>`;
+            }
+
+            // Stop inspecting mode so user can interact with the sidebar
+            toggleInspector(); 
+            notify("Element Locked", "success");
+        }
+
+        function liveUpdateElement(type, val) {
+            if(!selectedElement) return;
+            const value = val !== undefined ? val : (type === 'text' ? document.getElementById('insp-text').value : document.getElementById(type === 'color' ? 'insp-color' : 'insp-bg').value);
+            
+            if(type === 'text') selectedElement.innerText = value;
+            else if(type === 'color') selectedElement.style.color = value;
+            else if(type === 'bg') selectedElement.style.backgroundColor = value;
+            else if(type === 'src') selectedElement.src = value;
+            else if(type === 'class') selectedElement.className = value;
+
+            // Auto-save changes to persistent storage
+            saveDomOverride(selectedElement, type, value);
+        }
+
+        function updateSelectedElement(action) {
+            if(!selectedElement) return;
+            if(action === 'delete') {
+                selectedElement.style.display = 'none'; // Safer than remove
+                saveDomOverride(selectedElement, 'delete', 'none');
+                clearInspectorSelection();
+            }
+        }
+
+        function clearInspectorSelection() {
+            clearHighlight();
+            selectedElement = null;
+            document.getElementById('inspector-panel').classList.add('hidden');
+        }
+
+        // --- DOM PERSISTENCE ---
+        function getUniqueSelector(el) {
+            if (el.id) return '#' + el.id;
+            if (el === document.body) return 'body';
+            if (!el.parentNode) return '';
+            let index = Array.from(el.parentNode.children).indexOf(el) + 1;
+            return getUniqueSelector(el.parentNode) + ` > :nth-child(${index})`;
+        }
+
+        function applyDomOverrides() {
+            if (!state.theme.domOverrides) return;
+            state.theme.domOverrides.forEach(override => {
+                const el = document.querySelector(override.selector);
+                if (el) {
+                    if (override.type === 'text') el.innerText = override.value;
+                    if (override.type === 'color') el.style.color = override.value;
+                    if (override.type === 'bg') el.style.backgroundColor = override.value;
+                    if (override.type === 'src') el.src = override.value;
+                    if (override.type === 'class') el.className = override.value;
+                    if (override.type === 'delete') el.style.display = 'none';
+                }
+            });
+        }
+
+        function saveDomOverride(el, type, value) {
+            if (!state.theme.domOverrides) state.theme.domOverrides = [];
+            const selector = getUniqueSelector(el);
+            state.theme.domOverrides = state.theme.domOverrides.filter(o => !(o.selector === selector && o.type === type));
+            state.theme.domOverrides.push({ selector, type, value });
+            commitChanges();
+        }
+
+        function clearOverrides() {
+            if(confirm("Clear all visual overrides made with Inspector?")) {
+                state.theme.domOverrides = [];
+                commitChanges();
+                window.location.reload();
+            }
+        }
+
+        // --- CORE FUNCTIONS (Updated for Safety) ---
+        function toggleDevMode() {
+            devMode = !devMode; 
+            const checkbox = document.getElementById('dev-mode-toggle');
+            if(checkbox) checkbox.checked = devMode;
+            
+            const btn = document.getElementById('dev-mode-btn');
+            if(btn) btn.style.display = devMode ? 'flex' : 'none';
+
+            if(!devMode) {
+                document.getElementById('dev-sidebar').classList.remove('open');
+                if(inspectMode) toggleInspector(); 
+            }
+            const nexusText = document.getElementById('nexus-dev-text');
+            if(nexusText) nexusText.innerText = devMode ? "Disable Debug" : "Enable Debug";
+            notify(devMode ? "Dev Mode Enabled" : "Dev Mode Disabled", "info");
+            updateStorageStats();
+        }
+        
+        function updateStorageStats() {
+            if(!devMode) return;
+            const el = document.getElementById('storage-usage');
+            if(el) {
+                const total=JSON.stringify(localStorage).length;
+                el.innerText=`${(total/1024).toFixed(2)} KB used`;
+            }
+        }
+        
+        function saveSettings(){
+            state.theme.name=document.getElementById('set-name').value;
+            state.theme.desc=document.getElementById('set-desc').value;
+            commitChanges();applyTheme();closeModal('settings-modal');notify("Saved","success");
+        }
+
+        // ... Keeping existing core functions ...
+        function showBgPicker(){closeModal('settings-modal');toggleModal('bg-choice-modal');setBgMode('file')}
+        function setBgMode(mode){document.getElementById('bg-input-file').classList.toggle('hidden',mode!=='file');document.getElementById('bg-input-solid').classList.toggle('hidden',mode!=='solid');document.getElementById('bg-input-grad').classList.toggle('hidden',mode!=='gradient');document.getElementById('btn-bg-file').className=mode==='file'?'py-3 rounded-lg text-xs font-bold bg-slate-700 text-white':'py-3 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800';document.getElementById('btn-bg-solid').className=mode==='solid'?'py-3 rounded-lg text-xs font-bold bg-slate-700 text-white':'py-3 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800';document.getElementById('btn-bg-grad').className=mode==='gradient'?'py-3 rounded-lg text-xs font-bold bg-slate-700 text-white':'py-3 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800'}
+        function applySolidBg(color){state.theme.bgImage='';state.theme.colors.bg1=color;applyTheme();commitChanges()}
+        function applyGradientBg(){const c1=document.getElementById('grad-1').value;const c2=document.getElementById('grad-2').value;const gradient=`linear-gradient(135deg, ${c1}, ${c2})`;state.theme.bgImage=gradient;applyTheme();commitChanges()}
+        function openThemeEditor(){closeModal('settings-modal');toggleModal('color-theme-modal');document.getElementById('edit-primary').value=state.theme.colors.primary;document.getElementById('edit-bg').value=state.theme.colors.bg1;document.getElementById('edit-text-main').value=state.theme.colors.textMain||'#ffffff';const cardColor=state.theme.colors.card||'#0f172a';document.getElementById('edit-card-color').value=cardColor.length===7?cardColor:'#0f172a';document.getElementById('edit-card-alpha').value=state.theme.colors.cardAlpha||0.85;document.getElementById('card-alpha-val').innerText=Math.round((state.theme.colors.cardAlpha||0.85)*100)+'%';const dialogColor=state.theme.colors.dialog||'#0f172a';document.getElementById('edit-dialog-color').value=dialogColor.length===7?dialogColor:'#0f172a';document.getElementById('edit-dialog-alpha').value=state.theme.colors.dialogAlpha||1.0;document.getElementById('dialog-alpha-val').innerText=Math.round((state.theme.colors.dialogAlpha||1.0)*100)+'%'}
+        function hexToRgba(hex,alpha){const r=parseInt(hex.slice(1,3),16);const g=parseInt(hex.slice(3,5),16);const b=parseInt(hex.slice(5,7),16);return`rgba(${r}, ${g}, ${b}, ${alpha})`}
+        function saveThemeColors(){const colors=state.theme.colors;colors.primary=document.getElementById('edit-primary').value;colors.bg1=document.getElementById('edit-bg').value;colors.textMain=document.getElementById('edit-text-main').value;colors.border=document.getElementById('edit-border').value+'10';const cardHex=document.getElementById('edit-card-color').value;const cardAlpha=parseFloat(document.getElementById('edit-card-alpha').value);colors.card=cardHex;colors.cardAlpha=cardAlpha;const diagHex=document.getElementById('edit-dialog-color').value;const diagAlpha=parseFloat(document.getElementById('edit-dialog-alpha').value);colors.dialog=diagHex;colors.dialogAlpha=diagAlpha;applyTheme();commitChanges();closeModal('color-theme-modal');notify("Theme Applied!","success")}
+        const editCardAlpha=document.getElementById('edit-card-alpha');if(editCardAlpha)editCardAlpha.oninput=function(){document.getElementById('card-alpha-val').innerText=Math.round(this.value*100)+'%'};const editDialogAlpha=document.getElementById('edit-dialog-alpha');if(editDialogAlpha)editDialogAlpha.oninput=function(){document.getElementById('dialog-alpha-val').innerText=Math.round(this.value*100)+'%'};
+        function consoleLog(msg){const consoleEl=document.getElementById('debug-console');const entry=document.createElement('div');entry.innerText=`> ${msg}`;consoleEl.appendChild(entry);consoleEl.scrollTop=consoleEl.scrollHeight}
+        function toggleDevModeFromMenu(){toggleDevMode();if(devMode)toggleDevSidebar()}
+        function toggleDevSidebar(){const sidebar=document.getElementById('dev-sidebar');const isOpen=sidebar.classList.contains('open');if(!isOpen){sidebar.classList.add('open');updateStorageStats()}else{sidebar.classList.remove('open')}}
+        function runDebugJS(){const code=document.getElementById('debug-js-input').value;try{eval(code);consoleLog("JS Executed: "+code)}catch(e){consoleLog("JS Error: "+e.message)}}
+        function liveUpdateTheme(color){document.documentElement.style.setProperty('--primary-color',color)}
+        function resetDebugTheme(){applyTheme()}
+        function clearSpecificStorage(type){if(type==='apps'){localStorage.removeItem(STORAGE_KEY_APPS);state.userApps=JSON.parse(JSON.stringify(defaultApps));consoleLog("Apps cleared via Debug")}else if(type==='theme'){localStorage.removeItem(STORAGE_KEY_THEME);consoleLog("Theme cleared via Debug")}renderApps();notify("Storage Key Cleared","info")}
+        function startRepositioning(){closeModal('settings-modal');const overlay=document.getElementById('reposition-overlay');const ghost=document.getElementById('ghost-button');overlay.style.display='block';const moveHandler=(e)=>{ghost.style.left=e.clientX+'px';ghost.style.top=e.clientY+'px'};const clickHandler=(e)=>{const x=e.clientX;const y=e.clientY;state.theme.menuPos={left:(x-28)+'px',top:(y-28)+'px',right:'auto',bottom:'auto'};overlay.style.display='none';document.removeEventListener('mousemove',moveHandler);overlay.removeEventListener('click',clickHandler);applyTheme();commitChanges();notify("Relocated!","success")};document.addEventListener('mousemove',moveHandler);overlay.addEventListener('click',clickHandler)}
+        function resetMenuPosition(){state.theme.menuPos={left:'32px',bottom:'32px'};commitChanges();applyTheme();notify("Position reset","info")}
+        function moveApp(index,direction,e){e.stopPropagation();const targetIndex=index+direction;if(targetIndex>=0&&targetIndex<state.userApps.length){const temp=state.userApps[index];state.userApps[index]=state.userApps[targetIndex];state.userApps[targetIndex]=temp;commitChanges();renderApps()}}
+        function validateEmojiInput(input){input.value=input.value.replace(/[a-zA-Z]/g,'')}
+        function renderIconPicker(){const picker=document.getElementById('icon-picker');picker.innerHTML='';ICONS.forEach(icon=>{const div=document.createElement('div');div.className=`icon-item ${selectedIcon===icon?'selected':''}`;div.innerHTML=`<i class="ph ${icon}"></i>`;div.onclick=()=>{selectedIcon=icon;customIconData=null;customTextIcon=null;document.getElementById('add-emoji').value='';renderIconPicker()};picker.appendChild(div)})}
+        function saveNewApp(){const name=document.getElementById('add-name').value;const content=addType==='url'?document.getElementById('add-url').value:document.getElementById('add-html').value;if(!name||!content)return notify('Required fields missing','error');const textIconInput=document.getElementById('add-emoji').value;let finalIcon=selectedIcon;let finalCustomIcon=customIconData;let finalCustomText=null;if(textIconInput){finalIcon='text';finalCustomText=textIconInput}else if(customIconData){finalIcon='custom'}const app={id:editingAppId||Date.now().toString(),name,desc:document.getElementById('add-desc').value||'App',content:(addType==='url'&&!content.startsWith('http'))?'https://'+content:content,isHtml:addType==='html',icon:finalIcon,customIcon:finalCustomIcon,customText:finalCustomText,color:document.getElementById('add-color').value};if(editingAppId)state.userApps=state.userApps.map(a=>a.id===editingAppId?app:a);else state.userApps.push(app);commitChanges();renderApps();closeModal('add-modal');notify("Saved!","success")}
+        function deleteApp(id,e){e.stopPropagation();state.userApps=state.userApps.filter(a=>a.id!==id);commitChanges();renderApps();notify("Deleted","info")}
+        function resetThemeOnly(){if(confirm("Reset theme?")){localStorage.removeItem(STORAGE_KEY_THEME);window.location.reload()}}
+        function resetAppsOnly(){if(confirm("Delete apps?")){state.userApps=[];commitChanges();renderApps();notify("Apps cleared","info")}}
+        function resetEverything(){if(confirm("Reset everything?")){localStorage.clear();window.location.reload()}}
+        function showExport(){document.getElementById('sync-code-area').value=btoa(unescape(encodeURIComponent(JSON.stringify(state))));toggleModal('export-modal')}
+        function copySyncCode(){document.getElementById('sync-code-area').select();document.execCommand('copy');notify("Copied!","success")}
+        function importSyncCode(){try{const code=document.getElementById('sync-code-area').value.trim();state=JSON.parse(decodeURIComponent(escape(atob(code))));commitChanges();applyTheme();renderApps();notify("Imported!","success");closeModal('export-modal')}catch(e){notify("Invalid code","error")}}
+        function toggleModal(id){document.getElementById(id).classList.toggle('hidden')}
+        function closeModal(id){document.getElementById(id).classList.add('hidden')}
+        function notify(msg,type='info',icon='ph-info'){const container=document.getElementById('notification-container');const n=document.createElement('div');n.className=`notification ${type}`;n.innerHTML=`<i class="ph ${icon} text-lg"></i> <span>${msg}</span>`;container.appendChild(n);setTimeout(()=>n.remove(),2500)}
+        function setAddType(t){addType=t;document.getElementById('add-tab-url').classList.toggle('active',t==='url');document.getElementById('add-tab-html').classList.toggle('active',t==='html');document.getElementById('url-input-group').classList.toggle('hidden',t==='html');document.getElementById('html-input-group').classList.toggle('hidden',t==='url')}
+        function handleIconUpload(e){const file=e.target.files[0];const r=new FileReader();r.onload=ev=>{customIconData=ev.target.result;selectedIcon='custom';customTextIcon=null;document.getElementById('add-emoji').value='';renderIconPicker()};r.readAsDataURL(file)}
+        function handleBackgroundUpload(e){const file=e.target.files[0];const r=new FileReader();r.onload=ev=>{state.theme.bgImage=ev.target.result;applyTheme();commitChanges();notify("Wallpaper set","success")};r.readAsDataURL(file)}
+        function saveHistory(){const snap=JSON.stringify(state);if(historyIndex<historyLogs.length-1)historyLogs=historyLogs.slice(0,historyIndex+1);historyLogs.push(snap);if(historyLogs.length>50)historyLogs.shift();historyIndex=historyLogs.length-1;updateHistoryButtons()}
+        function updateHistoryButtons(){document.getElementById('undo-btn').disabled=historyIndex<=0;document.getElementById('redo-btn').disabled=historyIndex>=historyLogs.length-1}
+        function undo(){if(historyIndex>0){historyIndex--;state=JSON.parse(historyLogs[historyIndex]);commitChanges(false);applyTheme();renderApps();notify("Undo successful","success","ph-arrow-u-up-left")}}
+        function redo(){if(historyIndex<historyLogs.length-1){historyIndex++;state=JSON.parse(historyLogs[historyIndex]);commitChanges(false);applyTheme();renderApps();notify("Redo successful","success","ph-arrow-u-up-right")}}
+        function commitChanges(addToHistory=true){localStorage.setItem(STORAGE_KEY_APPS,JSON.stringify(state.userApps));localStorage.setItem(STORAGE_KEY_THEME,JSON.stringify(state.theme));if(addToHistory)saveHistory()}
+        function applyTheme(){const c=state.theme.colors;const root=document.documentElement.style;root.setProperty('--primary-color',c.primary);root.setProperty('--bg-color',c.bg1);root.setProperty('--text-main',c.textMain||'#ffffff');root.setProperty('--border-color',c.border||'transparent');const cardMixed=hexToRgba(c.card||'#0f172a',c.cardAlpha||0.85);const dialogMixed=hexToRgba(c.dialog||'#0f172a',c.dialogAlpha||1.0);root.setProperty('--card-bg',cardMixed);root.setProperty('--dialog-bg',dialogMixed);root.setProperty('--sidebar-bg',dialogMixed);root.setProperty('--button-bg','rgba(255, 255, 255, 0.1)');document.body.style.backgroundColor=c.bg1;const bg=state.theme.bgImage;if(bg&&bg.includes('gradient'))document.body.style.backgroundImage=bg;else if(bg)document.body.style.backgroundImage=`url(${bg})`;else document.body.style.backgroundImage='none';document.getElementById('p-name').innerText=state.theme.name;document.getElementById('p-desc').innerText=state.theme.desc||'';document.title=state.theme.name;document.getElementById('set-name').value=state.theme.name;document.getElementById('set-desc').value=state.theme.desc||'';const setColPrimary=document.getElementById('set-col-primary');if(setColPrimary)setColPrimary.value=c.primary;const nav=document.getElementById('movable-menu');if(nav&&state.theme.menuPos){nav.style.left=state.theme.menuPos.left||'auto';nav.style.right=state.theme.menuPos.right||'auto';nav.style.top=state.theme.menuPos.top||'auto';nav.style.bottom=state.theme.menuPos.bottom||'auto';if(state.theme.menuPos.top&&parseInt(state.theme.menuPos.top)<window.innerHeight/2)nav.classList.add('top-positioned');else nav.classList.remove('top-positioned')}}
+        function showAdd(){editingAppId=null;document.getElementById('add-name').value='';document.getElementById('add-desc').value='';document.getElementById('add-url').value='';document.getElementById('add-html').value='';document.getElementById('add-emoji').value='';selectedIcon='ph-globe';customIconData=null;customTextIcon=null;renderIconPicker();toggleModal('add-modal')}
+        function editApp(id,e){e.stopPropagation();const app=state.userApps.find(a=>a.id===id);editingAppId=id;document.getElementById('add-name').value=app.name;document.getElementById('add-desc').value=app.desc;setAddType(app.isHtml?'html':'url');if(app.isHtml)document.getElementById('add-html').value=app.content;else document.getElementById('add-url').value=app.content;if(app.icon==='text'){document.getElementById('add-emoji').value=app.customText;customTextIcon=app.customText;selectedIcon=null}else{document.getElementById('add-emoji').value='';selectedIcon=app.icon;customIconData=app.customIcon}renderIconPicker();toggleModal('add-modal')}
+        function launchInIframe(){const container=document.getElementById('fullscreen-container');const slot=document.getElementById('dynamic-iframe-slot');const loader=document.getElementById('iframe-loader');const menu=document.getElementById('movable-menu');slot.innerHTML='';const f=document.createElement('iframe');f.id='active-frame';f.style.position='fixed';f.style.top='0';f.style.left='0';f.style.bottom='0';f.style.right='0';f.style.width='100%';f.style.height='100%';f.style.border='none';f.style.zIndex='9001';f.style.backgroundColor='transparent';f.setAttribute('allowfullscreen','true');f.setAttribute('referrerpolicy','no-referrer');f.setAttribute('allow','camera; microphone; geolocation; fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media;');loader.style.display='flex';f.onload=()=>{loader.style.display='none'};if(currentApp.isHtml)f.srcdoc=currentApp.content;else f.src=currentApp.content;slot.appendChild(f);container.style.display='flex';container.classList.add('animate-open');menu.style.display='block';container.addEventListener('animationend',()=>{container.classList.remove('animate-open')},{once:true});closeModal('choice-modal')}
+        function toggleNativeFullscreen(){const f=document.getElementById('active-frame');if(f&&f.requestFullscreen)f.requestFullscreen().catch(()=>{});else if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else document.documentElement.requestFullscreen().catch(()=>{})}
+        function openExternal(){if(!currentApp.isHtml)window.open(currentApp.content,'_blank')}
+        function closeFullscreen(){if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});const container=document.getElementById('fullscreen-container');const menu=document.getElementById('movable-menu');container.classList.add('animate-close');setTimeout(()=>{container.style.display='none';menu.style.display='none';container.classList.remove('animate-open','animate-close');document.getElementById('dynamic-iframe-slot').innerHTML=''},300)}
+        function reloadFullscreen(){const f=document.getElementById('active-frame');if(!f)return;const icon=document.getElementById('refresh-icon');if(icon){icon.classList.add('spin-once');setTimeout(()=>icon.classList.remove('spin-once'),600)}const loader=document.getElementById('iframe-loader');loader.style.display='flex';if(currentApp.isHtml){const content=f.srcdoc;f.srcdoc='';setTimeout(()=>{f.srcdoc=content},50)}else{f.src=f.src}}
+        function togglePortalMenu(e){e.stopPropagation();document.getElementById('portal-menu').classList.toggle('active')}
+        document.addEventListener('click',()=>{const m=document.getElementById('portal-menu');if(m)m.classList.remove('active')});
+        document.getElementById('launch-iframe').onclick=launchInIframe;
+        document.getElementById('launch-cloaked').onclick=()=>{const w=window.open('about:blank','_blank');if(!w)return notify("Pop-up blocked!","error");const content=currentApp.isHtml?currentApp.content:`<iframe src="${currentApp.content}" style="position:fixed;top:0;left:0;bottom:0;right:0;width:100%;height:100%;border:none;background:#000;" allowfullscreen></iframe>`;const refreshBtn=`<div onclick="window.location.reload()" style="position:fixed;bottom:20px;right:20px;width:50px;height:50px;background:#2563eb;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.5);z-index:99999;transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#ffffff" viewBox="0 0 256 256"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16H211.4L184.81,71.64l-.25-.24a80,80,0,1,0-1.67,114.78,8,8,0,0,1,11,11.63A95.44,95.44,0,0,1,128,224h-1.32A96,96,0,1,1,195.75,60.25l.19.18L224,88.69V56a8,8,0,0,1,16,0Z"></path></svg></div>`;w.document.write(`<html><head><title>${currentApp.name}</title></head><body style="margin:0;background:#000;overflow:hidden;">${content}${!currentApp.isHtml?refreshBtn:''}</body></html>`);w.document.close();closeModal('choice-modal')};
+        function hideUI(){closeModal('settings-modal');notify("Hiding UI in 2 seconds...","info");setTimeout(()=>{document.body.classList.add('ui-hidden')},1500)}
+        function restoreUI(){document.body.classList.remove('ui-hidden')}
+
+        function renderApps(){const grid=document.getElementById('apps-grid');grid.innerHTML='';state.userApps.forEach((app,index)=>{const card=document.createElement('div');card.className='app-card p-10 rounded-[2rem] flex flex-col items-center text-center animate-pop-in';card.style.animationDelay=`${index*50}ms`;card.onclick=()=>{currentApp=app;toggleModal('choice-modal')};let actions=`<div class="action-btns" onmousedown="event.stopPropagation()"><button class="btn-icon move-btn" onclick="moveApp(${index}, -1, event)"><i class="ph ph-caret-left"></i></button><button class="btn-icon move-btn" onclick="moveApp(${index}, 1, event)"><i class="ph ph-caret-right"></i></button><button class="btn-icon edit-btn" onclick="editApp('${app.id}', event)"><i class="ph ph-pencil"></i></button><button class="btn-icon delete-btn" onclick="deleteApp('${app.id}', event)"><i class="ph ph-trash text-red-500"></i></button></div>`;let iconHtml='';if(app.icon==='custom'&&app.customIcon){iconHtml=`<div class="w-20 h-20 rounded-3xl mb-6 shadow-xl" style="background-image: url(${app.customIcon}); background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.1)"></div>`}else if(app.icon==='text'&&app.customText){iconHtml=`<div class="w-20 h-20 rounded-3xl flex items-center justify-center mb-6 text-4xl font-bold shadow-lg" style="color: ${app.color}; background: ${app.color}20; border: 1px solid ${app.color}40;">${app.customText}</div>`}else{iconHtml=`<div class="w-20 h-20 rounded-3xl flex items-center justify-center mb-6 shadow-lg" style="color: ${app.color}; background: ${app.color}20; border: 1px solid ${app.color}40;"><i class="ph ${app.icon} text-4xl"></i></div>`}card.innerHTML=`${actions}${iconHtml}<h3 class="text-2xl font-bold">${app.name}</h3><p class="text-slate-500 text-sm mt-2 font-medium tracking-wide font-sans">${app.desc}</p>`;grid.appendChild(card)})}
+
+        saveHistory(); applyTheme(); renderApps(); applyDomOverrides();
+    </script>
+</body>
+</html>
