@@ -581,7 +581,6 @@ async function syncMessagesFromDiscord() {
       body: JSON.stringify({
         action: "sync_from_discord",
         server_id: currentServerId,
-        channel_id: currentChannelId,
       }),
     });
     if (!response.ok) {
@@ -591,6 +590,11 @@ async function syncMessagesFromDiscord() {
     const result = await response.json();
     if (result.imported > 0) {
       console.info(`[DISCORD] Imported ${result.imported} new message(s)`);
+      // Discord imports arrive outside the active channel subscription. Rebuild
+      // unread state so channels not currently open receive their badges too.
+      if (typeof refreshUnreadMentionCounts === "function") {
+        await refreshUnreadMentionCounts();
+      }
     }
     // The active channel is already subscribed to Supabase realtime. Imported
     // rows arrive through that subscription; do not reload message history.

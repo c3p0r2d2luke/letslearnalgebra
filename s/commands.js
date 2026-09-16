@@ -261,10 +261,20 @@ async function markCurrentChannelAsRead() {
   if (messagesMap.size > 0) {
     const maxId = Math.max(...Array.from(messagesMap.keys()));
     setChannelCheckpoint(currentChannelId, maxId);
-    markServerMentionsRead(currentServerId);
     unreadChannelCounts?.set(Number(currentChannelId), 0);
     channelMentionCounts?.set(Number(currentChannelId), 0);
+    const server = servers.find((item) => item.id === currentServerId);
+    if (server) {
+      const channelIds = channels
+        .filter((channel) => channel.server_id === currentServerId)
+        .map((channel) => Number(channel.id));
+      unreadMentionCounts.set(
+        currentServerId,
+        channelIds.reduce((total, channelId) => total + (channelMentionCounts.get(channelId) || 0), 0)
+      );
+    }
     if (typeof renderChannelList === "function") renderChannelList();
+    if (typeof renderServerList === "function") renderServerList();
   }
 }
 

@@ -1914,7 +1914,6 @@ async function handleRealtimeMessage(newMsg, eventType) {
     // We pass the new message ID so the "read" state moves forward
     if (currentServerId && Number.isFinite(messageKey)) {
       setChannelCheckpoint(currentChannelId, messageKey);
-      setServerCheckpoint(currentServerId, messageKey);
       unreadChannelCounts.set(Number(currentChannelId), 0);
       channelMentionCounts.set(Number(currentChannelId), 0);
       updateMentionReadBar();
