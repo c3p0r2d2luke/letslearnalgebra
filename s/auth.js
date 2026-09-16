@@ -1494,6 +1494,8 @@ function stopMemberRealtime() {
   }
 }
 
+let memberListUserHidden = localStorage.getItem("lla_member_list_hidden") === "true";
+
 function setMemberListVisibility() {
   const memberList = document.getElementById("memberList");
   const memberToggle = document.getElementById("memberListToggle");
@@ -1506,7 +1508,8 @@ function setMemberListVisibility() {
     const content = document.getElementById("memberListContent");
     if (content) content.innerHTML = "";
   } else if (window.innerWidth > 768) {
-    memberList.style.display = "flex";
+    memberList.classList.toggle("is-hidden", memberListUserHidden);
+    memberList.style.display = memberListUserHidden ? "none" : "flex";
   } else {
     memberList.style.display = "";
   }

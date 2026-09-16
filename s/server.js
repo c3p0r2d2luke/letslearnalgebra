@@ -1488,7 +1488,9 @@ if (addBtn) {
       if (window.innerWidth <= 768) {
         ml.classList.toggle("open");
       } else {
-        ml.classList.toggle("is-hidden");
+        memberListUserHidden = !memberListUserHidden;
+        localStorage.setItem("lla_member_list_hidden", String(memberListUserHidden));
+        setMemberListVisibility();
       }
     });
   }
