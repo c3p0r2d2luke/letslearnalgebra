@@ -3704,29 +3704,6 @@ const typingChannel = supabaseClient.channel('typing-indicator')
   })
   .subscribe();
 
-// Simplified input handler
-input.addEventListener("input", async () => {
-  if (!username) return;
-
-  // Debounce locally before sending to DB
-  clearTimeout(typingTimeout);
-
-  // Send "typing" status
-  await supabaseClient.from("typing").upsert({
-    username: username,
-    typing: true,
-    updated_at: new Date()
-  });
-
-  typingTimeout = setTimeout(async () => {
-    await supabaseClient.from("typing").update({ typing: false })
-      .eq("username", username);
-  }, 2000);
-});
-
-
-
-
 // ---------------- HOVER CONTROLS ----------------
 
 function attachHoverControls(li, msg) {

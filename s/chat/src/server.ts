@@ -185,16 +185,23 @@ async function giveCustomRole(targetUser) {
 }
 
 
-function sendTyping(status) {
+async function sendTyping(status) {
   if (isTyping === status) return;
-  isTyping = status;
 
-  supabaseClient
-    .from("typing")
-    .upsert({
-      username: username,
-      typing: status
-    });
+  try {
+    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session || !username) return;
+
+    const { error } = await supabaseClient
+      .from("typing")
+      .upsert({ username, typing: status });
+    if (error) throw error;
+
+    isTyping = status;
+  } catch (error) {
+    console.warn("[typing] Could not update typing status:", error);
+  }
 }
 
 function subscribeToTyping() {

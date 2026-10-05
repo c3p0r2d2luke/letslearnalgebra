@@ -5,10 +5,10 @@
   "main": "script.js",
   "type": "module",
   "scripts": {
-    "build:chat": "tsc -p chat/tsconfig.json",
-    "check:chat-core": "tsc --noEmit --strict --target ES2022 --module ES2022 --moduleResolution Bundler --lib ES2022,DOM --skipLibCheck chat/src/chat-config.d.ts chat/src/browser-globals.d.ts chat/src/ad.ts chat/src/ui-dialogs.ts chat/src/discord-config.ts",
-    "check:chat-server": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck chat/server.ts",
-    "start:chat": "node --env-file=chat/.env chat/server.ts",
+    "build:chat": "tsc -p chat/tsconfig.json && tsc -p chat/tsconfig.server.json",
+    "check:chat-core": "tsc --noEmit --strict --target ES2022 --module ES2022 --moduleResolution Bundler --lib ES2022,DOM --skipLibCheck chat/src/chat-config.d.ts chat/src/browser-globals.d.ts chat/src/ad.ts chat/src/ui-dialogs.ts chat/src/discord-config.ts chat/src/chat-redirect.ts chat/src/spotify-callback.ts",
+    "check:chat-server": "tsc --noEmit -p chat/tsconfig.server.json",
+    "start:chat": "npm run build:chat && node --env-file=chat/.env chat/dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

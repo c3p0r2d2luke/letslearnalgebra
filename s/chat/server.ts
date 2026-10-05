@@ -2,12 +2,33 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, resolve, sep } from "node:path";
+import { isIP } from "node:net";
+import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const publicDirectory = resolve(fileURLToPath(new URL("./public/", import.meta.url)));
-const host = process.env.HOST || "127.0.0.1";
+const serverDirectory = dirname(fileURLToPath(import.meta.url));
+const publicDirectory = resolve(
+  serverDirectory,
+  serverDirectory.endsWith(`${sep}dist`) ? "../public" : "public",
+);
+const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 3501);
+const configuredBasePath = process.env.CHAT_BASE_PATH?.trim() || "/s/chat";
+
+function normalizeBasePath(value: string): string {
+  if (!value.startsWith("/") || value.includes("?") || value.includes("#") || value.includes("\\")) {
+    throw new Error("CHAT_BASE_PATH must be an absolute URL path without query or fragment.");
+  }
+
+  const segments = value.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("CHAT_BASE_PATH cannot contain dot segments.");
+  }
+  return segments.length ? `/${segments.join("/")}` : "";
+}
+
+const chatBasePath = normalizeBasePath(configuredBasePath);
+
 function requiredEnvironmentValue(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required chat configuration: ${name}`);
@@ -33,8 +54,8 @@ const mimeTypes: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-if (!["127.0.0.1", "::1"].includes(host)) {
-  throw new Error("The chat server must bind to a loopback address.");
+if (isIP(host) === 0) {
+  throw new Error("HOST must be an IP address.");
 }
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("PORT must be an integer between 1 and 65535.");
@@ -52,8 +73,10 @@ const server = createServer(async (request, response) => {
   }
 
   let pathname: string;
+  let requestUrl: URL;
   try {
-    pathname = decodeURIComponent(new URL(request.url || "/", "http://localhost").pathname);
+    requestUrl = new URL(request.url || "/", "http://localhost");
+    pathname = decodeURIComponent(requestUrl.pathname);
   } catch {
     response.writeHead(400).end("Bad request");
     return;
@@ -64,20 +87,48 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const legacyShellPath = chatBasePath ? `${chatBasePath}.html` : "/chat.html";
+  if (pathname === legacyShellPath) {
+    response.writeHead(302, {
+      Location: `${chatBasePath}/index.html${requestUrl.search}`,
+      "Cache-Control": "no-store",
+    }).end();
+    return;
+  }
+
+  if (chatBasePath && pathname === chatBasePath) {
+    response.writeHead(302, {
+      Location: `${chatBasePath}/${requestUrl.search}`,
+      "Cache-Control": "no-store",
+    }).end();
+    return;
+  }
+
+  if (chatBasePath && pathname.startsWith(`${chatBasePath}/`)) {
+    pathname = pathname.slice(chatBasePath.length) || "/";
+  }
+
+  if (pathname === "/chat-config.js") {
+    const publicConfigJson = JSON.stringify(publicConfig).replace(/</g, "\\u003c");
+    const configScript = `window.CHAT_CONFIG = Object.freeze(${publicConfigJson});\n`;
+    response.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Content-Length": Buffer.byteLength(configScript),
+      "Cache-Control": "no-store",
+    });
+    response.end(request.method === "HEAD" ? undefined : configScript);
+    return;
+  }
+
   if (pathname === "/" || pathname === "/index.html") {
     try {
       const shell = await readFile(chatShellPath, "utf8");
-      const publicConfigJson = JSON.stringify(publicConfig).replace(/</g, "\\u003c");
-      const renderedShell = shell.replace(
-        '<script src="chat-config.js"></script>',
-        `<script>window.CHAT_CONFIG = Object.freeze(${publicConfigJson});</script>`,
-      );
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
-        "Content-Length": Buffer.byteLength(renderedShell),
+        "Content-Length": Buffer.byteLength(shell),
         "Cache-Control": "no-store",
       });
-      response.end(renderedShell);
+      response.end(request.method === "HEAD" ? undefined : shell);
     } catch (error) {
       console.error("Chat shell render failed:", error);
       response.writeHead(500).end("Chat is temporarily unavailable");

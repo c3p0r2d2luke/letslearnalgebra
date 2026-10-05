@@ -567,6 +567,28 @@ async function syncMessageToDiscord(messageId, channelId) {
 
 let discordSyncTimer = null;
 let discordSyncInFlight = false;
+const discordServerMappingCache = new Map<string, { linked: boolean; checkedAt: number }>();
+
+async function isDiscordServerMapped(serverId: string): Promise<boolean> {
+  const cached = discordServerMappingCache.get(serverId);
+  if (cached && Date.now() - cached.checkedAt < 30_000) return cached.linked;
+
+  const { data, error } = await supabaseClient
+    .from("discord_servers")
+    .select("id")
+    .eq("server_id", serverId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[DISCORD] Could not check server mapping:", error.message);
+    return false;
+  }
+
+  const linked = Boolean(data);
+  discordServerMappingCache.set(serverId, { linked, checkedAt: Date.now() });
+  return linked;
+}
 
 async function syncDiscordStructure(serverId = currentServerId) {
   if (!serverId || typeof supabaseUrl === "undefined") return;
@@ -589,6 +611,8 @@ async function syncMessagesFromDiscord() {
   if (discordSyncInFlight) return;
   discordSyncInFlight = true;
   try {
+    if (!(await isDiscordServerMapped(currentServerId))) return;
+
     const response = await fetch(`${supabaseUrl}/functions/v1/discord-message-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

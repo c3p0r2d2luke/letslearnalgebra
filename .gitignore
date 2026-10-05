@@ -4,6 +4,7 @@ node_modules/
 !.env.example
 !**/.env.example
 s/chat/public/*.js
+s/chat/dist/
 surge.sh
 *.pem
 *.sh
