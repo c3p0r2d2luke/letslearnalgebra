@@ -1,0 +1,225 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+.chat-wrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 16px 16px 0 0;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.chat-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  background: linear-gradient(90deg, #60a5fa, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  margin-left: auto;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.chat-container {
+  flex: 1;
+  background: #1e293b;
+  border-radius: 0 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+#messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+#messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#messages::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+#messages::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+.message {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  line-height: 1.6;
+  max-width: 85%;
+  word-wrap: break-word;
+}
+
+.user {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
+}
+
+.ai {
+  background: #2d3748;
+  margin-right: auto;
+  border-bottom-left-radius: 4px;
+}
+
+/* ... (Keep your existing body, header, and container styles) ... */
+
+/* --- MARKDOWN & CODE BLOCK STYLING --- */
+
+.message.ai {
+  /* Ensure text wraps nicely */
+  word-wrap: break-word; 
+  overflow-wrap: break-word;
+}
+
+/* Headings inside AI messages */
+.message.ai h1, .message.ai h2, .message.ai h3 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-size: 1.1em;
+  color: #f1f5f9;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 0.3em;
+}
+
+/* Paragraphs */
+.message.ai p {
+  margin: 0.8em 0;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+/* Inline code (backticks) */
+.message.ai code:not(pre code) {
+  background-color: #334155;
+  color: #fbbf24; /* Amber for inline code */
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+
+/* Block-level code (```html ... ```) */
+.message.ai pre {
+  background-color: #0f172a; /* Very dark blue/black */
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  overflow-x: auto; /* Scroll if code is long */
+  position: relative;
+}
+
+/* The actual code text inside the block */
+.message.ai pre code {
+  background: transparent;
+  color: #e2e8f0;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+  padding: 0;
+  display: block;
+}
+
+/* Lists */
+.message.ai ul, .message.ai ol {
+  padding-left: 20px;
+  margin: 0.8em 0;
+  color: #cbd5e1;
+}
+
+.message.ai li {
+  margin-bottom: 6px;
+}
+
+/* Bold text */
+.message.ai strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* Blockquotes */
+.message.ai blockquote {
+  border-left: 4px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-radius: 0 8px 8px 0;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* Thinking Animation */
+.thinking-indicator {
+  background: transparent;
+  padding: 10px 18px;
+  margin-bottom: 12px;
+}
+
+.thinking {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.thinking span {
+  width: 8px;
+  height: 8px;
+  background: #64748b;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+
+.thinking span:nth-child(1) { animation-delay: -0.32s; }
+.thinking span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}

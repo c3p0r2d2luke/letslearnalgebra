@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Anticlose</title>
+</head>
+<body>
+    <h1>He</h1>
+    <!-- Fix: Corrected function call syntax -->
+    <button onclick="anticlose()">Activate Protection</button>
+
+    <script>
+        function anticlose() {
+            (() => {
+                // =========================
+                // SETTINGS
+                // =========================
+                const ENABLE_POPUP_RECOVERY = true;
+                const ENABLE_FULLSCREEN = false;
+                const ENABLE_FOCUS_TRAP = true;
+                const ENABLE_HISTORY_TRAP = true;
+
+                let allowClose = false;
+
+                // =========================
+                // BEFOREUNLOAD PROTECTION
+                // =========================
+                window.addEventListener("beforeunload", (e) => {
+                    if (allowClose) return;
+                    e.preventDefault();
+                    e.returnValue = "";
+                });
+
+                // =========================
+                // BLOCK CTRL+W / CMD+W
+                // =========================
+                document.addEventListener("keydown", (e) => {
+                    const key = e.key.toLowerCase();
+                    if ((e.ctrlKey || e.metaKey) && (key === "w" || key === "q")) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        alert("Closing is disabled.");
+                    }
+                }, true);
+
+                // =========================
+                // HISTORY TRAP
+                // =========================
+                if (ENABLE_HISTORY_TRAP) {
+                    history.pushState(null, "", location.href);
+                    window.addEventListener("popstate", () => {
+                        history.pushState(null, "", location.href);
+                    });
+                }
+
+                // =========================
+                // FOCUS TRAP
+                // =========================
+                if (ENABLE_FOCUS_TRAP) {
+                    setInterval(() => {
+                        if (document.hidden) {
+                            window.focus();
+                        }
+                    }, 500);
+                }
+                
+                alert("Protection Active! Try closing the tab.");
+            })(); // Fix: Added closing parenthesis for IIFE
+        } // Fix: Added missing closing brace for function
+    </script>
+</body>
+</html>

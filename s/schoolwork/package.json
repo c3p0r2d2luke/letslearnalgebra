@@ -1,0 +1,11 @@
+{
+  "name": "gn-math.github.io-main",
+  "version": "1.0.5",
+  "description": "gn-math",
+  "main": "gnmath.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "genizy",
+  "license": "ISC"
+}

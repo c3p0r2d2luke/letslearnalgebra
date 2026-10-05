@@ -1,0 +1,10 @@
+sql-stuff
+node_modules/
+*.env
+!.env.example
+!**/.env.example
+s/chat/public/*.js
+surge.sh
+*.pem
+*.sh
+supabase/

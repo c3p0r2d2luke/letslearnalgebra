@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>File Runner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+html { overflow: hidden; }
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  margin: 0;
+  padding: 24px;
+  overscroll-behavior: none;
+}
+
+h2 { margin: 0 0 16px; font-size: 18px; font-weight: 500; }
+
+#drop-zone {
+  border: 1.5px dashed #444;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 12px;
+}
+#drop-zone.drag-over { border-color: #0f0; background: rgba(0,255,0,0.04); }
+#drop-zone input { display: none; }
+#drop-zone p { margin: 0 0 8px; color: #aaa; font-size: 14px; }
+#drop-zone button {
+  background: transparent;
+  border: 1px solid #555;
+  color: #eee;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#drop-zone button:hover { border-color: #0f0; color: #0f0; }
+
+#file-list {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 12px;
+  max-height: 80px;
+  overflow-y: auto;
+  padding: 0 4px;
+}
+#file-list span { display: block; padding: 1px 0; }
+
+/* Hidden add-file input used by the top-right button */
+#add-file-input { display: none; }
+
+#browser-shell {
+  margin-top: 20px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+  display: none;
+}
+
+/* ── Fullscreen mode ── */
+#browser-shell.fullscreen {
+position: fixed;
+inset: 0;
+margin: 0;
+padding: 0;
+border: none;
+border-radius: 0;
+z-index: 999999;
+background: #000;
+}
+
+/* Hide EVERYTHING except the iframe */
+#browser-shell.fullscreen #tab-bar,
+#browser-shell.fullscreen #nav-bar,
+#browser-shell.fullscreen #loading-bar {
+display: none !important;
+}
+
+/* Make iframe take 100% */
+#browser-shell.fullscreen #frame-container {
+position: fixed;
+inset: 0;
+width: 100vw;
+height: 100vh;
+}
+
+#browser-shell.fullscreen #frame-container iframe {
+width: 100vw;
+height: 100vh;
+display: block;
+}
+
+#tab-bar {
+  display: flex;
+  background: #000;
+  border-bottom: 1px solid #222;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-right: 1px solid #222;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #888;
+  flex-shrink: 0;
+}
+.tab.active { color: #0f0; background: #111; }
+.tab .tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.6;
+}
+.tab .tab-close:hover { opacity: 1; color: #f55; }
+#new-tab-btn {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 18px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#new-tab-btn:hover { color: #0f0; }
+
+/* ── Nav bar with right-side toolbar ── */
+#nav-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #000;
+  border-bottom: 1px solid #222;
+  align-items: center;
+}
+#nav-bar button {
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#nav-bar button:hover { border-color: #0f0; color: #0f0; }
+#nav-bar button:disabled { opacity: 0.3; cursor: default; border-color: #333; color: #555; }
+/* ↓ BUTTON SIZES — adjust font-size and padding here */
+#add-file-btn   { font-size: 13px !important; padding: 3px 8px !important; }
+#reopen-btn     { font-size: 13px !important; padding: 3px 8px !important; }
+#open-full-btn  { font-size: 13px !important; padding: 3px 8px !important; }
+#fullscreen-btn { font-size: 13px !important; padding: 3px 8px !important; }
+/* ↑ BUTTON SIZES */
+#reopen-btn:hover, #fullscreen-btn:hover { border-color: #0f0; color: #0f0; }
+#reopen-btn:disabled { opacity: 0.3; cursor: default; }
+#url-bar {
+  flex: 1;
+  background: #111;
+  border: 1px solid #333;
+  color: #0f0;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: monospace;
+}
+#url-bar:focus { outline: none; border-color: #0f0; }
+
+/* ── Right-side toolbar ── */
+#nav-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+/* Re-open dropdown wrapper */
+#reopen-wrapper {
+  position: relative;
+}
+
+#reopen-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  min-width: 200px;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+#reopen-menu.open { display: block; }
+.reopen-item {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #ccc;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid #222;
+}
+.reopen-item:last-child { border-bottom: none; }
+.reopen-item:hover { background: #0f0; color: #000; }
+.reopen-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+
+#loading-bar {
+  height: 2px;
+  background: #0f0;
+  width: 0%;
+  transition: width 0.2s;
+  display: none;
+}
+
+#frame-container {
+  position: relative;
+  background: #fff;
+}
+#frame-container iframe {
+  width: 100%;
+  height: calc(100vh - 60px);
+  border: none;
+  display: block;
+}
+#frame-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: #0f0;
+  font-size: 14px;
+}
+
+</style>
+</head>
+<body>
+
+<div id="launcher" style="
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:100vh;
+  background:#111;
+  margin:-24px;
+">
+  <button id="launch-btn" style="
+    background:transparent;
+    border:2px solid #0f0;
+    color:#0f0;
+    padding:18px 40px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:20px;
+    font-family:sans-serif;
+    letter-spacing:0.04em;
+    transition:background 0.15s,color 0.15s;
+  "
+  onmouseover="this.style.background='rgba(0,255,0,0.12)'"
+  onmouseout="this.style.background='transparent'"
+  onclick="launchInNewTab()">Launch</button>
+</div>
+
+<template id="app-tpl"><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>File Runner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+html { overflow: hidden; }
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  margin: 0;
+  padding: 24px;
+  overscroll-behavior: none;
+}
+
+h2 { margin: 0 0 16px; font-size: 18px; font-weight: 500; }
+
+#drop-zone {
+  border: 1.5px dashed #444;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 12px;
+}
+#drop-zone.drag-over { border-color: #0f0; background: rgba(0,255,0,0.04); }
+#drop-zone input { display: none; }
+#drop-zone p { margin: 0 0 8px; color: #aaa; font-size: 14px; }
+#drop-zone button {
+  background: transparent;
+  border: 1px solid #555;
+  color: #eee;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#drop-zone button:hover { border-color: #0f0; color: #0f0; }
+
+#file-list {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 12px;
+  max-height: 80px;
+  overflow-y: auto;
+  padding: 0 4px;
+}
+#file-list span { display: block; padding: 1px 0; }
+
+/* Hidden add-file input used by the top-right button */
+#add-file-input { display: none; }
+
+#browser-shell {
+  margin-top: 20px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+  display: none;
+}
+
+/* ── Fullscreen mode ── */
+#browser-shell.fullscreen {
+position: fixed;
+inset: 0;
+margin: 0;
+padding: 0;
+border: none;
+border-radius: 0;
+z-index: 999999;
+background: #000;
+}
+
+/* Hide EVERYTHING except the iframe */
+#browser-shell.fullscreen #tab-bar,
+#browser-shell.fullscreen #nav-bar,
+#browser-shell.fullscreen #loading-bar {
+display: none !important;
+}
+
+/* Make iframe take 100% */
+#browser-shell.fullscreen #frame-container {
+position: fixed;
+inset: 0;
+width: 100vw;
+height: 100vh;
+}
+
+#browser-shell.fullscreen #frame-container iframe {
+width: 100vw;
+height: 100vh;
+display: block;
+}
+
+#tab-bar {
+  display: flex;
+  background: #000;
+  border-bottom: 1px solid #222;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-right: 1px solid #222;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #888;
+  flex-shrink: 0;
+}
+.tab.active { color: #0f0; background: #111; }
+.tab .tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.6;
+}
+.tab .tab-close:hover { opacity: 1; color: #f55; }
+#new-tab-btn {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 18px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#new-tab-btn:hover { color: #0f0; }
+
+/* ── Nav bar with right-side toolbar ── */
+#nav-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #000;
+  border-bottom: 1px solid #222;
+  align-items: center;
+}
+#nav-bar button {
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#nav-bar button:hover { border-color: #0f0; color: #0f0; }
+#nav-bar button:disabled { opacity: 0.3; cursor: default; border-color: #333; color: #555; }
+/* ↓ BUTTON SIZES — adjust font-size and padding here */
+#add-file-btn   { font-size: 13px !important; padding: 3px 8px !important; }
+#reopen-btn     { font-size: 13px !important; padding: 3px 8px !important; }
+#open-full-btn  { font-size: 13px !important; padding: 3px 8px !important; }
+#fullscreen-btn { font-size: 13px !important; padding: 3px 8px !important; }
+/* ↑ BUTTON SIZES */
+#reopen-btn:hover, #fullscreen-btn:hover { border-color: #0f0; color: #0f0; }
+#reopen-btn:disabled { opacity: 0.3; cursor: default; }
+#url-bar {
+  flex: 1;
+  background: #111;
+  border: 1px solid #333;
+  color: #0f0;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: monospace;
+}
+#url-bar:focus { outline: none; border-color: #0f0; }
+
+/* ── Right-side toolbar ── */
+#nav-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+/* Re-open dropdown wrapper */
+#reopen-wrapper {
+  position: relative;
+}
+
+#reopen-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  min-width: 200px;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+#reopen-menu.open { display: block; }
+.reopen-item {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #ccc;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid #222;
+}
+.reopen-item:last-child { border-bottom: none; }
+.reopen-item:hover { background: #0f0; color: #000; }
+.reopen-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+
+#loading-bar {
+  height: 2px;
+  background: #0f0;
+  width: 0%;
+  transition: width 0.2s;
+  display: none;
+}
+
+#frame-container {
+  position: relative;
+  background: #fff;
+}
+#frame-container iframe {
+  width: 100%;
+  height: calc(100vh - 60px);
+  border: none;
+  display: block;
+}
+#frame-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: #0f0;
+  font-size: 14px;
+}
+
+</style>
+</head>
+<body>
+
+<h2>File Runner</h2>
+
+<div id="drop-zone">
+  <p>Drop file or a ZIP here</p>
+  <button onclick="document.getElementById('file-input').click()">Choose file</button>
+  <input type="file" id="file-input" multiple>
+</div>
+
+<div id="file-list"></div>
+
+<input type="file" id="add-file-input" multiple>
+
+<div id="browser-shell">
+  <div id="tab-bar">
+    <button id="new-tab-btn" title="New tab">+</button>
+  </div>
+  <div id="nav-bar">
+    <button id="reload-btn" title="Reload">&#8635;</button>
+    <input id="url-bar" type="text" spellcheck="false">
+
+    
+    <div id="nav-right">
+
+      
+      <button id="add-file-btn" title="Add more files">＋ Add File</button>
+
+      
+      <div id="reopen-wrapper">
+        <button id="reopen-btn" title="Open another instance of a loaded file" disabled>Re-open ▾</button>
+        <div id="reopen-menu"></div>
+      </div>
+
+      
+      <button id="open-full-btn" title="Open current file as a top-level page (bypasses iframe restrictions)" disabled>New Tab</button>
+
+      
+      <button id="fullscreen-btn" title="Toggle fullscreen">⛶</button>
+    </div>
+  </div>
+  <div id="loading-bar"></div>
+  <div id="frame-container">
+    <iframe
+id="main-frame"
+sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads"
+allow="fullscreen *">
+</iframe>
+    <div id="frame-overlay">Loading...</div>
+
+  </div>
+</div>
+
+<script>
+const vfs = new Map();
+const blobUrls = new Map();
+
+function addToVfs(path, blob, filename) {
+  const key = normalizePath(path);
+  vfs.set(key, new File([blob], filename || key.split('/').pop()));
+  if (blobUrls.has(key)) URL.revokeObjectURL(blobUrls.get(key));
+  blobUrls.set(key, URL.createObjectURL(new Blob([blob], { type: guessMime(key) })));
+}
+
+function normalizePath(p) {
+  if (!p.startsWith('/')) p = '/' + p;
+  return p.replace(/\/\/+/g, '/');
+}
+
+function guessMime(path) {
+  const ext = path.split('.').pop().toLowerCase();
+  const map = {
+    html: 'text/html', htm: 'text/html',
+    css: 'text/css', js: 'application/javascript',
+    json: 'application/json', svg: 'image/svg+xml',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp',
+    woff: 'font/woff', woff2: 'font/woff2',
+    txt: 'text/plain',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+async function loadFiles(files, autoOpen = false) {
+  const keysBefore = new Set(vfs.keys());
+
+  for (const file of files) {
+    if (file.name.endsWith('.zip')) {
+      await loadZip(file);
+    } else {
+      const buf = await file.arrayBuffer();
+      addToVfs('/' + file.name, buf, file.name);
+    }
+  }
+  refreshFileList();
+  updateReopenMenu();
+
+  if (autoOpen) {
+
+    const newKeys = [...vfs.keys()].filter(k => !keysBefore.has(k));
+    const candidates = newKeys.length > 0 ? newKeys : [...vfs.keys()];
+    let entry = candidates.find(p => p.toLowerCase().endsWith('index.html')) || null;
+    if (!entry) entry = candidates.find(p => p.toLowerCase().endsWith('.html') || p.toLowerCase().endsWith('.htm')) || null;
+    if (!entry && candidates.length > 0) entry = candidates[0];
+    if (entry) openInNewTab(entry);
+    return;
+  }
+
+  if (vfs.size > 0) {
+    launchBrowser();
+  }
+}
+
+async function loadZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    const buf = await entry.async('arraybuffer');
+    const clean = normalizePath(path);
+    addToVfs(clean, buf, clean.split('/').pop());
+  }
+}
+
+function refreshFileList() {
+  const el = document.getElementById('file-list');
+  el.innerHTML = '';
+  for (const [path] of vfs) {
+    const s = document.createElement('span');
+    s.textContent = path;
+    el.appendChild(s);
+  }
+}
+
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  loadFiles([...e.dataTransfer.files]);
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  const alreadyLoaded = vfs.size > 0;
+  loadFiles([...e.target.files], alreadyLoaded);
+  e.target.value = '';
+});
+
+document.getElementById('add-file-btn').onclick = () => {
+  document.getElementById('add-file-input').click();
+};
+document.getElementById('add-file-input').addEventListener('change', e => {
+  loadFiles([...e.target.files], true);
+  e.target.value = '';
+});
+
+let tabs = [];
+let activeTab = null;
+let tabCounter = 0;
+
+function createTab(path) {
+  const id = ++tabCounter;
+  const tab = { id, path, title: path.split('/').pop() || 'New tab' };
+  tabs.push(tab);
+  return tab;
+}
+
+function openInNewTab(path) {
+  const tab = createTab(path);
+  activeTab = tab;
+  renderTabs();
+  navigateTo(path);
+}
+
+function renderTabs() {
+  const bar = document.getElementById('tab-bar');
+  const newBtn = document.getElementById('new-tab-btn');
+  bar.innerHTML = '';
+  tabs.forEach(tab => {
+    const el = document.createElement('div');
+    el.className = 'tab' + (tab === activeTab ? ' active' : '');
+
+    const title = document.createElement('span');
+    title.textContent = tab.title;
+    el.appendChild(title);
+
+    const close = document.createElement('button');
+    close.className = 'tab-close';
+    close.textContent = '×';
+    close.title = 'Close tab';
+    close.onclick = e => { e.stopPropagation(); closeTab(tab); };
+    el.appendChild(close);
+
+    el.onclick = () => switchTab(tab);
+    bar.appendChild(el);
+  });
+  bar.appendChild(newBtn);
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  renderTabs();
+  navigateTo(tab.path);
+}
+
+function closeTab(tab) {
+  const idx = tabs.indexOf(tab);
+  tabs = tabs.filter(t => t !== tab);
+  if (activeTab === tab) {
+    activeTab = tabs[Math.min(idx, tabs.length - 1)] || null;
+  }
+  renderTabs();
+  if (activeTab) {
+    navigateTo(activeTab.path);
+  } else {
+    document.getElementById('main-frame').srcdoc = '';
+    document.getElementById('url-bar').value = '';
+    setNavButtons();
+  }
+}
+
+document.getElementById('new-tab-btn').onclick = () => {
+  const tab = createTab('/');
+  activeTab = tab;
+  renderTabs();
+  document.getElementById('main-frame').srcdoc = '<html><body style="background:#fff;font-family:sans-serif;padding:24px;color:#333"><h2>New tab</h2><p>Navigate using the URL bar above.</p></body></html>';
+  document.getElementById('url-bar').value = '/';
+  setNavButtons();
+};
+
+function updateReopenMenu() {
+  const btn = document.getElementById('reopen-btn');
+  const menu = document.getElementById('reopen-menu');
+
+  btn.disabled = vfs.size === 0;
+
+  menu.innerHTML = '';
+  if (vfs.size === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'reopen-empty';
+    empty.textContent = 'No files loaded yet';
+    menu.appendChild(empty);
+    return;
+  }
+
+  for (const [path] of vfs) {
+    const item = document.createElement('div');
+    item.className = 'reopen-item';
+    item.textContent = path;
+    item.title = path;
+    item.onclick = () => {
+      openInNewTab(path);
+      closeReopenMenu();
+    };
+    menu.appendChild(item);
+  }
+}
+
+function closeReopenMenu() {
+  document.getElementById('reopen-menu').classList.remove('open');
+}
+
+document.getElementById('reopen-btn').onclick = (e) => {
+  e.stopPropagation();
+  const menu = document.getElementById('reopen-menu');
+  menu.classList.toggle('open');
+};
+
+document.addEventListener('click', () => closeReopenMenu());
+document.getElementById('reopen-menu').addEventListener('click', e => e.stopPropagation());
+
+document.getElementById('fullscreen-btn').onclick = () => {
+const shell = document.getElementById('browser-shell');
+const iframe = document.getElementById('main-frame');
+
+const isFs = shell.classList.toggle('fullscreen');
+
+const btn = document.getElementById('fullscreen-btn');
+btn.title = isFs ? 'Exit fullscreen' : 'Toggle fullscreen';
+btn.textContent = isFs ? '✕' : '⛶';
+
+if (isFs) {
+
+if (iframe.requestFullscreen) iframe.requestFullscreen().catch(()=>{});
+else if (shell.requestFullscreen) shell.requestFullscreen().catch(()=>{});
+} else {
+if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+}
+};
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) {
+    const shell = document.getElementById('browser-shell');
+    shell.classList.remove('fullscreen');
+    document.getElementById('fullscreen-btn').textContent = '⛶';
+    document.getElementById('fullscreen-btn').title = 'Toggle fullscreen';
+  }
+});
+
+document.getElementById('open-full-btn').onclick = async () => {
+  if (!activeTab || !activeTab.path) return;
+  const path = activeTab.path;
+  const file = vfs.get(normalizePath(path));
+  if (!file) return;
+  const text = await file.text();
+  const rewritten = await rewriteHtml(text, path);
+  const win = window.open('', '_blank');
+  if (!win) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+  win.document.open();
+  win.document.write(rewritten);
+  win.document.close();
+};
+
+function resolvePath(href, base) {
+  if (!href) return base;
+  if (href.startsWith('http://') || href.startsWith('https://')) return href;
+  if (href.startsWith('/')) return normalizePath(href);
+  const stack = base.split('/').slice(0, -1);
+  for (const part of href.split('/')) {
+    if (part === '..') stack.pop();
+    else if (part && part !== '.') stack.push(part);
+  }
+  return normalizePath(stack.join('/'));
+}
+
+function setNavButtons() {
+  const t = activeTab;
+  document.getElementById('open-full-btn').disabled = !t || !t.path;
+}
+
+async function navigateTo(path) {
+  if (!activeTab) return;
+
+  showLoading(true);
+  document.getElementById('url-bar').value = path;
+
+activeTab.path = path;
+  setNavButtons();
+
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    window.open(path, '_blank');
+    showLoading(false);
+    return;
+  }
+
+  const file = vfs.get(normalizePath(path));
+  if (!file) {
+    const frame = document.getElementById('main-frame');
+    frame.srcdoc = `<html><body style="font-family:sans-serif;padding:24px;background:#fff;color:#333"><h2>404 — Not found</h2><p><code>${path}</code> is not in the virtual filesystem.</p></body></html>`;
+    showLoading(false);
+    return;
+  }
+
+  const text = await file.text();
+  const rewritten = await rewriteHtml(text, path);
+
+  const frame = document.getElementById('main-frame');
+  frame.srcdoc = rewritten;
+
+  frame.onload = () => {
+    try {
+      const title = frame.contentDocument?.title;
+      if (title) {
+        activeTab.title = title;
+        renderTabs();
+      }
+      interceptFrameLinks(frame, path);
+    } catch(e) {}
+    showLoading(false);
+  };
+}
+
+async function rewriteHtml(html, basePath) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const rewrites = [];
+
+  doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(el => {
+    rewrites.push((async () => {
+      const href = el.getAttribute('href');
+      if (href.startsWith('http')) return;
+      const resolved = resolvePath(href, basePath);
+      const blobUrl = blobUrls.get(normalizePath(resolved));
+      if (blobUrl) el.setAttribute('href', blobUrl);
+    })());
+  });
+
+  doc.querySelectorAll('script[src]').forEach(el => {
+    const src = el.getAttribute('src');
+    if (src.startsWith('http')) return;
+    const resolved = resolvePath(src, basePath);
+    const blobUrl = blobUrls.get(normalizePath(resolved));
+    if (blobUrl) el.setAttribute('src', blobUrl);
+  });
+
+  doc.querySelectorAll('img[src]').forEach(el => {
+    const src = el.getAttribute('src');
+    if (src.startsWith('http') || src.startsWith('data:')) return;
+    const resolved = resolvePath(src, basePath);
+    const blobUrl = blobUrls.get(normalizePath(resolved));
+    if (blobUrl) el.setAttribute('src', blobUrl);
+  });
+
+  doc.querySelectorAll('source[src]').forEach(el => {
+    const src = el.getAttribute('src');
+    if (src.startsWith('http') || src.startsWith('data:')) return;
+    const resolved = resolvePath(src, basePath);
+    const blobUrl = blobUrls.get(normalizePath(resolved));
+    if (blobUrl) el.setAttribute('src', blobUrl);
+  });
+
+  await Promise.all(rewrites);
+
+  return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+}
+
+function interceptFrameLinks(frame, basePath) {
+  try {
+    const fdoc = frame.contentDocument;
+    if (!fdoc) return;
+    fdoc.querySelectorAll('a[href]').forEach(a => {
+      a.addEventListener('click', e => {
+        const href = a.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+        e.preventDefault();
+        const resolved = resolvePath(href, basePath);
+        navigateTo(resolved);
+      });
+    });
+  } catch(e) {}
+}
+
+function showLoading(on) {
+  const bar = document.getElementById('loading-bar');
+  const overlay = document.getElementById('frame-overlay');
+  if (on) {
+    bar.style.display = 'block';
+    bar.style.width = '60%';
+    overlay.style.display = 'flex';
+  } else {
+    bar.style.width = '100%';
+    setTimeout(() => {
+      bar.style.display = 'none';
+      bar.style.width = '0%';
+    }, 200);
+    overlay.style.display = 'none';
+  }
+}
+
+document.getElementById('reload-btn').onclick = () => {
+  if (activeTab) navigateTo(activeTab.path, false);
+};
+document.getElementById('url-bar').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const val = e.target.value.trim();
+    if (val) navigateTo(val);
+  }
+});
+
+function launchBrowser() {
+  const shell = document.getElementById('browser-shell');
+  const alreadyOpen = getComputedStyle(shell).display !== 'none';
+  shell.style.display = 'block';
+  if (alreadyOpen) return;
+
+  document.querySelector('h2').style.display = 'none';
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('file-list').style.display = 'none';
+  document.body.style.padding = '0';
+  shell.style.marginTop = '0';
+  shell.style.border = 'none';
+  shell.style.borderRadius = '0';
+
+  let entryPath = null;
+  for (const [path] of vfs) {
+    if (path.toLowerCase().endsWith('index.html')) { entryPath = path; break; }
+  }
+  if (!entryPath) {
+    for (const [path] of vfs) {
+      if (path.toLowerCase().endsWith('.html') || path.toLowerCase().endsWith('.htm')) { entryPath = path; break; }
+    }
+  }
+  if (!entryPath) entryPath = [...vfs.keys()][0];
+
+  const tab = createTab(entryPath);
+  activeTab = tab;
+  renderTabs();
+  navigateTo(entryPath);
+}
+</script>
+
+</body>
+</html>
+</template>
+
+<script>
+function launchInNewTab() {
+  const tpl = document.getElementById('app-tpl');
+  const html = tpl.innerHTML;
+  const win = window.open('about:blank', '_blank');
+  if (!win) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+</script>
+
+</body>
+</html>

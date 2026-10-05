@@ -1,0 +1,34 @@
+[auth.external.google]
+enabled = true
+client_id = "629864925314-djg89vu5gmfjd0miqpn6she0pk5nch4j.apps.googleusercontent.com"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET)"
+skip_nonce_check = false
+[functions.send-push]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-push/deno.json"
+entrypoint = "./functions/send-push/index.ts"
+
+[functions.discord-oauth]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-oauth/deno.json"
+entrypoint = "./functions/discord-oauth/index.ts"
+
+[functions.discord-import]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-import/deno.json"
+entrypoint = "./functions/discord-import/index.ts"
+
+[functions.discord-message-sync]
+enabled = true
+verify_jwt = false
+import_map = "./functions/discord-message-sync/deno.json"
+entrypoint = "./functions/discord-message-sync/index.ts"
+
+[functions.slash-commands]
+enabled = true
+verify_jwt = false
+import_map = "./functions/slash-commands/deno.json"
+entrypoint = "./functions/slash-commands/index.ts"

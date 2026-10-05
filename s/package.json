@@ -1,0 +1,44 @@
+{
+  "name": "letslearnalgebra",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "type": "module",
+  "scripts": {
+    "build:chat": "tsc -p chat/tsconfig.json",
+    "check:chat-core": "tsc --noEmit --strict --target ES2022 --module ES2022 --moduleResolution Bundler --lib ES2022,DOM --skipLibCheck chat/src/chat-config.d.ts chat/src/browser-globals.d.ts chat/src/ad.ts chat/src/ui-dialogs.ts chat/src/discord-config.ts",
+    "check:chat-server": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck chat/server.ts",
+    "start:chat": "node --env-file=chat/.env chat/server.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3p0r2d2luke/letslearnalgebra.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/c3p0r2d2luke/letslearnalgebra/issues"
+  },
+  "homepage": "https://github.com/c3p0r2d2luke/letslearnalgebra#readme",
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@supabase/supabase-js": "^2.117.2",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.0.3",
+    "knip": "^6.26.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.144",
+    "axios": "^1.16.1",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "npm": "^11.12.1",
+    "supabase": "^2.85.0",
+    "ws": "^8.20.1"
+  }
+}

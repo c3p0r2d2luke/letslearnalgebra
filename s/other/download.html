@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Proxy Downloader</title>
+
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f0f10;
+        color: #e6e6e6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+    }
+
+    .container {
+        width: 560px;
+        background: #161616;
+        border: 1px solid #2a2a2a;
+        border-radius: 8px;
+        padding: 18px;
+        box-sizing: border-box;
+    }
+
+    h2 {
+        margin: 0 0 12px 0;
+        font-size: 18px;
+    }
+
+    input {
+        width: 100%;
+        padding: 10px;
+        background: #0f0f10;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        color: #e6e6e6;
+        outline: none;
+        box-sizing: border-box;
+    }
+
+    input:focus {
+        border-color: #3a3a3a;
+    }
+
+    button {
+        width: 100%;
+        padding: 10px;
+        margin-top: 10px;
+        background: #1f1f1f;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        color: #e6e6e6;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background: #232323;
+    }
+
+    button:active {
+        background: #141414;
+    }
+
+    .status {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #a0a0a0;
+        min-height: 18px;
+    }
+
+    textarea {
+        width: 100%;
+        height: 260px;
+        margin-top: 12px;
+        background: #0b0b0c;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        color: #b8ffb8;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 12px;
+        resize: none;
+        box-sizing: border-box;
+    }
+
+    .hint {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #777;
+    }
+</style>
+</head>
+
+<body>
+<div class="container">
+    <h2>Proxy File Downloader</h2>
+
+    <input id="url" placeholder="Paste URL here..." />
+
+    <button onclick="fetchFile()">Fetch</button>
+    <button onclick="downloadFile()">Download</button>
+
+    <div class="status" id="status"></div>
+
+    <textarea id="preview" placeholder="Preview will appear here..."></textarea>
+
+    <div class="hint">
+        Uses proxy on port 3001 to bypass CORS.
+    </div>
+</div>
+
+<script>
+const PROXY = "https://lla.ipv64.net/proxy/fetch?url=";
+
+let blobData = null;
+let fileName = "download.bin";
+
+function guessFileName(url, type) {
+    try {
+        let u = new URL(url);
+        let name = u.pathname.split("/").pop();
+        if (name && name.includes(".")) return name;
+
+        if (type) {
+            if (type.includes("png")) return "image.png";
+            if (type.includes("jpeg")) return "image.jpg";
+            if (type.includes("html")) return "page.html";
+            if (type.includes("pdf")) return "file.pdf";
+        }
+    } catch {}
+
+    return "download.bin";
+}
+
+async function fetchFile() {
+    const url = document.getElementById("url").value.trim();
+    const status = document.getElementById("status");
+    const preview = document.getElementById("preview");
+
+    if (!url) {
+        status.textContent = "Enter a URL.";
+        return;
+    }
+
+    status.textContent = "Fetching via proxy...";
+
+    try {
+        const res = await fetch(PROXY + encodeURIComponent(url));
+
+        if (!res.ok) throw new Error("Proxy error");
+
+        const type = res.headers.get("content-type") || "";
+
+        blobData = await res.blob();
+        fileName = guessFileName(url, type);
+
+        status.textContent = "Loaded: " + fileName;
+
+        if (type.includes("text")) {
+            preview.value = await blobData.text();
+        } else {
+            preview.value = "[Binary file — no preview]";
+        }
+
+    } catch (err) {
+        console.error(err);
+        status.textContent = "Failed to fetch via proxy.";
+    }
+}
+
+function downloadFile() {
+    if (!blobData) {
+        alert("No file loaded.");
+        return;
+    }
+
+    const url = URL.createObjectURL(blobData);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
