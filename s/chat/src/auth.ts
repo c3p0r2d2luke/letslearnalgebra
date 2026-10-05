@@ -1,13 +1,46 @@
 // ======================== SUPABASE AUTH ========================
 
 function showAuthGate() {
-  document.getElementById("authGate").style.display = "flex";
-  document.getElementById("appContent").style.display = "none";
+  const authGate = document.getElementById("authGate");
+  const appContent = document.getElementById("appContent");
+  if (authGate) authGate.style.display = "flex";
+  if (appContent) appContent.style.display = "none";
 }
 
 function hideAuthGate() {
-  document.getElementById("authGate").style.display = "none";
-  document.getElementById("appContent").style.display = "block";
+  const authGate = document.getElementById("authGate");
+  const appContent = document.getElementById("appContent");
+  if (authGate) authGate.style.display = "none";
+  if (appContent) appContent.style.display = "block";
+}
+
+function setInlineAuthNotice(elementId, message, kind = "error") {
+  const target = document.getElementById(elementId);
+  if (!target) return;
+
+  target.textContent = message;
+  target.style.display = message ? "block" : "none";
+  target.style.color = kind === "success" ? "#8ae6b3" : "#ff8d8d";
+  target.style.background = kind === "success" ? "rgba(138, 230, 179, 0.08)" : "rgba(255, 141, 141, 0.08)";
+}
+
+function normalizeUsernameInput(value) {
+  return String(value ?? "").trim();
+}
+
+function validateUsername(value) {
+  const username = normalizeUsernameInput(value);
+  if (!username) return { valid: false, reason: "Username is required." };
+  if (username.length < 3 || username.length > 20) {
+    return { valid: false, reason: "Username must be 3–20 characters long." };
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    return { valid: false, reason: "Username can only include letters, numbers, and underscores." };
+  }
+  if (username.startsWith("_") || username.endsWith("_")) {
+    return { valid: false, reason: "Username cannot start or end with an underscore." };
+  }
+  return { valid: true, username };
 }
 
 function getAuthRedirectUrl() {
@@ -28,7 +61,8 @@ function deriveDefaultUsername(authUser) {
   const rawFromMetadata = authUser?.user_metadata?.username || authUser?.user_metadata?.preferred_username;
   const rawFromEmail = authUser?.email ? String(authUser.email).split("@")[0] : "";
   const candidate = String(rawFromMetadata || rawFromEmail || "user").trim();
-  return candidate.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20) || "user";
+  const normalized = candidate.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20) || "user";
+  return validateUsername(normalized).valid ? normalized : "user";
 }
 
 type UserRoleRelation = { role: string } | Array<{ role: string }> | null | undefined;
@@ -62,15 +96,19 @@ async function ensureUserProfileRow(authUser) {
   let proposed = deriveDefaultUsername(authUser);
   let chosen = "";
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    chosen = prompt("Choose a username (letters, numbers, underscore):", proposed) || "";
-    chosen = chosen.trim();
-    if (!chosen) return null;
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(chosen)) {
-      alert("❌ Username must be 3–20 chars and only letters, numbers, underscore.");
-      proposed = chosen || proposed;
+    const rawChoice = window.prompt("Choose a username (letters, numbers, underscore):", proposed);
+    if (rawChoice === null) return null;
+
+    const validation = validateUsername(rawChoice);
+    if (!validation.valid) {
+      proposed = normalizeUsernameInput(rawChoice) || proposed;
+      if (attempt < 4) {
+        window.alert(`❌ ${validation.reason}`);
+      }
       continue;
     }
 
+    chosen = validation.username;
     const { data: taken, error: takenError } = await supabaseClient
       .from("users")
       .select("username")
@@ -79,8 +117,10 @@ async function ensureUserProfileRow(authUser) {
 
     if (takenError) throw takenError;
     if (taken) {
-      alert("❌ Username already taken.");
       proposed = chosen;
+      if (attempt < 4) {
+        window.alert("❌ Username already taken.");
+      }
       continue;
     }
     break;
@@ -185,16 +225,21 @@ async function handleAuthSuccess(user) {
 }
 
 async function doSignUp() {
-  const usernameVal = document.getElementById("signUpUsername").value.trim();
+  const rawUsername = normalizeUsernameInput(document.getElementById("signUpUsername").value);
   const email = document.getElementById("signUpEmail").value.trim();
   const password = document.getElementById("signUpPassword").value;
   const avatarFile = document.getElementById("signUpAvatar")?.files?.[0] || null;
-  const errorEl = document.getElementById("signUpError");
-  errorEl.style.display = "none";
+  setInlineAuthNotice("signUpError", "");
 
-  if (!usernameVal || !email || !password) {
-    errorEl.textContent = "❌ Please fill in all fields.";
-    errorEl.style.display = "block";
+  const usernameValidation = validateUsername(rawUsername);
+  if (!usernameValidation.valid) {
+    setInlineAuthNotice("signUpError", `❌ ${usernameValidation.reason}`);
+    return;
+  }
+
+  const usernameVal = usernameValidation.username;
+  if (!email || !password) {
+    setInlineAuthNotice("signUpError", "❌ Please fill in all fields.");
     return;
   }
 
@@ -206,8 +251,7 @@ async function doSignUp() {
     .maybeSingle();
 
   if (existingUser) {
-    errorEl.textContent = "❌ Username already taken.";
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signUpError", "❌ Username already taken.");
     return;
   }
 
@@ -219,8 +263,7 @@ async function doSignUp() {
   });
 
   if (authError) {
-    errorEl.textContent = "❌ " + authError.message;
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signUpError", "❌ " + authError.message);
     return;
   }
 
@@ -241,16 +284,14 @@ async function doSignUp() {
     console.error("Profile creation failed:", profileError);
     // Optional: Cleanup auth user if profile fails
     // await supabaseClient.auth.admin.deleteUser(userId); 
-    errorEl.textContent = "❌ Failed to create profile. Check console.";
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signUpError", "❌ Failed to create profile. Check console.");
     return;
   }
 
   if (avatarFile) {
     const avatarResult = await uploadAvatarFile(avatarFile, usernameVal, userId);
     if (avatarResult.error) {
-      errorEl.textContent = avatarResult.error;
-      errorEl.style.display = "block";
+      setInlineAuthNotice("signUpError", avatarResult.error);
       return;
     }
   }
@@ -263,8 +304,7 @@ async function doSignUp() {
 
   if (signInError) {
     console.error("Auto-signin failed:", signInError);
-    errorEl.textContent = "❌ Account created, but login failed.";
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signUpError", "❌ Account created, but login failed.");
     return;
   }
 
@@ -401,19 +441,16 @@ document.getElementById("toSignIn").addEventListener("click", (e) => {
 async function doSignIn() {
   const email = document.getElementById("signInEmail").value.trim();
   const password = document.getElementById("signInPassword").value;
-  const errorEl = document.getElementById("signInError");
-  errorEl.style.display = "none";
+  setInlineAuthNotice("signInError", "");
 
   if (!email || !password) {
-    errorEl.textContent = "❌ Please fill in all fields.";
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signInError", "❌ Please fill in all fields.");
     return;
   }
 
   const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   if (error) {
-    errorEl.textContent = "❌ " + error.message;
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signInError", "❌ " + error.message);
     return;
   }
   await handleAuthSuccess(data.user);
@@ -421,12 +458,10 @@ async function doSignIn() {
 
 async function sendMagicLink() {
   const email = document.getElementById("signInEmail").value.trim();
-  const errorEl = document.getElementById("signInError");
-  errorEl.style.display = "none";
+  setInlineAuthNotice("signInError", "");
 
   if (!email) {
-    errorEl.textContent = "❌ Enter your email first.";
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signInError", "❌ Enter your email first.");
     return;
   }
 
@@ -450,17 +485,16 @@ async function sendMagicLink() {
   }
 
   if (error) {
-    errorEl.textContent = "❌ " + error.message;
-    errorEl.style.display = "block";
+    setInlineAuthNotice("signInError", "❌ " + error.message);
     return;
   }
 
-  errorEl.textContent = "✅ Magic link sent. Check your email.";
-  errorEl.style.display = "block";
+  setInlineAuthNotice("signInError", "✅ Magic link sent. Check your email.", "success");
 }
 
 async function signInWithOAuthProvider(provider) {
   const redirectTo = getAuthRedirectUrl();
+  setInlineAuthNotice("signInError", "");
 
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider,
@@ -471,13 +505,13 @@ async function signInWithOAuthProvider(provider) {
 
   if (error) {
     console.error("OAuth error:", error);
-    alert(error.message);
+    setInlineAuthNotice("signInError", "❌ " + error.message);
     return;
   }
 
   if (!data?.url) {
     console.error("No redirect URL returned:", data);
-    alert("OAuth failed: no redirect URL");
+    setInlineAuthNotice("signInError", "❌ OAuth failed: no redirect URL");
     return;
   }
 
