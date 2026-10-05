@@ -361,6 +361,7 @@ async function loadDirectConversations() {
         .select("conversation_id, username, content, inserted_at")
         .in("conversation_id", conversationIds)
         .order("inserted_at", { ascending: false })
+        .limit(MESSAGE_CHUNK_SIZE)
     ]);
 
     if (membersError) throw membersError;
@@ -497,6 +498,8 @@ async function openDirectConversation(conversationId) {
   currentConversationType = "dm";
   currentDmConversationId = conversationId;
   currentChannelId = null;
+  loadedMessageChunk = null;
+  updateMessageChunkNavigation();
   hideMentionSuggestions();
   clearReactionCaches();
   await subscribeToCurrentChannel();
@@ -556,37 +559,120 @@ async function promptForDirectMessage() {
   }
 }
 
-async function loadDirectMessages(conversationId = currentDmConversationId) {
+async function loadDirectMessages(
+  conversationId = currentDmConversationId,
+  direction: MessageChunkDirection = "latest",
+) {
   if (!conversationId) return;
 
-  messagesList.innerHTML = '<div class="loading-shimmer"></div>';
-  messagesMap.clear();
-  messageDataMap.clear();
-  clearReactionCaches();
+  const context = `dm:${conversationId}`;
+  const currentChunk = loadedMessageChunk?.context === context ? loadedMessageChunk : null;
+  if (!messagesMap.size) messagesList.innerHTML = '<div class="loading-shimmer"></div>';
 
-  const { data, error } = await supabaseClient
+  let query = supabaseClient
     .from("dm_messages")
     .select("*")
-    .eq("conversation_id", conversationId)
-    .order("inserted_at", { ascending: true });
+    .eq("conversation_id", conversationId);
+  if (direction === "older" && currentChunk) {
+    query = query.lt("id", currentChunk.oldestId).order("id", { ascending: false });
+  } else if (direction === "newer" && currentChunk) {
+    query = query.gt("id", currentChunk.newestId).order("id", { ascending: true });
+  } else {
+    direction = "latest";
+    query = query.order("id", { ascending: false });
+  }
+  const { data, error } = await query.limit(MESSAGE_CHUNK_SIZE);
 
   if (error) {
-    messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
+    if (currentConversationType === "dm" && currentDmConversationId === conversationId) {
+      messagesList.innerHTML = `<li class="error">Error: ${error.message}</li>`;
+    }
     return;
   }
 
-  await loadAvatarMapForUsernames((data || []).map((msg) => msg.username));
-  messagesList.innerHTML = "";
+  if (currentConversationType !== "dm" || currentDmConversationId !== conversationId) return;
+  if (!data?.length && direction !== "latest" && currentChunk) {
+    if (direction === "older") currentChunk.hasOlder = false;
+    else currentChunk.hasNewer = false;
+    updateMessageChunkNavigation();
+    return;
+  }
+
+  const chunkMessages = [...(data || [])].sort((a, b) => Number(a.id) - Number(b.id));
+  if (direction === "latest" && !currentChunk) {
+    const realtimeMessages = [...messageDataMap.values()]
+      .filter((message) => String(message.conversation_id) === String(conversationId));
+    const merged = new Map([...chunkMessages, ...realtimeMessages].map((message) => [Number(message.id), message]));
+    chunkMessages.splice(0, chunkMessages.length, ...[...merged.values()]
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .slice(-MESSAGE_CHUNK_SIZE));
+  }
+  if (!chunkMessages.length) {
+    messagesList.replaceChildren();
+    messagesMap.clear();
+    messageDataMap.clear();
+    loadedMessageChunk = null;
+    updateMessageChunkNavigation();
+    return;
+  }
+  if (direction === "older" && currentChunk) currentChunk.hasNewer = true;
+  if (direction === "newer" && currentChunk) currentChunk.hasOlder = true;
+  loadedMessageChunk = {
+    context,
+    oldestId: Number(chunkMessages[0].id),
+    newestId: Number(chunkMessages[chunkMessages.length - 1].id),
+    hasOlder: direction === "older"
+      ? data.length === MESSAGE_CHUNK_SIZE
+      : direction === "latest"
+        ? data.length === MESSAGE_CHUNK_SIZE
+        : currentChunk?.hasOlder ?? false,
+    hasNewer: direction === "newer"
+      ? data.length === MESSAGE_CHUNK_SIZE
+      : direction === "latest"
+        ? false
+        : true,
+  };
+
+  await loadAvatarMapForUsernames(chunkMessages.map((msg) => msg.username));
+  if (currentConversationType !== "dm" || currentDmConversationId !== conversationId) return;
+  let renderedMessages = chunkMessages;
+  if (direction === "latest") {
+    const earliestFetchedId = Number(chunkMessages[0].id);
+    const realtimeMessages = [...messageDataMap.values()].filter((message) =>
+      String(message.conversation_id) === String(conversationId)
+      && Number(message.id) >= earliestFetchedId
+    );
+    const merged = new Map([...chunkMessages, ...realtimeMessages].map((message) => [Number(message.id), message]));
+    renderedMessages = [...merged.values()]
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .slice(-MESSAGE_CHUNK_SIZE);
+    loadedMessageChunk = {
+      context,
+      oldestId: Number(renderedMessages[0].id),
+      newestId: Number(renderedMessages[renderedMessages.length - 1].id),
+      hasOlder: data.length === MESSAGE_CHUNK_SIZE || renderedMessages.length === MESSAGE_CHUNK_SIZE,
+      hasNewer: false,
+    };
+  }
+  messagesList.replaceChildren();
+  messagesMap.clear();
+  messageDataMap.clear();
+  clearReactionCaches();
   const fragment = document.createDocumentFragment();
-  (data || []).forEach((msg) => {
+  renderedMessages.forEach((msg) => {
     const li = createMessageElement(msg);
     messagesMap.set(msg.id, li);
     messageDataMap.set(msg.id, msg);
     fragment.appendChild(li);
   });
   messagesList.appendChild(fragment);
+  updateMessageChunkNavigation();
   applyMessageSearchFilter();
-  await waitForImagesBeforeScroll();
+  if (direction === "newer") {
+    messagesList.scrollTop = 0;
+  } else {
+    await waitForImagesBeforeScroll();
+  }
 }
 
 async function subscribeToCurrentDmConversation(conversationId = currentDmConversationId) {

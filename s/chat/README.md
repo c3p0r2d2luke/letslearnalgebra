@@ -47,6 +47,11 @@ generated build output. The build also compiles the Node server to
 `dist/server.js`. Browser scripts remain classic scripts in their existing
 load order to preserve the current global-based application.
 
+Channel and direct-message history is fetched and rendered in windows of at
+most 100 messages. Use the older/newer controls above and below the message
+list to replace the visible window; other windows are not kept in memory.
+Discord history polling is limited to the currently open channel.
+
 After updating the IP logging Edge Function, deploy it to the linked Supabase
 project with `supabase functions deploy log-ip`; Caddy only handles the chat
 site's incoming HTTPS traffic and cannot apply changes to Supabase endpoints.

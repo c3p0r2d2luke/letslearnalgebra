@@ -607,7 +607,12 @@ async function syncDiscordStructure(serverId = currentServerId) {
 }
 
 async function syncMessagesFromDiscord() {
-  if (typeof currentServerId === "undefined" || !currentServerId) return;
+  if (
+    typeof currentServerId === "undefined"
+    || !currentServerId
+    || typeof currentChannelId === "undefined"
+    || !currentChannelId
+  ) return;
   if (discordSyncInFlight) return;
   discordSyncInFlight = true;
   try {
@@ -619,6 +624,7 @@ async function syncMessagesFromDiscord() {
       body: JSON.stringify({
         action: "sync_from_discord",
         server_id: currentServerId,
+        channel_id: currentChannelId,
       }),
     });
     if (!response.ok) {
@@ -652,7 +658,11 @@ function startDiscordMessageSync(serverId) {
   // they are imported. This keeps that import incremental without reloading
   // the rendered message list.
   discordSyncTimer = setInterval(() => {
-    if (currentServerId === serverId && currentConversationType === "channel") {
+    if (
+      currentServerId === serverId
+      && currentConversationType === "channel"
+      && currentChannelId
+    ) {
       syncMessagesFromDiscord();
     }
   }, 5000);

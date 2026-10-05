@@ -542,6 +542,60 @@ async function performDeleteCategory(catName) {
 let activeChannelLoadPromise = null;
 let currentChannelMentionMessageId = null;
 let currentChannelMentionReadThroughId = null;
+const MESSAGE_CHUNK_SIZE = 100;
+type MessageChunkDirection = "latest" | "older" | "newer";
+interface LoadedMessageChunk {
+  context: string;
+  oldestId: number;
+  newestId: number;
+  hasOlder: boolean;
+  hasNewer: boolean;
+}
+let loadedMessageChunk: LoadedMessageChunk | null = null;
+let loadingMessageChunk = false;
+
+function updateMessageChunkNavigation(): void {
+  const olderButton = document.getElementById("olderMessageChunk") as HTMLButtonElement | null;
+  const newerButton = document.getElementById("newerMessageChunk") as HTMLButtonElement | null;
+  const context = currentConversationType === "dm"
+    ? `dm:${currentDmConversationId}`
+    : `channel:${currentChannelId}`;
+  const chunk = loadedMessageChunk?.context === context ? loadedMessageChunk : null;
+
+  if (olderButton) {
+    olderButton.hidden = !chunk?.hasOlder;
+    olderButton.disabled = loadingMessageChunk;
+    olderButton.textContent = loadingMessageChunk ? "Loading messages…" : `Load ${MESSAGE_CHUNK_SIZE} older messages`;
+  }
+  if (newerButton) {
+    newerButton.hidden = !chunk?.hasNewer;
+    newerButton.disabled = loadingMessageChunk;
+    newerButton.textContent = loadingMessageChunk ? "Loading messages…" : `Load ${MESSAGE_CHUNK_SIZE} newer messages`;
+  }
+}
+
+async function loadAdjacentMessageChunk(direction: "older" | "newer"): Promise<void> {
+  if (loadingMessageChunk) return;
+  loadingMessageChunk = true;
+  updateMessageChunkNavigation();
+  try {
+    if (currentConversationType === "dm") {
+      await loadDirectMessages(currentDmConversationId, direction);
+    } else {
+      await loadMessages(direction);
+    }
+  } finally {
+    loadingMessageChunk = false;
+    updateMessageChunkNavigation();
+  }
+}
+
+document.getElementById("olderMessageChunk")?.addEventListener("click", () => {
+  void loadAdjacentMessageChunk("older");
+});
+document.getElementById("newerMessageChunk")?.addEventListener("click", () => {
+  void loadAdjacentMessageChunk("newer");
+});
 
 function updateMentionReadBar() {
   const bar = document.getElementById("mentionReadBar");
@@ -656,6 +710,8 @@ async function switchChannelInternal(channelId) {
   messagesList.innerHTML = "";
   messagesMap.clear();
   messageDataMap.clear();
+  loadedMessageChunk = null;
+  updateMessageChunkNavigation();
   clearReactionCaches();
   hideMentionSuggestions();
 
@@ -686,19 +742,29 @@ async function switchChannelInternal(channelId) {
   }, 100);
 }
 // ------------------------ Load Messages ------------------------
-async function loadMessages() {
+async function loadMessages(direction: MessageChunkDirection = "latest") {
   if (!currentChannelId) return;
 
   const channelAtStart = currentChannelId;
+  const context = `channel:${channelAtStart}`;
+  const currentChunk = loadedMessageChunk?.context === context ? loadedMessageChunk : null;
   if (messagesMap.size === 0) {
     messagesList.innerHTML = '<div class="loading-shimmer"></div>';
   }
 
-  const { data, error } = await supabaseClient
+  let query = supabaseClient
     .from("messages")
     .select("*")
-    .eq("channel_id", currentChannelId)
-    .order("inserted_at", { ascending: true });
+    .eq("channel_id", channelAtStart);
+  if (direction === "older" && currentChunk) {
+    query = query.lt("id", currentChunk.oldestId).order("id", { ascending: false });
+  } else if (direction === "newer" && currentChunk) {
+    query = query.gt("id", currentChunk.newestId).order("id", { ascending: true });
+  } else {
+    direction = "latest";
+    query = query.order("id", { ascending: false });
+  }
+  const { data, error } = await query.limit(MESSAGE_CHUNK_SIZE);
 
   if (error) {
     if (channelAtStart !== currentChannelId) return;
@@ -707,19 +773,60 @@ async function loadMessages() {
   }
   if (channelAtStart !== currentChannelId) return;
 
+  if (!data?.length && direction !== "latest" && currentChunk) {
+    if (direction === "older") currentChunk.hasOlder = false;
+    else currentChunk.hasNewer = false;
+    updateMessageChunkNavigation();
+    return;
+  }
+
   const uniqueMessages = [];
   const seenMessageKeys = new Set();
-  for (const msg of data || []) {
+  for (const msg of [...(data || [])].sort((a, b) => Number(a.id) - Number(b.id))) {
     const duplicateKey = `${msg.username}\u0000${msg.content}\u0000${msg.inserted_at}`;
     if (seenMessageKeys.has(duplicateKey)) continue;
     seenMessageKeys.add(duplicateKey);
     uniqueMessages.push(msg);
   }
+  if (direction === "latest" && !currentChunk) {
+    const realtimeMessages = [...messageDataMap.values()]
+      .filter((message) => String(message.channel_id) === String(channelAtStart));
+    const merged = new Map([...uniqueMessages, ...realtimeMessages].map((message) => [Number(message.id), message]));
+    uniqueMessages.splice(0, uniqueMessages.length, ...[...merged.values()]
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .slice(-MESSAGE_CHUNK_SIZE));
+  }
+  if (!uniqueMessages.length) {
+    messagesList.innerHTML = "";
+    messagesMap.clear();
+    messageDataMap.clear();
+    loadedMessageChunk = null;
+    updateMessageChunkNavigation();
+    return;
+  }
+  if (direction === "older" && currentChunk) currentChunk.hasNewer = true;
+  if (direction === "newer" && currentChunk) currentChunk.hasOlder = true;
+  loadedMessageChunk = {
+    context,
+    oldestId: Number(uniqueMessages[0].id),
+    newestId: Number(uniqueMessages[uniqueMessages.length - 1].id),
+    hasOlder: direction === "older"
+      ? data.length === MESSAGE_CHUNK_SIZE
+      : direction === "latest"
+        ? data.length === MESSAGE_CHUNK_SIZE
+        : currentChunk?.hasOlder ?? false,
+    hasNewer: direction === "newer"
+      ? data.length === MESSAGE_CHUNK_SIZE
+      : direction === "latest"
+        ? false
+        : true,
+  };
   const { data: discordChannel } = await supabaseClient
     .from("discord_channels")
     .select("discord_server_id")
-    .eq("channel_id", currentChannelId)
+    .eq("channel_id", channelAtStart)
     .maybeSingle();
+  if (channelAtStart !== currentChannelId) return;
   if (discordChannel?.discord_server_id) {
     const { data: discordProfiles } = await supabaseClient
       .from("discord_members")
@@ -757,6 +864,7 @@ async function loadMessages() {
     }
   }
   const messageIds = uniqueMessages.map((msg) => msg.id);
+  clearReactionCaches();
   const [
     { data: reactions, error: reactionsError },
     { data: discordMappings },
@@ -769,7 +877,7 @@ async function loadMessages() {
         .select("chat_message_id, discord_message_id, discord_channel_id")
         .in("chat_message_id", messageIds)
       : Promise.resolve({ data: [] }),
-    loadAvatarMapForUsernames((data || []).map((msg) => msg.username))
+    loadAvatarMapForUsernames(uniqueMessages.map((msg) => msg.username))
   ]);
   const discordMappingByMessageId = new Map(
     (discordMappings || []).map((mapping) => [Number(mapping.chat_message_id), mapping])
@@ -796,8 +904,30 @@ async function loadMessages() {
     });
   }
 
+  let renderedMessages = uniqueMessages;
+  if (direction === "latest") {
+    const earliestFetchedId = Number(uniqueMessages[0].id);
+    const realtimeMessages = [...messageDataMap.values()].filter((message) =>
+      String(message.channel_id) === String(channelAtStart)
+      && Number(message.id) >= earliestFetchedId
+    );
+    const merged = new Map([...uniqueMessages, ...realtimeMessages].map((message) => [Number(message.id), message]));
+    renderedMessages = [...merged.values()]
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .slice(-MESSAGE_CHUNK_SIZE);
+    loadedMessageChunk = {
+      context,
+      oldestId: Number(renderedMessages[0].id),
+      newestId: Number(renderedMessages[renderedMessages.length - 1].id),
+      hasOlder: data.length === MESSAGE_CHUNK_SIZE || renderedMessages.length === MESSAGE_CHUNK_SIZE,
+      hasNewer: false,
+    };
+  }
+  messagesList.replaceChildren();
+  messagesMap.clear();
+  messageDataMap.clear();
   const fragment = document.createDocumentFragment();
-  uniqueMessages.forEach(msg => {
+  renderedMessages.forEach(msg => {
     const existing = messagesMap.get(msg.id) || messagesMap.get(Number(msg.id));
     if (existing) existing.remove();
     const li = createMessageElement(msg);
@@ -807,10 +937,15 @@ async function loadMessages() {
     fragment.appendChild(li);
   });
   messagesList.appendChild(fragment);
+  updateMessageChunkNavigation();
   applyMessageSearchFilter();
   updateMentionReadBar();
 
-  await waitForImagesBeforeScroll();
+  if (direction === "newer") {
+    messagesList.scrollTop = 0;
+  } else {
+    await waitForImagesBeforeScroll();
+  }
 }
 
 async function reconcileCurrentChannelMessages() {
@@ -1468,8 +1603,27 @@ async function buildLinkPreview(url) {
 // ------------------------ Render Message ------------------------
 function renderMessage(msg) {
   const normalizedId = Number(msg.id);
-  const li = createMessageElement(msg);
   const existingLi = messagesMap.get(normalizedId) || messagesMap.get(msg.id);
+  const context = currentConversationType === "dm"
+    ? `dm:${currentDmConversationId}`
+    : `channel:${currentChannelId}`;
+  const chunk = loadedMessageChunk?.context === context ? loadedMessageChunk : null;
+
+  if (!existingLi && chunk && normalizedId > chunk.newestId && chunk.hasNewer) {
+    if (msg.username === username) {
+      if (currentConversationType === "dm") {
+        void loadDirectMessages(currentDmConversationId, "latest");
+      } else {
+        void loadMessages("latest");
+      }
+    } else {
+      updateMessageChunkNavigation();
+    }
+    return;
+  }
+  if (!existingLi && chunk && normalizedId < chunk.oldestId) return;
+
+  const li = createMessageElement(msg);
 
   if (existingLi) {
     existingLi.replaceWith(li);
@@ -1486,6 +1640,21 @@ function renderMessage(msg) {
 
   messagesMap.set(normalizedId, li);
   messageDataMap.set(normalizedId, msg);
+  if (chunk && normalizedId > chunk.newestId) {
+    chunk.newestId = normalizedId;
+  }
+  if (messagesMap.size > MESSAGE_CHUNK_SIZE) {
+    const oldestLoadedId = Math.min(...[...messagesMap.keys()].map(Number));
+    messagesMap.get(oldestLoadedId)?.remove();
+    messagesMap.delete(oldestLoadedId);
+    messageDataMap.delete(oldestLoadedId);
+    clearReactionCacheForMessage(oldestLoadedId);
+    if (chunk) {
+      chunk.oldestId = Math.min(...[...messagesMap.keys()].map(Number));
+      chunk.hasOlder = true;
+    }
+  }
+  updateMessageChunkNavigation();
   applyMessageSearchFilter();
 
   // Only auto-scroll if user is already near bottom
@@ -1892,7 +2061,6 @@ async function handleRealtimeMessage(newMsg, eventType) {
     const messageKey = Number(newMsg.id);
     if (messagesMap.has(newMsg.id) || messagesMap.has(messageKey)) return;
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(messageKey, newMsg);
     renderMessage(newMsg);
 
     // Update the checkpoint immediately so we don't count this message as unread later
@@ -1926,7 +2094,6 @@ async function handleRealtimeMessage(newMsg, eventType) {
 
   else if (eventType === "UPDATE") {
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(Number(newMsg.id), newMsg);
     renderMessage(newMsg);
     if (messageMentionsUser(newMsg.content, username)) {
       showMentionToast(newMsg);
@@ -1962,14 +2129,12 @@ async function handleRealtimeDmMessage(newMsg, eventType) {
 
   if (eventType === "INSERT") {
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
     setTimeout(() => {
       waitForImagesBeforeScroll();
     }, 100);
   } else if (eventType === "UPDATE") {
     await loadAvatarMapForUsernames([newMsg.username]);
-    messageDataMap.set(newMsg.id, newMsg);
     renderMessage(newMsg);
   } else if (eventType === "DELETE") {
     messageDataMap.delete(newMsg.id);

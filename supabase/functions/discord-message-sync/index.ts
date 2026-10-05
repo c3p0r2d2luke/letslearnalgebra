@@ -32,7 +32,6 @@ serve(async (req: Request) => {
     } else if (action === "sync_to_discord") {
       return await syncMessageToDiscord(message_id, channel_id, webhook_url);
     } else if (action === "sync_from_discord") {
-      await syncDiscordStructure(server_id);
       return await syncMessagesFromDiscord(server_id, channel_id);
     } else if (action === "sync_structure") {
       await syncDiscordStructure(server_id);
