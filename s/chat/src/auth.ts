@@ -1098,8 +1098,7 @@ async function sendPushToUsers(targetUsernames, payload) {
 }
 
 function canViewMembers() {
-  return ["Manager", "Admin", "SysManager", "SysAdmin"].includes(currentRole)
-    || ["SysManager", "SysAdmin"].includes(currentSystemRole);
+  return Boolean(username && currentServerId);
 }
 
 function canMentionEveryone() {
@@ -1542,7 +1541,14 @@ let memberListUserHidden = localStorage.getItem("lla_member_list_hidden") === "t
 function setMemberListVisibility() {
   const memberList = document.getElementById("memberList");
   const memberToggle = document.getElementById("memberListToggle");
-  if (memberToggle) memberToggle.style.display = canViewMembers() ? "inline-flex" : "none";
+  const canShowMembers = canViewMembers() && currentConversationType !== "dm";
+  const isMobile = window.innerWidth <= 768;
+  if (memberToggle) {
+    memberToggle.style.display = canShowMembers ? "inline-flex" : "none";
+    memberToggle.setAttribute("aria-expanded", String(
+      canShowMembers && (isMobile ? Boolean(memberList?.classList.contains("open")) : !memberListUserHidden)
+    ));
+  }
   if (!memberList) return;
   if (!canViewMembers()) {
     stopMemberRealtime();
@@ -1550,13 +1556,20 @@ function setMemberListVisibility() {
     memberList.style.display = "none";
     const content = document.getElementById("memberListContent");
     if (content) content.innerHTML = "";
-  } else if (window.innerWidth > 768) {
+  } else if (currentConversationType === "dm") {
+    memberList.classList.remove("open");
+    memberList.style.display = "none";
+  } else if (!isMobile) {
+    memberList.classList.remove("open");
     memberList.classList.toggle("is-hidden", memberListUserHidden);
     memberList.style.display = memberListUserHidden ? "none" : "flex";
   } else {
+    memberList.classList.remove("is-hidden");
     memberList.style.display = "";
   }
 }
+
+window.addEventListener("resize", setMemberListVisibility);
 
 function setSearchInputVisibility(inputEl, visible) {
   if (!inputEl) return;

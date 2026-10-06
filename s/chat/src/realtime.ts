@@ -241,6 +241,7 @@ function getCurrentConversationLabel() {
 
 function updateConversationHeaderAndInput() {
   document.body.classList.toggle("dm-mode", currentConversationType === "dm");
+  setMemberListVisibility();
 
   const headerEl = document.getElementById("currentChannelName");
   if (headerEl) headerEl.textContent = getCurrentConversationLabel();
@@ -499,7 +500,6 @@ async function openDirectConversation(conversationId) {
   currentDmConversationId = conversationId;
   currentChannelId = null;
   loadedMessageChunk = null;
-  updateMessageChunkNavigation();
   hideMentionSuggestions();
   clearReactionCaches();
   await subscribeToCurrentChannel();
@@ -575,8 +575,6 @@ async function loadDirectMessages(
     .eq("conversation_id", conversationId);
   if (direction === "older" && currentChunk) {
     query = query.lt("id", currentChunk.oldestId).order("id", { ascending: false });
-  } else if (direction === "newer" && currentChunk) {
-    query = query.gt("id", currentChunk.newestId).order("id", { ascending: true });
   } else {
     direction = "latest";
     query = query.order("id", { ascending: false });
@@ -592,9 +590,7 @@ async function loadDirectMessages(
 
   if (currentConversationType !== "dm" || currentDmConversationId !== conversationId) return;
   if (!data?.length && direction !== "latest" && currentChunk) {
-    if (direction === "older") currentChunk.hasOlder = false;
-    else currentChunk.hasNewer = false;
-    updateMessageChunkNavigation();
+    currentChunk.hasOlder = false;
     return;
   }
 
@@ -612,26 +608,21 @@ async function loadDirectMessages(
     messagesMap.clear();
     messageDataMap.clear();
     loadedMessageChunk = null;
-    updateMessageChunkNavigation();
     return;
   }
-  if (direction === "older" && currentChunk) currentChunk.hasNewer = true;
-  if (direction === "newer" && currentChunk) currentChunk.hasOlder = true;
-  loadedMessageChunk = {
-    context,
-    oldestId: Number(chunkMessages[0].id),
-    newestId: Number(chunkMessages[chunkMessages.length - 1].id),
-    hasOlder: direction === "older"
-      ? data.length === MESSAGE_CHUNK_SIZE
-      : direction === "latest"
-        ? data.length === MESSAGE_CHUNK_SIZE
-        : currentChunk?.hasOlder ?? false,
-    hasNewer: direction === "newer"
-      ? data.length === MESSAGE_CHUNK_SIZE
-      : direction === "latest"
-        ? false
-        : true,
-  };
+  loadedMessageChunk = direction === "older" && currentChunk
+    ? {
+        context,
+        oldestId: Number(chunkMessages[0].id),
+        newestId: currentChunk.newestId,
+        hasOlder: data.length === MESSAGE_CHUNK_SIZE,
+      }
+    : {
+        context,
+        oldestId: Number(chunkMessages[0].id),
+        newestId: Number(chunkMessages[chunkMessages.length - 1].id),
+        hasOlder: data.length === MESSAGE_CHUNK_SIZE,
+      };
 
   await loadAvatarMapForUsernames(chunkMessages.map((msg) => msg.username));
   if (currentConversationType !== "dm" || currentDmConversationId !== conversationId) return;
@@ -651,26 +642,37 @@ async function loadDirectMessages(
       oldestId: Number(renderedMessages[0].id),
       newestId: Number(renderedMessages[renderedMessages.length - 1].id),
       hasOlder: data.length === MESSAGE_CHUNK_SIZE || renderedMessages.length === MESSAGE_CHUNK_SIZE,
-      hasNewer: false,
     };
   }
-  messagesList.replaceChildren();
-  messagesMap.clear();
-  messageDataMap.clear();
-  clearReactionCaches();
-  const fragment = document.createDocumentFragment();
-  renderedMessages.forEach((msg) => {
-    const li = createMessageElement(msg);
-    messagesMap.set(msg.id, li);
-    messageDataMap.set(msg.id, msg);
-    fragment.appendChild(li);
-  });
-  messagesList.appendChild(fragment);
-  updateMessageChunkNavigation();
-  applyMessageSearchFilter();
-  if (direction === "newer") {
-    messagesList.scrollTop = 0;
+  if (direction === "older" && currentChunk) {
+    const previousHeight = messagesList.scrollHeight;
+    const fragment = document.createDocumentFragment();
+    renderedMessages.forEach((msg) => {
+      const messageKey = Number(msg.id);
+      if (messagesMap.has(messageKey)) return;
+      const li = createMessageElement(msg);
+      messagesMap.set(messageKey, li);
+      messageDataMap.set(messageKey, msg);
+      fragment.appendChild(li);
+    });
+    messagesList.insertBefore(fragment, messagesList.firstChild);
+    messagesList.scrollTop += messagesList.scrollHeight - previousHeight;
   } else {
+    messagesList.replaceChildren();
+    messagesMap.clear();
+    messageDataMap.clear();
+    clearReactionCaches();
+    const fragment = document.createDocumentFragment();
+    renderedMessages.forEach((msg) => {
+      const li = createMessageElement(msg);
+      messagesMap.set(Number(msg.id), li);
+      messageDataMap.set(Number(msg.id), msg);
+      fragment.appendChild(li);
+    });
+    messagesList.appendChild(fragment);
+  }
+  applyMessageSearchFilter();
+  if (direction !== "older") {
     await waitForImagesBeforeScroll();
   }
 }

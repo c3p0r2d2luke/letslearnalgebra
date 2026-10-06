@@ -1494,11 +1494,12 @@ if (addBtn) {
       if (!ml) return;
       if (window.innerWidth <= 768) {
         ml.classList.toggle("open");
+        ml.classList.remove("is-hidden");
       } else {
         memberListUserHidden = !memberListUserHidden;
         localStorage.setItem("lla_member_list_hidden", String(memberListUserHidden));
-        setMemberListVisibility();
       }
+      setMemberListVisibility();
     });
   }
 
@@ -1507,6 +1508,7 @@ if (addBtn) {
     if (!ml || !ml.classList.contains("open")) return;
     if (e.target instanceof Element && !ml.contains(e.target) && (e.target as HTMLElement).id !== "memberListToggle") {
       ml.classList.remove("open");
+      setMemberListVisibility();
     }
   });
 

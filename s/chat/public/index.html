@@ -175,20 +175,14 @@
         <button id="inboxToggle" title="Inbox — Mentions &amp; Replies" aria-label="Inbox">
           <span class="inbox-icon-wrap">🔔<span id="inboxBadge" class="inbox-header-badge" style="display:none;"></span></span>
         </button>
-        <button id="memberListToggle" title="Toggle member list">👥</button>
+        <button id="memberListToggle" type="button" title="Toggle member list" aria-label="Toggle member list" aria-controls="memberList" aria-expanded="false">👥</button>
       </div>
       <div id="mentionReadBar" class="mention-read-bar" hidden>
         <span id="mentionReadBarText"></span>
         <button id="mentionReadButton" type="button">Mark as read</button>
       </div>
 
-      <div class="message-history-navigation">
-        <button id="olderMessageChunk" type="button" hidden>Load 100 older messages</button>
-      </div>
       <ul id="messages"></ul>
-      <div class="message-history-navigation">
-        <button id="newerMessageChunk" type="button" hidden>Load 100 newer messages</button>
-      </div>
       <div id="voiceParticipantGrid" style="display:none;"></div>
 
       <!-- VOICE CONTROL BAR (Discord-style) -->
